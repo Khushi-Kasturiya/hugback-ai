@@ -3,12 +3,17 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import { startAudioRecorder, RecorderHandle } from "@/lib/audio-recorder";
 import { startAudioPlayer, PlayerHandle, base64ToArrayBuffer } from "@/lib/audio-player";
+import { getAuthenticationMessage } from "@/lib/identity";
+import { getInlineVoicePayload } from "@/lib/voice-profile";
 
 const CONNECTION_TIMEOUT_MS = 15_000;
 const SPEECH_THRESHOLD = 0.05;
 const END_OF_SPEECH_SILENCE_MS = 700;
 
 function defaultWebSocketUrl(): string {
+  if (process.env.NEXT_PUBLIC_ELARA_WS_URL) {
+    return process.env.NEXT_PUBLIC_ELARA_WS_URL;
+  }
   if (typeof window === "undefined") {
     return "ws://localhost:8000/ws";
   }
@@ -102,6 +107,17 @@ export function useLiveAudio({
     intentionalCloseRef.current = false;
 
     try {
+      const [identityMessage, voicePayload] = await Promise.all([
+        getAuthenticationMessage(),
+        getInlineVoicePayload(),
+      ]);
+      const authenticationMessage = {
+        ...identityMessage,
+        ...(voicePayload || {}),
+      };
+      setUserTranscript("");
+      setElaraTranscript("");
+
       // 1. Initialize Player first
       const player = await startAudioPlayer();
       playerRef.current = player;
@@ -208,6 +224,7 @@ export function useLiveAudio({
 
         const handleOpen = () => {
           console.log("[Elara] WebSocket connection established. Waiting for Gemini...");
+          ws.send(JSON.stringify(authenticationMessage));
         };
         const handleMessage = (event: MessageEvent) => {
           try {

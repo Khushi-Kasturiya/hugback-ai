@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { useLiveAudio } from "@/hooks/useLiveAudio";
 import { Phone, PhoneOff, Mic, Volume2, Sparkles, AlertCircle } from "lucide-react";
+import { VoiceEnrollment } from "@/components/VoiceEnrollment";
 
 export default function Home() {
   const [showSubtitles, setShowSubtitles] = useState(true);
@@ -149,6 +150,8 @@ export default function Home() {
           )}
         </section>
       )}
+
+      <VoiceEnrollment disabled={isCallActive} />
 
       {/* Accessible Action Controls */}
       <footer className="w-full flex items-center justify-center gap-4 pb-4">
