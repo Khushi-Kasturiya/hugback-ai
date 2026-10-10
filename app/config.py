@@ -26,6 +26,30 @@ class Settings(BaseSettings):
     ELARA_MODEL: str = "gemini-3.8-live"
     ELARA_VOICE_NAME: str = "Aoede"
 
+    # Identity. Use "firebase" in deployed environments. Development mode
+    # accepts only a constrained, browser-generated ID and must never be used
+    # as an authorization boundary in production.
+    ELARA_AUTH_MODE: str = "development"
+    FIREBASE_PROJECT_ID: str | None = None
+
+    # Long-term memory and durable session storage.
+    MEMORY_ENABLED: bool = False
+    MEMORY_BANK_NAME: str | None = None
+    MEMORY_INITIAL_LIMIT: int = 5
+    MEMORY_SEARCH_LIMIT: int = 3
+    MEMORY_CONTEXT_MAX_CHARS: int = 4000
+    FIRESTORE_ENABLED: bool = False
+    FIRESTORE_DATABASE: str = "(default)"
+
+    # Post-call processing. "inline" is convenient locally; "cloud_tasks"
+    # is durable on Cloud Run and is the required production setting.
+    MEMORY_PROCESSING_MODE: str = "inline"
+    CLOUD_TASKS_LOCATION: str = "us-central1"
+    CLOUD_TASKS_QUEUE: str = "elara-memory"
+    MEMORY_PROCESSOR_URL: str | None = None
+    CLOUD_TASKS_SERVICE_ACCOUNT: str | None = None
+    MEMORY_TASK_SECRET: str | None = None
+
     # Server Settings
     HOST: str = "0.0.0.0"
     PORT: int = 8000
@@ -35,6 +59,10 @@ class Settings(BaseSettings):
     @property
     def cors_origins_list(self) -> list[str]:
         return [origin.strip() for origin in self.CORS_ORIGINS.split(",") if origin.strip()]
+
+    @property
+    def firebase_project(self) -> str:
+        return self.FIREBASE_PROJECT_ID or self.GOOGLE_CLOUD_PROJECT
 
 
 settings = Settings()

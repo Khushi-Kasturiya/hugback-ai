@@ -7,3 +7,6 @@ venv/
 .env
 *.log
 .DS_Store
+
+# Biometric voice-enrollment recordings and generated previews
+Voice/
