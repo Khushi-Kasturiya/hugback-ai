@@ -9,4 +9,4 @@ venv/
 .DS_Store
 
 # Biometric voice-enrollment recordings and generated previews
-Voice/
+/Voice

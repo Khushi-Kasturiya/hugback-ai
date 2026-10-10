@@ -78,8 +78,16 @@ def create_live_config(
         ]
 
     if voice_id:
+        print(f"\n==================================================")
+        print(f"🎤 [VOICE CONFIG] Using Voice ID: {voice_id}")
+        print(f"==================================================\n", flush=True)
+        logger.info(f"Using Voice ID: {voice_id}")
         voice_config = types.VoiceConfig(voice=voice_id)
     elif voice_sample_audio and consent_audio:
+        print(f"\n==================================================")
+        print(f"🎤 [VOICE CONFIG] Using REPLICATED / CLONED VOICE (sample={len(voice_sample_audio)} bytes, consent={len(consent_audio)} bytes)")
+        print(f"==================================================\n", flush=True)
+        logger.info(f"Using REPLICATED / CLONED VOICE (sample={len(voice_sample_audio)} bytes, consent={len(consent_audio)} bytes)")
         voice_config = types.VoiceConfig(
             replicated_voice_config=types.ReplicatedVoiceConfig(
                 mime_type="audio/wav",
@@ -88,11 +96,16 @@ def create_live_config(
             )
         )
     else:
+        print(f"\n==================================================")
+        print(f"🎤 [VOICE CONFIG] Using DEFAULT PREBUILT VOICE: {settings.ELARA_VOICE_NAME}")
+        print(f"==================================================\n", flush=True)
+        logger.info(f"Using DEFAULT PREBUILT VOICE: {settings.ELARA_VOICE_NAME}")
         voice_config = types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(
                 voice_name=settings.ELARA_VOICE_NAME
             )
         )
+
 
     return types.LiveConnectConfig(
         response_modalities=["AUDIO"],
