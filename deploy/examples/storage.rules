@@ -1,0 +1,11 @@
+// UNDEPLOYED EXAMPLE: only if Firebase Storage is attached to this dedicated bucket.
+// GCS server SDK uses IAM, not these rules. Require PAP + uniform bucket access.
+// Do not replace unrelated production rules without reviewing every match.
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{object=**} {
+      allow read, write: if false;
+    }
+  }
+}

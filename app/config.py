@@ -2,6 +2,8 @@
 
 import os
 from pathlib import Path
+from typing import Literal
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -28,6 +30,20 @@ class Settings(BaseSettings):
     # Replicated voices are synthesized through the supported TTS endpoint;
     # the Voices endpoint itself must choose its creation model automatically.
     ELARA_TTS_MODEL: str = "gemini-3.8-flash-lite-tts"
+    # Explicit portal TTS capability; never inferred from old browser recordings
+    # or enabled solely by the local call simulator.
+    ELARA_REPLICATED_TTS_ENABLED: bool = False
+    # Private single-machine vault; no raw recordings and no cloud fallback.
+    ELARA_VOICE_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-voice" / "voices.sqlite3"
+    # Never infer the call's voice mode from browser storage. Experimental mode
+    # requires both recordings on every call and must never fall back to a preset.
+    ELARA_LIVE_VOICE_MODE: Literal["preset", "experimental-inline"] = "preset"
+
+    # Optional inputs for the isolated voice test script, NOT a global caller
+    # voice. Merely configuring these paths must never upload any recordings.
+    ELARA_VOICE_REFERENCE_PATH: Path | None = None
+    ELARA_VOICE_CONSENT_PATH: Path | None = None
+    ELARA_VOICE_TEST_OUTPUT_PATH: Path | None = None
 
     # Identity. Use "firebase" in deployed environments. Development mode
     # accepts only a constrained, browser-generated ID and must never be used
@@ -43,6 +59,27 @@ class Settings(BaseSettings):
     MEMORY_CONTEXT_MAX_CHARS: int = 4000
     FIRESTORE_ENABLED: bool = False
     FIRESTORE_DATABASE: str = "(default)"
+
+    # Read-only recipient mailbox. Requires Firebase auth, Firestore, trusted
+    # parent/child enrollment and exact-content parent approval; never a UUID.
+    PORTAL_SHARING_ENABLED: bool = False
+
+    # Synthetic, loopback-only hackathon simulator. Never a production store.
+    LOCAL_DEMO_ENABLED: bool = False
+    LOCAL_DEMO_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-demo" / "elara.sqlite3"
+
+    # Internal Forms/Drive intake storage only; no browser route or consent grant.
+    # Requires pre-existing resources. Enabling Firestore alone does not upload.
+    CLOUD_INTAKE_ENABLED: bool = False
+    # Existing bucket name only, no gs:// prefix, object path, URL or credentials.
+    CLOUD_IMPORT_BUCKET: str = ""
+
+    # Canonical wellbeing follow-up pilot; off until provider/enrollment gates
+    # are validated. Per-owner, versioned consent is ALSO required in Firestore.
+    FOLLOWUPS_ENABLED: bool = False
+    FOLLOWUP_EXTRACTION_MODEL: str = "gemini-3.8-flash"
+    FOLLOWUP_COOLDOWN_HOURS: int = Field(default=24, ge=1, le=168)
+    FOLLOWUP_RETENTION_HOURS: int = Field(default=72, ge=1, le=168)
 
     # Post-call processing. "inline" is convenient locally; "cloud_tasks"
     # is durable on Cloud Run and is the required production setting.

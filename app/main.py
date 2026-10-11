@@ -13,8 +13,10 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.exceptions import RequestValidationError
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.responses import JSONResponse
 from google.genai import types
-from pydantic import BaseModel
 
 from app.agent.live_session import create_genai_client, create_live_config
 from app.auth import (
@@ -29,17 +31,26 @@ from app.memory.processor import (
     process_session_memory,
     task_request_is_authorized,
 )
-from app.memory.service import get_memory_service, render_memory_context
+from app.memory.service import DisabledMemoryService, get_memory_service, render_memory_context
+from app.memory.followups import context_card
+from app.memory.followup_service import contains_privacy_request, get_followup_coordinator
 from app.memory.store import get_session_store
 from app.memory.transcript import TranscriptCollector, merge_transcription
+from app.portal.routes import router as portal_router
+from app.demo.routes import router as demo_router
+from app.demo.service import background_context, get_demo_coordinator, get_demo_store, require_demo
+from app.demo.store import DemoError
 from app.voice.service import (
+    VoiceConsentError,
     VoiceEnrollmentError,
-    create_replicated_voice_key,
-    parse_inline_voice,
-    parse_voice_key,
+    parse_call_voice,
+    require_live_consent_acknowledgement,
     split_ready_speech,
-    stream_replicated_speech,
 )
+
+from app.voice.routes import router as voice_router
+from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice
+from app.voice.playback import ReplicatedPlayback
 
 # Configure logging
 logging.basicConfig(
@@ -47,6 +58,9 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("elara.broker")
+# Strong references keep bounded local finalizers alive when a browser closes
+# its ASGI/WebSocket task. This is not a durable queue across server shutdown.
+_demo_finalizers: set[asyncio.Task] = set()
 
 # Initialize FastAPI
 app = FastAPI(
@@ -63,13 +77,30 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.include_router(portal_router)
+app.include_router(demo_router)
+app.include_router(voice_router)
+
+
+@app.exception_handler(RequestValidationError)
+async def private_validation_errors(request: Request, exc: RequestValidationError):
+    if request.url.path.startswith("/api/voice/"):
+        # FastAPI's default validation response can echo rejected audio input.
+        return JSONResponse(
+            status_code=422, headers={"Cache-Control": "no-store"},
+            content={"detail": "Invalid voice request. Both bounded recordings and explicit consent are required."},
+        )
+    return await request_validation_exception_handler(request, exc)
 
 
 @app.get("/healthz")
 async def healthz():
     """Health check endpoint."""
     auth_mode = "api_key" if settings.GEMINI_API_KEY else "vertex_ai"
-    memory_service = get_memory_service()
+    memory_service = (
+        DisabledMemoryService("canonical follow-up mode")
+        if settings.FOLLOWUPS_ENABLED else get_memory_service()
+    )
     session_store = get_session_store()
     return {
         "status": "healthy",
@@ -79,6 +110,7 @@ async def healthz():
         "location": settings.GOOGLE_CLOUD_LOCATION,
         "model": settings.ELARA_MODEL,
         "voice": settings.ELARA_VOICE_NAME,
+        "voice_mode": settings.ELARA_LIVE_VOICE_MODE,
         "caller_auth": settings.ELARA_AUTH_MODE,
         "memory_configured": settings.MEMORY_ENABLED,
         "memory_operational": memory_service.enabled,
@@ -87,6 +119,7 @@ async def healthz():
         "firestore_operational": session_store.enabled,
         "firestore_error": getattr(session_store, "reason", None),
         "memory_processing": settings.MEMORY_PROCESSING_MODE,
+        "followups_configured": settings.FOLLOWUPS_ENABLED,
     }
 
 
@@ -109,6 +142,12 @@ async def inspect_memories(request: Request):
         identity = await authenticate_http_headers(request.headers)
     except AuthenticationError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    if settings.FOLLOWUPS_ENABLED:
+        try:
+            followups = get_followup_coordinator()
+            return await followups.inspect(identity.user_id)
+        except Exception:
+            raise HTTPException(status_code=503, detail="Follow-up storage is unavailable")
     context = await get_memory_service().inspect(identity.user_id)
     return {"profiles": context.profiles, "facts": context.facts}
 
@@ -120,53 +159,16 @@ async def delete_memories(request: Request):
         identity = await authenticate_http_headers(request.headers)
     except AuthenticationError as exc:
         raise HTTPException(status_code=401, detail=str(exc)) from exc
+    # Tombstone first. Old in-flight calls must not recreate deleted memories.
+    try:
+        followups = get_followup_coordinator(privacy_operation=True)
+        if followups:
+            await followups.delete_all(identity.user_id)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Unable to confirm memory deletion")
     await get_memory_service().delete_all(identity.user_id)
     await get_session_store().delete_user_data(identity.user_id)
     return {"status": "deleted"}
-
-
-class VoiceEnrollmentRequest(BaseModel):
-    voiceSampleAudio: str
-    consentAudio: str
-
-
-@app.post("/api/voice/enroll")
-async def enroll_voice(payload: VoiceEnrollmentRequest, request: Request):
-    """Create Google's seven-day stateless voice key after verifying consent."""
-    try:
-        await authenticate_http_headers(request.headers)
-        recordings = parse_inline_voice(payload.model_dump())
-        if recordings is None:
-            raise VoiceEnrollmentError("Both voice recordings are required")
-    except (AuthenticationError, VoiceEnrollmentError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    client = create_genai_client()
-
-    try:
-        voice_key = await asyncio.to_thread(
-            create_replicated_voice_key,
-            client,
-            recordings,
-        )
-    except Exception as exc:
-        message = str(exc)
-        if "Paid Quota Tier 1" in message or "PERMISSION_DENIED" in message:
-            raise HTTPException(
-                status_code=402,
-                detail=(
-                    "Google Voice Replication requires Gemini API Paid Tier 1 "
-                    "with an active API billing balance. Confirm this API key belongs "
-                    "to the upgraded project, then try again."
-                ),
-            ) from exc
-        logger.error("Voice replication provisioning failed: %s", exc, exc_info=True)
-        raise HTTPException(
-            status_code=502,
-            detail="Google could not create the replicated voice. Check the recordings and try again.",
-        ) from exc
-
-    return {"voiceKey": voice_key, "expiresInSeconds": 7 * 24 * 60 * 60}
 
 
 def get_client_ip(ws: WebSocket) -> str:
@@ -186,6 +188,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     collector = TranscriptCollector()
     user_id: str | None = None
     voice_key = None
+    inline_voice = None
+    followups = None
+    followup_plan = None
+    demo_state = None
+    demo_store = None
+    call_ready = False
 
     logger.info(f"Incoming WebSocket connection from {client_ip} [session: {session_id}]")
     await websocket.accept()
@@ -194,11 +202,64 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         authentication_text = await asyncio.wait_for(websocket.receive_text(), timeout=15)
         authentication_message = json.loads(authentication_text)
         identity = await authenticate_message(authentication_message)
-        voice_key = parse_voice_key(authentication_message)
+        if ("demoRecipientId" in authentication_message or "demoRecipientRevision" in authentication_message) and authentication_message.get("demoParent") is not True:
+            raise DemoError("Recipient selection is supported only in the local parent simulator.", 400)
+        inline_voice = parse_call_voice(authentication_message)
+        if "voiceKey" in authentication_message:
+            raise VoiceEnrollmentError("Use an owner-scoped portal voice profile, not a provider key.")
+        if "voiceProfileId" in authentication_message:
+            if not enrollment_available() or inline_voice:
+                raise VoiceEnrollmentError("Replicated TTS is unavailable for this call")
+            require_local_voice(
+                websocket.client.host if websocket.client else None,
+                websocket.headers.get("origin"),
+            )
+            voice_key = await asyncio.to_thread(
+                get_voice_store().resolve, identity.user_id,
+                authentication_message["voiceProfileId"],
+            )
+        elif (
+            not inline_voice and identity.provider == "development"
+            and settings.ELARA_VOICE_DB_PATH.exists()
+            and websocket.client and websocket.client.host in {"127.0.0.1", "::1"}
+            and "demoParent" not in authentication_message
+        ):
+            selected = await asyncio.to_thread(get_voice_store().get, identity.user_id)
+            if selected and selected["enabled"]:
+                raise VoiceEnrollmentError("Custom voice is selected. Refresh voice setup before starting this call.")
         user_id = identity.user_id
+        if "demoParent" in authentication_message:
+            if authentication_message["demoParent"] is not True:
+                raise DemoError("Invalid demo call selection.", 403)
+            require_demo(
+                websocket.client.host if websocket.client else None,
+                websocket.headers.get("origin"), mutation=True,
+            )
+            if identity.provider != "development" or inline_voice:
+                raise DemoError("Demo calls require local identity and preset or portal-enrolled TTS voice.", 403)
+            demo_store = get_demo_store()
+            demo_state = await asyncio.to_thread(
+                demo_store.start_call, user_id, session_id,
+                authentication_message.get("demoRecipientId"),
+                authentication_message.get("demoRecipientRevision"),
+                authentication_message.get("voiceProfileId"),
+            )
+            # The selector is untrusted. Membership/revision/voice are validated
+            # against this browser owner's family before choosing memory scope.
+            user_id = demo_state["parentId"]
+    except DemoError as exc:
+        await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
+        await websocket.close(code=1008)
+        return
+    except VoiceEnrollmentError as exc:
+        # Safe, fixed messages only: no audio, signatures, or model output.
+        await websocket.send_text(
+            json.dumps({"type": "error", "code": "voice_selection_rejected", "message": str(exc)})
+        )
+        await websocket.close(code=1008)
+        return
     except (
         AuthenticationError,
-        VoiceEnrollmentError,
         json.JSONDecodeError,
         asyncio.TimeoutError,
     ) as exc:
@@ -208,16 +269,45 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         )
         await websocket.close(code=1008)
         return
+    except Exception:
+        await websocket.send_text(json.dumps({"type": "error", "message": "Local call setup is unavailable."}))
+        await websocket.close(code=1011)
+        return
 
     try:
-        memory_service = get_memory_service()
+        model = settings.ELARA_MODEL
+        followup_context = ""
+        if demo_state or settings.FOLLOWUPS_ENABLED:
+            # Do not let legacy unfiltered semantic memories reintroduce a
+            # resolved, expired, or forgotten concern in the canonical pilot.
+            memory_service = DisabledMemoryService("canonical follow-up mode")
+            try:
+                followups = get_demo_coordinator(demo_store) if demo_state else get_followup_coordinator()
+                followup_plan = await asyncio.wait_for(followups.begin(user_id, session_id), timeout=3)
+                followup_context = context_card(followup_plan)
+            except Exception:
+                followups = None
+                logger.warning("Follow-up context unavailable session=%s", session_id)
+                followup_context = (
+                    "Cross-session memory is unavailable. Do not invent remembered "
+                    "facts or promise this call will be remembered."
+                )
+        else:
+            memory_service = get_memory_service()
         memory_context = await memory_service.initial_context(user_id)
         client = create_genai_client()
         live_config = create_live_config(
             memory_context=render_memory_context(memory_context),
             enable_memory_tool=memory_service.enabled,
+            voice_sample_audio=inline_voice.sample if inline_voice else None,
+            consent_audio=inline_voice.consent if inline_voice else None,
+            followup_context=followup_context,
+            enable_followup_tools=followups is not None and followup_plan is not None,
+            background_context=background_context(demo_state) if demo_state else "",
         )
     except Exception as e:
+        if demo_state:
+            await asyncio.to_thread(demo_store.call_status, user_id, session_id, "failed", release=True)
         logger.error(f"Failed to initialize Elara services: {e}", exc_info=True)
         await websocket.send_text(
             json.dumps({
@@ -231,118 +321,85 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         return
 
     try:
-        logger.info(f"Connecting to Gemini Live API with model={settings.ELARA_MODEL}...")
-        async with client.aio.live.connect(model=settings.ELARA_MODEL, config=live_config) as live_session:
+        voice_name = (
+            live_config.speech_config.voice_config.prebuilt_voice_config.voice_name
+            if not inline_voice else None
+        )
+        voice_mode = "replicated-tts" if voice_key else "experimental-inline" if inline_voice else "preset"
+        logger.info(
+            "Connecting Live session=%s model=%s voice_mode=%s preset=%s",
+            session_id, model, voice_mode, voice_name,
+        )
+        async with client.aio.live.connect(model=model, config=live_config) as live_session:
+            if inline_voice:
+                try:
+                    require_live_consent_acknowledgement(
+                        getattr(live_session, "setup_complete", None)
+                    )
+                except VoiceConsentError:
+                    logger.warning("Live voice consent not acknowledged session=%s", session_id)
+                    await websocket.send_text(json.dumps({
+                        "type": "error",
+                        "code": "voice_consent_unverified",
+                        "message": "Google did not acknowledge voice consent. Call stopped; no preset fallback.",
+                    }))
+                    await websocket.close(code=1008)
+                    return
             logger.info(f"Gemini Live session connected for {session_id}")
+            if demo_state:
+                activated = await asyncio.to_thread(demo_store.call_status, user_id, session_id, "active")
+                if not activated:
+                    raise DemoError("The demo call lease expired during connection. Please retry.")
+            call_ready = True
             # The browser must not start recording until the upstream Gemini
             # session is ready. A WebSocket connection alone only confirms
             # that the local broker accepted the browser connection.
             await websocket.send_text(json.dumps({
                 "type": "ready",
-                "voice": "replicated" if voice_key else "default",
+                "voice": "replicated" if voice_key else "experimental-inline" if inline_voice else "default",
+                "voiceName": voice_name if not voice_key else None,
+                "voiceStatus": (
+                    "replicated_tts_unverified" if voice_key else
+                    "consent_acknowledged_likeness_unverified" if inline_voice else "preset_configured"
+                ),
+                "model": model,
+                "sessionId": session_id,
+                **({"demo": {"familyId": demo_state["familyId"], "parentId": user_id,
+                              "recipientId": user_id, "recipientLabel": demo_state["label"],
+                              "backgroundCount": len(demo_state["background"])}} if demo_state else {}),
+                "memoryStatus": (
+                    followup_plan.memory_status if followup_plan else
+                    "unavailable" if demo_state or settings.FOLLOWUPS_ENABLED else
+                    "legacy" if memory_service.enabled else "disabled"
+                ),
             }))
 
             received_audio = False
             sent_audio = False
             replicated_turn_text = ""
             tts_pending_text = ""
-            tts_generation = 0
-            tts_queue: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
-            tts_worker_task: asyncio.Task[None] | None = None
-
-            def cancel_replicated_speech() -> None:
-                nonlocal tts_generation, tts_queue, tts_worker_task, tts_pending_text
-                tts_generation += 1
-                tts_pending_text = ""
-                if tts_worker_task is not None and not tts_worker_task.done():
-                    tts_worker_task.cancel()
-                tts_queue = asyncio.Queue()
-                tts_worker_task = None
-
-            async def replicated_speech_worker(
-                queue: asyncio.Queue[tuple[str, bool]], generation: int
-            ) -> None:
-                """Synthesize queued phrases in order and stream each immediately."""
-                nonlocal sent_audio
-                try:
-                    while True:
-                        text, final = await queue.get()
-                        if text:
-                            synthesis_started = asyncio.get_running_loop().time()
-                            chunk_count = 0
-                            async for audio in stream_replicated_speech(
-                                client,
-                                voice_key=voice_key or "",
-                                text=text,
-                                model=settings.ELARA_TTS_MODEL,
-                            ):
-                                if generation != tts_generation:
-                                    return
-                                chunk_count += 1
-                                if chunk_count == 1:
-                                    logger.info(
-                                        "Replicated TTS first audio for %s in %.2fs "
-                                        "(%d chars)",
-                                        session_id,
-                                        asyncio.get_running_loop().time()
-                                        - synthesis_started,
-                                        len(text),
-                                    )
-                                sent_audio = True
-                                await websocket.send_text(json.dumps({
-                                    "content": {
-                                        "parts": [{
-                                            "inlineData": {
-                                                "mimeType": (
-                                                    f"audio/pcm;rate={audio.sample_rate}"
-                                                ),
-                                                "data": base64.b64encode(
-                                                    audio.pcm
-                                                ).decode("ascii"),
-                                            }
-                                        }]
-                                    }
-                                }))
-                            logger.info(
-                                "Replicated TTS segment completed for %s in %.2fs "
-                                "(%d chunks)",
-                                session_id,
-                                asyncio.get_running_loop().time() - synthesis_started,
-                                chunk_count,
-                            )
-                        if final:
-                            if generation == tts_generation:
-                                await websocket.send_text(
-                                    json.dumps({"turnComplete": True})
-                                )
-                            return
-                except asyncio.CancelledError:
-                    return
-                except Exception as exc:
-                    logger.error(
-                        "Replicated voice synthesis failed for %s: %s",
-                        session_id,
-                        exc,
-                        exc_info=True,
-                    )
+            async def checkpoint_audio():
+                if followups and followup_plan:
                     try:
-                        await websocket.send_text(json.dumps({
-                            "type": "error",
-                            "message": "Google could not synthesize the replicated voice.",
-                        }))
+                        await asyncio.wait_for(followups.output(user_id, followup_plan), timeout=1)
                     except Exception:
-                        pass
+                        logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
 
-            def queue_replicated_speech(text: str, *, final: bool = False) -> None:
-                nonlocal tts_worker_task
-                if tts_worker_task is None or tts_worker_task.done():
-                    generation = tts_generation
-                    queue = tts_queue
-                    tts_worker_task = asyncio.create_task(
-                        replicated_speech_worker(queue, generation),
-                        name=f"tts-{session_id}",
-                    )
-                tts_queue.put_nowait((text, final))
+            playback = ReplicatedPlayback(
+                client, websocket, voice_key=voice_key, model=settings.ELARA_TTS_MODEL,
+                on_audio=checkpoint_audio,
+            ) if voice_key else None
+
+            def cancel_replicated_speech():
+                nonlocal tts_pending_text, replicated_turn_text
+                tts_pending_text = ""
+                replicated_turn_text = ""
+                if playback:
+                    playback.interrupt()
+
+            def queue_replicated_speech(text, *, final=False):
+                if playback:
+                    playback.enqueue(text, final=final)
 
             async def upstream_task() -> None:
                 """Reads microphone PCM audio and controls from browser and sends to Gemini."""
@@ -433,10 +490,53 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     # browser WebSocket remain open for a conversation.
                     while True:
                         async for response in live_session.receive():
+                            # A provider event can contain BOTH a user transcript
+                            # and a tool call. Validate privacy-tool evidence
+                            # against the current utterance, not the prior turn.
+                            incoming_content = response.server_content
+                            if (
+                                incoming_content is not None
+                                and incoming_content.input_transcription
+                                and incoming_content.input_transcription.text
+                            ):
+                                user_text = incoming_content.input_transcription.text
+                                collector.add_user(user_text)
+                                await websocket.send_text(
+                                    json.dumps({"inputTranscription": {"text": user_text}})
+                                )
                             if response.tool_call:
                                 function_responses = []
                                 for call in response.tool_call.function_calls:
-                                    if call.name != "recall_memory":
+                                    if call.name in ("claim_followup", "control_followup"):
+                                        result = {"allowed": False, "changed": False}
+                                        if followups and followup_plan:
+                                            try:
+                                                args = call.args if isinstance(call.args, dict) else {}
+                                                if call.name == "claim_followup":
+                                                    result = await asyncio.wait_for(
+                                                        followups.claim(
+                                                            user_id, followup_plan,
+                                                            latest_user_text=collector.latest_user_text(),
+                                                        ), timeout=3,
+                                                    )
+                                                else:
+                                                    result = await asyncio.wait_for(
+                                                        followups.control(
+                                                            user_id, followup_plan,
+                                                            args.get("action"), args.get("topic"),
+                                                            args.get("evidence", ""),
+                                                            collector.latest_user_text(),
+                                                        ), timeout=3,
+                                                    )
+                                                    if demo_state and args.get("action") == "revoke_all" and result.get("changed"):
+                                                        await asyncio.to_thread(demo_store.forget_background, user_id)
+                                            except Exception:
+                                                logger.warning("Follow-up tool unavailable session=%s", session_id)
+                                                result = {
+                                                    "allowed": False, "changed": False,
+                                                    "reason": "Memory operation unavailable; do not claim success.",
+                                                }
+                                    elif call.name != "recall_memory":
                                         result = {"error": "Unknown memory tool"}
                                     else:
                                         args = call.args or {}
@@ -475,6 +575,21 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
                             server_content = response.server_content
                             if server_content is not None:
+                                # Interruption takes precedence over stale bundled output (Gemini detected user speech)
+                                if server_content.interrupted:
+                                    logger.info(f"Gemini signaled interrupted for {session_id}")
+                                    cancel_replicated_speech()
+                                    replicated_turn_text = ""
+                                    await websocket.send_text(json.dumps({"interrupted": True}))
+                                    if followups and followup_plan:
+                                        try:
+                                            await asyncio.wait_for(
+                                                followups.output(user_id, followup_plan, interrupted=True), timeout=1,
+                                            )
+                                        except Exception:
+                                            logger.warning("Follow-up interruption checkpoint unavailable session=%s", session_id)
+                                    continue
+
                                 # 1. Audio and text parts from model turn
                                 if server_content.model_turn is not None:
                                     for part in server_content.model_turn.parts:
@@ -504,6 +619,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 }
                                             }
                                             await websocket.send_text(json.dumps(payload))
+                                            if followups and followup_plan:
+                                                try:
+                                                    await asyncio.wait_for(
+                                                        followups.output(user_id, followup_plan), timeout=1,
+                                                    )
+                                                except Exception:
+                                                    logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
 
                                         if part.text:
                                             await websocket.send_text(
@@ -538,22 +660,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                         })
                                     )
 
-                                # 3. Input user speech transcription from server
-                                if (
-                                    server_content.input_transcription
-                                    and server_content.input_transcription.text
-                                ):
-                                    collector.add_user(
-                                        server_content.input_transcription.text
-                                    )
-                                    await websocket.send_text(
-                                        json.dumps({
-                                            "inputTranscription": {
-                                                "text": server_content.input_transcription.text
-                                            }
-                                        })
-                                    )
-
                                 # 4. Turn completion signal
                                 if server_content.turn_complete:
                                     collector.complete_turn()
@@ -577,22 +683,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                         replicated_turn_text = ""
                                         await websocket.send_text(json.dumps({"turnComplete": True}))
 
-                                # 5. Interruption signal (Gemini detected user speech)
-                                if server_content.interrupted:
-                                    logger.info(f"Gemini signaled interrupted for {session_id}")
-                                    cancel_replicated_speech()
-                                    replicated_turn_text = ""
-                                    await websocket.send_text(json.dumps({"interrupted": True}))
 
                 except asyncio.CancelledError:
                     pass
                 except Exception as err:
-                    logger.warning(f"Error in downstream_task: {err}")
+                    logger.warning("Downstream speech stream stopped")
                     try:
                         await websocket.send_text(
                             json.dumps({
                                 "type": "error",
-                                "message": f"Gemini stream error: {str(err)}",
+                                "message": "Speech stream stopped. Please retry the call; no voice fallback was used.",
                             })
                         )
                     except Exception:
@@ -604,8 +704,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             try:
                 done, pending = await asyncio.wait(
-                    [upstream, downstream],
+                    [upstream, downstream] + ([playback.task] if playback else []),
                     return_when=asyncio.FIRST_COMPLETED,
+                    timeout=max(0, min(600, (
+                        datetime.fromisoformat(demo_state["activeCall"]["leaseUntil"])
+                        - datetime.now(timezone.utc)
+                    ).total_seconds() - 30)) if demo_state else None,
                 )
                 for task in pending:
                     task.cancel()
@@ -613,53 +717,120 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         await task
                     except asyncio.CancelledError:
                         pass
-                cancel_replicated_speech()
-                if tts_worker_task is not None:
-                    try:
-                        await tts_worker_task
-                    except asyncio.CancelledError:
-                        pass
+                if playback:
+                    await playback.close()
+                if not done:
+                    await websocket.send_text(json.dumps({
+                        "type": "error", "message": "The ten-minute local demo call limit was reached.",
+                    }))
+                    await websocket.close(code=1000)
             except Exception as e:
                 logger.error(f"Error managing tasks for {session_id}: {e}", exc_info=True)
+            finally:
+                upstream.cancel()
+                downstream.cancel()
+                await asyncio.gather(upstream, downstream, return_exceptions=True)
+                if playback:
+                    await playback.close()
 
     except Exception as e:
-        logger.error(f"Gemini live connection failed: {e}", exc_info=True)
+        logger.error("Gemini live connection failed (%s)", type(e).__name__)
         try:
             await websocket.send_text(
                 json.dumps({
                     "type": "error",
-                    "message": f"Connection failed: {str(e)}",
+                    "message": "The voice connection failed. Please check setup and retry.",
                 })
             )
         except Exception:
             pass
     finally:
+        try:
+            close_async = getattr(client.aio, "aclose", None)
+            if close_async:
+                await asyncio.wait_for(close_async(), timeout=3)
+            close_sync = getattr(client, "close", None)
+            if close_sync:
+                close_sync()
+        except Exception:
+            logger.warning("Provider client cleanup did not complete")
         ended_at = datetime.now(timezone.utc)
         turns = collector.finalize()
         if user_id:
             try:
-                store = get_session_store()
-                if store.enabled:
-                    await store.save_session(
-                        user_id=user_id,
-                        session_id=session_id,
-                        started_at=started_at,
-                        ended_at=ended_at,
-                        turns=turns,
-                    )
-                    if any(turn.role == "user" for turn in turns):
-                        await dispatch_memory_processing(
-                            ProcessMemoryRequest(
-                                user_id=user_id,
-                                session_id=session_id,
+                if demo_state:
+                    async def finish_demo():
+                        outcome = "failed" if not call_ready else "completed"
+                        try:
+                            await asyncio.to_thread(demo_store.call_status, user_id, session_id, "processing")
+                            if contains_privacy_request(turns):
+                                # Imported context is distinct from optional
+                                # wellbeing memory; honor privacy even if that
+                                # optional extractor is disabled/unavailable.
+                                await asyncio.to_thread(demo_store.forget_background, user_id)
+                            if followups and followup_plan:
+                                result = await asyncio.wait_for(
+                                    followups.finish(user_id, followup_plan, turns), timeout=25,
+                                )
+                                if result in ("privacy_hold", "revoked"):
+                                    outcome = result
+                                    # Safe over-removal after unhandled privacy intent.
+                                    await asyncio.to_thread(demo_store.forget_background, user_id)
+                            elif any(turn.role == "user" for turn in turns):
+                                outcome = "memory_failed"
+                        except asyncio.CancelledError:
+                            outcome = "memory_failed"
+                            raise
+                        except Exception:
+                            outcome = "memory_failed"
+                            logger.warning("Local demo memory was not saved session=%s", session_id)
+                        finally:
+                            try:
+                                await asyncio.to_thread(
+                                    demo_store.call_status, user_id, session_id, outcome, release=True,
+                                )
+                            except Exception:
+                                logger.warning("Local demo finalization unavailable session=%s", session_id)
+                    finalizer = asyncio.create_task(finish_demo())
+                    _demo_finalizers.add(finalizer)
+                    finalizer.add_done_callback(_demo_finalizers.discard)
+                    await asyncio.shield(finalizer)
+                elif settings.FOLLOWUPS_ENABLED:
+                    # Canonical pilot retains NO raw transcript. Extraction is
+                    # awaited and bounded; only source-backed concern evidence
+                    # is committed. Durable retry/outbox is a separate gate.
+                    if followups and followup_plan:
+                        try:
+                            await asyncio.wait_for(
+                                followups.finish(user_id, followup_plan, turns),
+                                timeout=25,
                             )
+                        except Exception:
+                            logger.warning("Follow-up consolidation failed session=%s", session_id)
+                    logger.info("Canonical memory session ended session=%s", session_id)
+                else:
+                    store = get_session_store()
+                    if store.enabled:
+                        await store.save_session(
+                            user_id=user_id,
+                            session_id=session_id,
+                            started_at=started_at,
+                            ended_at=ended_at,
+                            turns=turns,
                         )
-                elif settings.MEMORY_ENABLED:
-                    logger.error(
-                        "Memory is enabled but Firestore is disabled; session %s "
-                        "cannot be processed durably",
-                        session_id,
-                    )
+                        if any(turn.role == "user" for turn in turns):
+                            await dispatch_memory_processing(
+                                ProcessMemoryRequest(
+                                    user_id=user_id,
+                                    session_id=session_id,
+                                )
+                            )
+                    elif settings.MEMORY_ENABLED:
+                        logger.error(
+                            "Memory is enabled but Firestore is disabled; session %s "
+                            "cannot be processed durably",
+                            session_id,
+                        )
             except Exception as exc:
                 logger.error(
                     "Failed to persist/process session %s: %s",

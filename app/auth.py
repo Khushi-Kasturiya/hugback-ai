@@ -75,6 +75,8 @@ async def authenticate_message(message: dict[str, Any]) -> UserIdentity:
             raise AuthenticationError("Firebase token did not contain a user ID")
         return UserIdentity(user_id=uid, provider="firebase")
 
+    if settings.ELARA_AUTH_MODE.lower() != "development":
+        raise AuthenticationError("Unsupported authentication mode")
     user_id = message.get("userId")
     if not isinstance(user_id, str) or not _DEVELOPMENT_ID.fullmatch(user_id):
         raise AuthenticationError("A valid development user ID is required")

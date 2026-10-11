@@ -1,4 +1,4 @@
-"""Validation and provisioning helpers for consented voice replication."""
+"""Consented voice validation, optional TTS replication and Live selection gates."""
 
 from __future__ import annotations
 
@@ -7,28 +7,95 @@ import binascii
 import io
 import re
 import wave
-from dataclasses import dataclass
-from typing import Any, AsyncIterator
+from dataclasses import dataclass, field
+from typing import Any, AsyncIterator, Mapping
 
-MAX_RECORDING_BYTES = 5 * 1024 * 1024
-MAX_BASE64_BYTES = ((MAX_RECORDING_BYTES + 2) // 3) * 4
-_SENTENCE_BOUNDARY = re.compile(r'(?<=[.!?])[\"\'’”)]*(?:\s+|$)')
+from app.config import settings
+
+MAX_WAV_BYTES = 2 * 1024 * 1024
+MAX_BASE64_CHARS = 4 * ((MAX_WAV_BYTES + 2) // 3)
+MAX_RECORDING_SECONDS = 30
+_SENTENCE_BOUNDARY = re.compile(r'(?<=[.!?।])["\'’”)]*(?:\s+|$)')
 
 
 class VoiceEnrollmentError(ValueError):
     """The supplied voice material is malformed or unsafe to process."""
 
 
+class VoiceConsentError(RuntimeError):
+    """The experimental Live setup did not acknowledge voice consent."""
+
+
+def require_live_consent_acknowledgement(setup_complete: Any) -> None:
+    """Require the SDK's consent acknowledgement, never a likeness verdict.
+
+    A missing signature does not diagnose provider entitlement or fallback.
+    Never log or persist the signature.
+    """
+    consent = getattr(setup_complete, "voice_consent_signature", None)
+    signature = getattr(consent, "signature", None)
+    if not isinstance(signature, str) or not signature.strip():
+        raise VoiceConsentError(
+            "Voice replication is NOT verified: the Live setup did not return "
+            "a consent-verification signature. Stopped before requesting speech "
+            "or saving an output. This does not establish the cause; check "
+            "provider support rather than treating default audio as a clone."
+        )
+
+
+def validate_call_voice_selection(
+    voice_sample_audio: bytes | None,
+    consent_audio: bytes | None,
+    voice_id: str | None = None,
+) -> None:
+    """Reject ambiguous/unproven selection; never silently choose another voice."""
+    if voice_id is not None:
+        raise VoiceEnrollmentError(
+            "Managed/TTS voice IDs are not enabled for ordinary Live calls. "
+            "Use the separate compatibility probe."
+        )
+    if settings.ELARA_LIVE_VOICE_MODE == "preset":
+        if voice_sample_audio is not None or consent_audio is not None:
+            raise VoiceEnrollmentError(
+                "This server uses a fixed preset voice. Remove the saved voice "
+                "recordings from the test client before calling; no recording was uploaded to Google."
+            )
+    elif not voice_sample_audio or not consent_audio:
+        raise VoiceEnrollmentError(
+            "Experimental inline voice requires both recordings on every call; "
+            "preset fallback is disabled."
+        )
+
+
+def parse_call_voice(message: Mapping[str, Any]) -> "InlineVoice | None":
+    """Apply the server's voice mode before decoding or forwarding recordings."""
+    if not isinstance(message, Mapping):
+        raise VoiceEnrollmentError("Voice input must be a JSON object")
+    if settings.ELARA_LIVE_VOICE_MODE == "preset" and (
+        "voiceSampleAudio" in message or "consentAudio" in message
+    ):
+        # Presence itself is an error, including null/empty/stale browser fields.
+        raise VoiceEnrollmentError(
+            "This server uses a fixed preset voice. Remove the saved voice "
+            "recordings from the test client before calling; no recording was uploaded to Google."
+        )
+    voice = parse_inline_voice(message)
+    validate_call_voice_selection(
+        voice.sample if voice else None, voice.consent if voice else None
+    )
+    return voice
+
+
 @dataclass(frozen=True)
-class ValidatedRecording:
-    data: bytes
+class WavRecording:
+    data: bytes = field(repr=False)
     duration_seconds: float
 
 
 @dataclass(frozen=True)
 class InlineVoice:
-    sample: bytes
-    consent: bytes
+    sample: bytes = field(repr=False)
+    consent: bytes = field(repr=False)
 
 
 @dataclass(frozen=True)
@@ -155,6 +222,7 @@ async def synthesize_replicated_speech(
         }],
         response_format={"type": "audio"},
         generation_config={"speech_config": [{"voice": voice_key}]},
+        store=False,
     )
     output_audio = getattr(interaction, "output_audio", None)
     return _decode_synthesized_audio(getattr(output_audio, "data", None))
@@ -187,94 +255,101 @@ async def stream_replicated_speech(
         store=False,
         stream=True,
     )
-    async for event in stream:
-        if getattr(event, "event_type", None) != "step.delta":
-            continue
-        delta = getattr(event, "delta", None)
-        if getattr(delta, "type", None) != "audio":
-            continue
-        data = getattr(delta, "data", None)
-        if not data:
-            continue
-        try:
-            pcm = base64.b64decode(data, validate=True)
-        except (binascii.Error, ValueError) as exc:
-            raise RuntimeError("Google returned invalid streaming audio") from exc
-        if pcm:
-            yield SynthesizedAudio(
-                pcm=pcm,
-                sample_rate=getattr(delta, "sample_rate", None) or 24_000,
-            )
+    try:
+        async for event in stream:
+            if getattr(event, "event_type", None) != "step.delta":
+                continue
+            delta = getattr(event, "delta", None)
+            if getattr(delta, "type", None) != "audio":
+                continue
+            data = getattr(delta, "data", None)
+            if not data:
+                continue
+            try:
+                pcm = base64.b64decode(data, validate=True)
+            except (binascii.Error, ValueError) as exc:
+                raise RuntimeError("Google returned invalid streaming audio") from exc
+            if pcm:
+                yield SynthesizedAudio(
+                    pcm=pcm,
+                    sample_rate=getattr(delta, "sample_rate", None) or 24_000,
+                )
+    finally:
+        # Closing the iterator alone does not close the SDK's HTTP SSE response.
+        close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
+        if close:
+            await close()
 
 
 def validate_wav(
-    data: bytes,
-    *,
-    label: str,
-    minimum_seconds: float,
-    maximum_seconds: float = 30.0,
-) -> ValidatedRecording:
-    """Validate Gemini's required mono, 24 kHz, PCM16 WAV format."""
-    if not data:
-        raise VoiceEnrollmentError(f"{label} recording is empty")
-    if len(data) > MAX_RECORDING_BYTES:
-        raise VoiceEnrollmentError(f"{label} recording exceeds the 5 MB limit")
+    data: bytes, *, label: str, minimum_seconds: float
+) -> WavRecording:
+    """Validate bounded, complete mono 24 kHz PCM16 WAV input."""
+    if not isinstance(data, bytes) or not data:
+        raise VoiceEnrollmentError(f"{label} must contain PCM WAV audio")
+    if len(data) > MAX_WAV_BYTES:
+        raise VoiceEnrollmentError(f"{label} exceeds the recording size limit")
+
     try:
         with wave.open(io.BytesIO(data), "rb") as source:
-            channels = source.getnchannels()
-            sample_width = source.getsampwidth()
-            frame_rate = source.getframerate()
-            frame_count = source.getnframes()
-            compression = source.getcomptype()
+            if source.getnchannels() != 1:
+                raise VoiceEnrollmentError(f"{label} must be mono")
+            if source.getsampwidth() != 2 or source.getcomptype() != "NONE":
+                raise VoiceEnrollmentError(f"{label} must use 16-bit PCM samples")
+            if source.getframerate() != 24_000:
+                raise VoiceEnrollmentError(f"{label} must be 24 kHz")
+
+            frames = source.getnframes()
+            duration = frames / source.getframerate()
+            if not minimum_seconds <= duration <= MAX_RECORDING_SECONDS:
+                raise VoiceEnrollmentError(
+                    f"{label} must be {minimum_seconds:g}–30 seconds long"
+                )
+            # A WAV header can claim more frames than the payload actually holds.
+            if len(source.readframes(frames)) != frames * 2:
+                raise VoiceEnrollmentError(f"{label} contains truncated WAV audio")
     except (wave.Error, EOFError) as exc:
-        raise VoiceEnrollmentError(f"{label} must be a readable PCM WAV file") from exc
-
-    if compression != "NONE" or sample_width != 2:
-        raise VoiceEnrollmentError(f"{label} must use uncompressed 16-bit PCM audio")
-    if channels != 1:
-        raise VoiceEnrollmentError(f"{label} must be mono")
-    if frame_rate != 24_000:
-        raise VoiceEnrollmentError(f"{label} must use a 24 kHz sample rate")
-
-    duration = frame_count / frame_rate
-    if not minimum_seconds <= duration <= maximum_seconds:
         raise VoiceEnrollmentError(
-            f"{label} must be {minimum_seconds:g}–{maximum_seconds:g} seconds long"
-        )
-    return ValidatedRecording(data=data, duration_seconds=duration)
+            f"{label} must be a readable PCM WAV recording"
+        ) from exc
+
+    return WavRecording(data=data, duration_seconds=duration)
 
 
-def _decode_recording(value: Any, label: str) -> bytes:
+def _decode_recording(value: Any, *, label: str, minimum_seconds: float) -> bytes:
     if not isinstance(value, str) or not value:
-        raise VoiceEnrollmentError(f"{label} recording is missing")
-    if len(value) > MAX_BASE64_BYTES:
-        raise VoiceEnrollmentError(f"{label} recording exceeds the 5 MB limit")
+        raise VoiceEnrollmentError(f"{label} must be non-empty base64 audio")
+    # Check before decoding so a large envelope cannot allocate unbounded audio.
+    if len(value) > MAX_BASE64_CHARS:
+        raise VoiceEnrollmentError(f"{label} exceeds the recording size limit")
     try:
-        return base64.b64decode(value, validate=True)
+        data = base64.b64decode(value, validate=True)
     except (binascii.Error, ValueError) as exc:
-        raise VoiceEnrollmentError(f"{label} recording is not valid base64") from exc
+        raise VoiceEnrollmentError(f"{label} must be valid base64 audio") from exc
+    return validate_wav(
+        data, label=label, minimum_seconds=minimum_seconds
+    ).data
 
 
-def parse_inline_voice(message: dict[str, Any]) -> InlineVoice | None:
-    """Decode and validate voice material submitted during enrollment."""
-    sample_value = message.get("voiceSampleAudio")
-    consent_value = message.get("consentAudio")
-    if sample_value is None and consent_value is None:
+def parse_inline_voice(message: Mapping[str, Any]) -> InlineVoice | None:
+    """Parse both recordings, or retain the preset voice if neither is supplied."""
+    if not isinstance(message, Mapping):
+        raise VoiceEnrollmentError("Voice input must be a JSON object")
+    has_sample = "voiceSampleAudio" in message
+    has_consent = "consentAudio" in message
+    if not has_sample and not has_consent:
         return None
-    if sample_value is None or consent_value is None:
-        raise VoiceEnrollmentError("Both voice sample and consent recordings are required")
-    print(f"\n🌐 [VOICE SERVICE] Received inline voice sample from WebSocket client", flush=True)
-    sample = validate_wav(
-        _decode_recording(sample_value, "Voice sample"),
-        label="Voice sample",
-        minimum_seconds=10,
+    if not has_sample or not has_consent:
+        raise VoiceEnrollmentError("Both voice sample and consent audio are required")
+
+    return InlineVoice(
+        sample=_decode_recording(
+            message["voiceSampleAudio"], label="Voice sample", minimum_seconds=10
+        ),
+        consent=_decode_recording(
+            message["consentAudio"], label="Consent audio", minimum_seconds=2
+        ),
     )
-    consent = validate_wav(
-        _decode_recording(consent_value, "Consent"),
-        label="Consent",
-        minimum_seconds=2,
-    )
-    return InlineVoice(sample=sample.data, consent=consent.data)
 
 
 def parse_voice_key(message: dict[str, Any]) -> str | None:
@@ -287,5 +362,3 @@ def parse_voice_key(message: dict[str, Any]) -> str | None:
     if len(value) > 524_288 or not value.isascii():
         raise VoiceEnrollmentError("The replicated voice key is invalid")
     return value
-
-

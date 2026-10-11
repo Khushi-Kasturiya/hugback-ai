@@ -38,25 +38,38 @@ class TranscriptCollector:
     def __init__(self) -> None:
         self._pending_user = ""
         self._pending_model = ""
+        self._user_started_at = None
+        self._model_started_at = None
         self._turns: list[TranscriptTurn] = []
 
     def add_user(self, text: str) -> None:
+        if not self._pending_user and text.strip():
+            self._user_started_at = datetime.now(timezone.utc)
         self._pending_user = _merge(self._pending_user, text)
 
     def add_model(self, text: str) -> None:
+        if not self._pending_model and text.strip():
+            self._model_started_at = datetime.now(timezone.utc)
         self._pending_model = _merge(self._pending_model, text)
 
     def complete_turn(self) -> None:
-        self._flush("user", self._pending_user)
+        self._flush("user", self._pending_user, self._user_started_at)
         self._pending_user = ""
-        self._flush("model", self._pending_model)
+        self._user_started_at = None
+        self._flush("model", self._pending_model, self._model_started_at)
         self._pending_model = ""
+        self._model_started_at = None
+
+    def latest_user_text(self) -> str:
+        if self._pending_user:
+            return self._pending_user
+        return next((turn.text for turn in reversed(self._turns) if turn.role == "user"), "")
 
     def finalize(self) -> list[TranscriptTurn]:
         self.complete_turn()
         return list(self._turns)
 
-    def _flush(self, role: str, text: str) -> None:
+    def _flush(self, role: str, text: str, timestamp=None) -> None:
         text = _clean(text)
         if not text:
             return
@@ -64,7 +77,7 @@ class TranscriptCollector:
             TranscriptTurn(
                 role=role,
                 text=text,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=timestamp or datetime.now(timezone.utc),
                 turn_index=len(self._turns),
             )
         )
