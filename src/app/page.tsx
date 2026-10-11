@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useEffect, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLiveAudio } from "@/hooks/useLiveAudio";
@@ -20,7 +20,8 @@ function CallTest() {
   const demoParent = params.get("demo") === "parent";
   const recipientId = params.get("recipient") || "";
   const [demoAcknowledged, setDemoAcknowledged] = useState(false);
-  const demo = useDemoFamily(demoParent === true, true);
+  const demo = useDemoFamily(demoParent === true);
+  const wasCallActive = useRef(false);
 
   const recipient = demo.family?.recipients.find((item) => item.recipientId === recipientId);
   useEffect(() => { setDemoAcknowledged(false); }, [recipientId]);
@@ -41,7 +42,8 @@ function CallTest() {
     (demoAcknowledged && !!recipient && !recipient.busy && !demo.error);
   const startSelectedCall = () => { if (canStart) void startCall(); };
   useEffect(() => {
-    if (demoParent && !isCallActive) void demo.refresh();
+    if (demoParent && wasCallActive.current && !isCallActive) void demo.refresh();
+    wasCallActive.current = isCallActive;
   }, [demoParent, isCallActive, demo.refresh]);
 
   // Status message text

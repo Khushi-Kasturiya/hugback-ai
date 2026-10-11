@@ -148,6 +148,11 @@ flow exists yet. Do not put real family data in local demos.
 - Voice setup now uploads adult own-voice + spoken consent to Google only on
   explicit submit, then offers separate custom/preset selection and removal.
   Existing browser recordings are never automatically uploaded or activated.
+- The local synthetic family setup has a separate opt-in for bounded
+  conversation signals. Medium/high-confidence, non-diagnostic call estimates
+  appear in the selected recipient's portal card for up to 72 hours. They are
+  labeled AI-estimated; low-confidence/unclear results display nothing, and no
+  raw audio, transcript or model reasoning is returned to the child portal.
 - Summaries load through an authenticated, recipient-scoped API, not the private
   memory API. Unavailable/disabled/unlinked/empty states are distinct.
 

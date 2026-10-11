@@ -57,6 +57,15 @@ test('voice assignment includes selected recipient revision and authorized child
   assert.equal(ui.requests[0].body.revision, 4);
   assert.equal(ui.requests[0].body.profileId, 'synthetic-voice');
 });
+test('existing recipient can stop call signal sharing without changing another recipient', async () => {
+  const enabledMother = { ...mother, wellbeingSharingEnabled: true, wellbeingSignals: [] };
+  const scopedFamily = { ...family, recipients: [enabledMother, father] };
+  const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, family: scopedFamily, selectedId: 'mother' });
+  await ui.button('Stop sharing call signals').props.onClick();
+  assert.equal(ui.requests[0].path, '/wellbeing-sharing');
+  assert.equal(ui.requests[0].body.recipientId, 'mother');
+  assert.equal(ui.requests[0].body.enabled, false);
+});
 test('new recipient needs separate simulated consent; nothing auto-creates Father', async () => {
   const ui = component(setupFile, 'DemoFamilySetup', baseProps);
   ui.button('+ Add recipient').props.onClick(); ui.render();
@@ -67,6 +76,7 @@ test('new recipient needs separate simulated consent; nothing auto-creates Fathe
   assert.equal(ui.button('Add recipient').props.disabled, false);
   await ui.button('Add recipient').props.onClick();
   assert.equal(ui.requests[0].body.simulateParentConsent, true);
+  assert.equal(ui.requests[0].body.enableWellbeingSharing, true);
   assert.equal(ui.requests[0].path, '/recipients');
 });
 test('review sends excerpts only to the selected recipient and their revision', async () => {

@@ -15,6 +15,10 @@
   No raw chat enters a model without verified dual consent.
 - Do not display fake summaries, claim samples are activated voices, or expose
   parent-private call memories as child summaries.
+- A separately consented local-demo wellbeing signal may show one bounded,
+  non-diagnostic call-level estimate. Label it as AI-estimated, never as fact or
+  medical advice. Do not expose transcripts, audio, reasoning, or another
+  recipient's signal.
 - The user approved a local synthetic hackathon simulator for steps 1–5:
   demo family, separate child/parent profiles, explicitly reviewed historical
   excerpts and cross-call wellbeing memory. `/?demo=parent` selects a simulator,

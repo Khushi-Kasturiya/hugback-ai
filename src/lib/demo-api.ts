@@ -13,6 +13,17 @@ export interface DemoExcerpt {
   source: "whatsapp" | "instagram";
   reviewedAt: string;
 }
+export interface WellbeingSignal {
+  signalId: string;
+  category: "upbeat" | "calm" | "neutral" | "lower_energy" | "tense";
+  confidence: "medium" | "high";
+  basis: ("explicit_self_report" | "conversation_content" | "vocal_cues")[];
+  displayText: string;
+  observedAt: string;
+  expiresAt: string;
+  policyVersion: string;
+  syntheticOnly: true;
+}
 export interface DemoRecipient {
   recipientId: string;
   label: string;
@@ -26,6 +37,8 @@ export interface DemoRecipient {
   memoryCount: number;
   memoryCooldownHours: number;
   busy: boolean;
+  wellbeingSharingEnabled: boolean;
+  wellbeingSignals: WellbeingSignal[];
   calls: { sessionId: string; startedAt: string; endedAt?: string; status: string }[];
 }
 export interface DemoFamily {
@@ -41,7 +54,7 @@ export class DemoApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
-export async function demoRequest(path: "/family" | "/background" | "/background/clear" | "/recipients" | "/recipient-voice", method = "GET", body?: unknown): Promise<DemoFamily> {
+export async function demoRequest(path: "/family" | "/background" | "/background/clear" | "/recipients" | "/recipient-voice" | "/wellbeing-sharing", method = "GET", body?: unknown): Promise<DemoFamily> {
   const headers = await getAuthenticationHeaders();
   let response: Response;
   try {

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DemoApiError, DemoFamily, demoRequest } from "@/lib/demo-api";
 
-export function useDemoFamily(enabled: boolean, poll = false) {
+export function useDemoFamily(enabled: boolean) {
   const [family, setFamily] = useState<DemoFamily>();
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -30,11 +30,9 @@ export function useDemoFamily(enabled: boolean, poll = false) {
     void refresh();
     const focus = () => { void refresh(); };
     window.addEventListener("focus", focus);
-    const timer = enabled && poll ? window.setInterval(focus, 3000) : undefined;
     return () => {
       sequence.current++; window.removeEventListener("focus", focus);
-      if (timer) window.clearInterval(timer);
     };
-  }, [refresh, enabled, poll]);
+  }, [refresh]);
   return { family, update, loading, error, refresh };
 }
