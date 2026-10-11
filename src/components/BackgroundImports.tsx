@@ -100,8 +100,8 @@ export function BackgroundImports({ owner, demoRecipient, onDemoChange }: {
 
   return <div className="space-y-6">
     <div>
-      <h2 className="text-2xl font-bold tracking-tight">{demoRecipient ? `Background for ${demoRecipient.label}` : "A little background goes a long way."}</h2>
-      <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">Add a text conversation with this family member so Hugback can understand your relationship.</p>
+      <h2 className="font-serif text-3xl tracking-tight text-[#252D49]">{demoRecipient ? `The language you share with ${demoRecipient.label}` : "A little family context goes a long way."}</h2>
+      <p className="mt-2 max-w-2xl text-sm leading-6 text-stone-600">Add a conversation so HugBack can recognise the names, phrases and ordinary details that make your relationship sound like home.</p>
     </div>
     <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-950">
       <LockKeyhole className="mt-1 h-4 w-4 shrink-0" />
@@ -110,7 +110,7 @@ export function BackgroundImports({ owner, demoRecipient, onDemoChange }: {
     <section className="rounded-[1.75rem] border border-white bg-white/85 p-5 shadow-xl shadow-emerald-900/5 backdrop-blur sm:p-6">
       <label className="flex cursor-pointer flex-col items-center rounded-2xl border-2 border-dashed border-stone-200 bg-stone-50/60 px-5 py-8 text-center transition-all duration-300 hover:-translate-y-0.5 hover:border-emerald-600 hover:bg-emerald-50/50 hover:shadow-md">
         <span className="mb-3 rounded-xl bg-emerald-50 p-3 text-emerald-800"><Upload className="h-6 w-6" /></span>
-        <span className="font-semibold">Choose the conversation text file</span>
+        <span className="font-semibold">Choose a family conversation</span>
         <span className="mt-1 text-xs leading-5 text-stone-500">WhatsApp .txt export · Up to 1 MB</span>
         <input ref={fileInput} type="file" className="mt-4 block max-w-full text-xs file:mr-3 file:rounded-lg file:border-0 file:bg-stone-200 file:px-3 file:py-2"
           aria-label="Conversation file" accept=".txt" disabled={busy} onChange={(e) => void readFile(e.target.files?.[0])} />

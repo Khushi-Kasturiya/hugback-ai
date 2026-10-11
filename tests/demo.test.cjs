@@ -51,8 +51,8 @@ test("recipient selector never defaults, accepts a foreign recipient, or silentl
   assert.equal(recipientCallPayload(family, "mother", { ...voice, profile: null }).voiceProfileId, undefined);
 });
 test("call links carry a recipient hint, never a provider key", () => {
-  assert.equal(parentCallUrl("a&b"), "/?demo=parent&recipient=a%26b");
-  assert.equal(parentCallUrl(), "/?demo=parent");
+  assert.equal(parentCallUrl("a&b"), "/call?recipient=a%26b");
+  assert.equal(parentCallUrl(), "/call");
 });
 test("local preview listing isolates recipients, owners and unassigned legacy files", () => {
   const records = [

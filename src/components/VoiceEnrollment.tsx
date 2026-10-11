@@ -115,8 +115,8 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex gap-3">
           <div className="h-fit rounded-xl bg-violet-100 p-2.5 text-violet-700"><AudioLines className="h-5 w-5" /></div>
-          <div><h3 className="font-bold text-stone-900">Create your Hugback voice</h3>
-            <p className="mt-1 text-sm text-stone-600">Make two short recordings, then create and enable the voice.</p></div>
+          <div><h3 className="font-serif text-2xl text-[#252D49]">Carry your voice home</h3>
+            <p className="mt-1 text-sm text-stone-600">Record your natural voice and a separate consent statement, then choose who may hear it.</p></div>
         </div>
         <span className={`rounded-full px-3 py-1 text-xs font-bold ${profile?.enabled && !expired && available ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"}`}>
           {expired && profile?.enabled ? "Voice expired · assigned calls blocked" : profile?.enabled ? (available ? "Child voice enabled" : "Custom voice unavailable") : "Child voice not enabled"}
@@ -151,7 +151,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
           <button type="button" disabled={locked || uncertain || !profile.enabled} onClick={() => select(false)} className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-40">Disable child voice</button>
           <button type="button" disabled={locked || uncertain} onClick={remove} className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-40"><Trash2 className="h-4 w-4" />Remove voice</button>
         </div>
-        {profile.enabled && !expired && available && <Link href="/?demo=parent" className="mt-4 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Choose a recipient for a demo call →</Link>}
+        {profile.enabled && !expired && available && <Link href="/call" className="mt-4 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Choose a recipient and preview the parent call →</Link>}
       </div>}
       {message && <p className="mt-4 rounded-xl bg-stone-100 p-3 text-sm leading-6 text-stone-800" role="status" aria-live="polite">{message}</p>}
       <details className="mt-5 border-t border-stone-100 pt-4 text-xs leading-5 text-stone-500">

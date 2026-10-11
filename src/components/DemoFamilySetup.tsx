@@ -67,7 +67,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
   }
   return <section>
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <p className="max-w-2xl text-sm leading-6 text-stone-600">Select one person to view or prepare their check-in. Calls, context, and memory stay separate for every family member.</p>
+      <p className="max-w-2xl text-sm leading-6 text-stone-600">Choose the person whose bridge you want to prepare. Their family language, calls and signals always stay separate from everyone else’s.</p>
       {family && <button className="portal-secondary" disabled={busy || family.recipients.length >= 8} onClick={() => { setAdding(!adding); setSynthetic(false); setChild(false); setParent(false); setError(""); }}>{adding ? "Cancel" : "+ Add recipient"}</button>}
     </div>
     {family && <>

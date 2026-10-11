@@ -80,6 +80,26 @@ html { scroll-behavior: smooth; }
   50% { transform: scaleY(1); opacity: 1; }
 }
 
+@keyframes landing-hero-enter {
+  from { opacity: 0; transform: translateY(24px); filter: blur(5px); }
+  to { opacity: 1; transform: translateY(0); filter: blur(0); }
+}
+
+@keyframes landing-wave {
+  0%, 100% { transform: scaleY(.38); opacity: .5; }
+  50% { transform: scaleY(1); opacity: 1; }
+}
+
+@keyframes landing-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(-1deg); }
+  50% { transform: translate3d(0, -10px, 0) rotate(1deg); }
+}
+
+@keyframes landing-aurora {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50% { transform: translate3d(4%, -3%, 0) scale(1.08); }
+}
+
 .animate-gentle-pulse {
   animation: gentle-pulse 3s infinite ease-in-out;
 }
@@ -91,6 +111,22 @@ html { scroll-behavior: smooth; }
 .step-panel-enter { animation: step-panel-enter 520ms cubic-bezier(.2,.8,.2,1) both; }
 .reveal-card { animation: reveal-card 420ms cubic-bezier(.2,.8,.2,1) both; }
 .voice-bars span { animation: voice-bar 1.15s ease-in-out infinite; transform-origin: center; }
+
+.landing-shell { font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+.landing-shell .font-serif { font-family: Georgia, "Times New Roman", serif; }
+.landing-script { font-style: italic; }
+.landing-hero-enter { animation: landing-hero-enter 800ms cubic-bezier(.2,.8,.2,1) both; }
+.landing-reveal { opacity: 0; transform: translateY(28px); transition: opacity 800ms cubic-bezier(.2,.8,.2,1), transform 800ms cubic-bezier(.2,.8,.2,1); }
+.landing-reveal[data-visible="true"] { opacity: 1; transform: translateY(0); }
+.landing-wave { display: flex; align-items: center; gap: 4px; margin-top: .75rem; }
+.landing-wave span { width: 3px; min-height: 5px; border-radius: 999px; background: var(--brand-sky); transform-origin: center; animation: landing-wave 1.1s ease-in-out infinite; }
+.landing-float-card { animation: landing-float 6s ease-in-out infinite; }
+.landing-float-delay { animation-delay: -3s; }
+.landing-aurora { position: absolute; width: 38rem; height: 38rem; border-radius: 999px; filter: blur(90px); pointer-events: none; animation: landing-aurora 12s ease-in-out infinite; }
+.landing-aurora-one { left: -16rem; top: 8rem; background: rgb(114 181 254 / 26%); }
+.landing-aurora-two { right: -14rem; top: 4rem; background: rgb(182 156 242 / 18%); animation-delay: -5s; }
+.landing-aurora-footer { right: -10rem; top: -14rem; background: rgb(114 181 254 / 15%); }
+.landing-night-grid { background-image: linear-gradient(rgb(255 255 255 / 4%) 1px, transparent 1px), linear-gradient(90deg, rgb(255 255 255 / 4%) 1px, transparent 1px); background-size: 44px 44px; mask-image: linear-gradient(to bottom, black, transparent 94%); }
 .step-card-active::after {
   content: "";
   position: absolute;
@@ -118,9 +154,14 @@ html { scroll-behavior: smooth; }
   .step-card-active::after,
   .reveal-card,
   .voice-bars span,
-  .animate-gentle-pulse {
+  .animate-gentle-pulse,
+  .landing-hero-enter,
+  .landing-wave span,
+  .landing-float-card,
+  .landing-aurora {
     animation: none !important;
   }
+  .landing-reveal { opacity: 1 !important; transform: none !important; transition: none !important; }
   * { scroll-behavior: auto !important; }
 }
 

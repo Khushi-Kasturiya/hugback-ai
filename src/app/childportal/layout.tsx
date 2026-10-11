@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Child portal · Hugback",
-  description: "See parent check-ins, prepare personal context and view parent-approved Hugback updates.",
+  title: "Your bridge home · HugBack AI",
+  description: "Prepare your familiar voice and family context, then receive careful signals that help you stay close across distance.",
   robots: { index: false, follow: false },
 };
 

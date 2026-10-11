@@ -79,7 +79,7 @@ export async function demoRequest(path: "/family" | "/background" | "/background
 }
 
 export function parentCallUrl(recipientId?: string): string {
-  return recipientId ? `/?demo=parent&recipient=${encodeURIComponent(recipientId)}` : "/?demo=parent";
+  return recipientId ? `/call?recipient=${encodeURIComponent(recipientId)}` : "/call";
 }
 
 /** A URL/selector is not authorization. The server rechecks membership + revision. */
