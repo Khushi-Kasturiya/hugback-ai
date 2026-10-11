@@ -63,7 +63,7 @@ class MemoryPromptTests(unittest.TestCase):
 class DevelopmentAuthenticationTests(unittest.TestCase):
     def setUp(self):
         self.auth_mode = patch(
-            "app.auth.settings.ELARA_AUTH_MODE", "development"
+            "app.auth.settings.HUGBACK_AUTH_MODE", "development"
         )
         self.auth_mode.start()
         self.addCleanup(self.auth_mode.stop)
@@ -88,7 +88,7 @@ class DevelopmentAuthenticationTests(unittest.TestCase):
 class FirebaseAuthenticationTests(unittest.TestCase):
     def test_verified_token_uses_the_signed_subject(self):
         with (
-            patch("app.auth.settings.ELARA_AUTH_MODE", "firebase"),
+            patch("app.auth.settings.HUGBACK_AUTH_MODE", "firebase"),
             patch(
                 "app.auth._verify_firebase_id_token",
                 return_value={"sub": "firebase-user-123"},
@@ -105,7 +105,7 @@ class FirebaseAuthenticationTests(unittest.TestCase):
 
     def test_invalid_firebase_token_is_rejected(self):
         with (
-            patch("app.auth.settings.ELARA_AUTH_MODE", "firebase"),
+            patch("app.auth.settings.HUGBACK_AUTH_MODE", "firebase"),
             patch(
                 "app.auth._verify_firebase_id_token",
                 side_effect=ValueError("invalid signature"),

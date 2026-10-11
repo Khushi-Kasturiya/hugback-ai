@@ -47,13 +47,13 @@ class StartupTests(unittest.TestCase):
             patch("app.main.settings.MEMORY_ENABLED", False),
             patch("app.main.settings.FIRESTORE_ENABLED", False),
             patch("app.main.settings.FOLLOWUPS_ENABLED", False),
-            patch("app.main.settings.ELARA_AUTH_MODE", "development"),
-            patch("app.main.settings.ELARA_LIVE_VOICE_MODE", "preset"),
-            patch("app.main.settings.ELARA_VOICE_NAME", "Aoede"),
+            patch("app.main.settings.HUGBACK_AUTH_MODE", "development"),
+            patch("app.main.settings.HUGBACK_LIVE_VOICE_MODE", "preset"),
+            patch("app.main.settings.HUGBACK_VOICE_NAME", "Aoede"),
             # Private test-file settings must never turn into a global voice for
             # ordinary callers or be read by /healthz and preset sessions.
-            patch("app.main.settings.ELARA_VOICE_REFERENCE_PATH", "/nonexistent/reference.wav"),
-            patch("app.main.settings.ELARA_VOICE_CONSENT_PATH", "/nonexistent/consent.wav"),
+            patch("app.main.settings.HUGBACK_VOICE_REFERENCE_PATH", "/nonexistent/reference.wav"),
+            patch("app.main.settings.HUGBACK_VOICE_CONSENT_PATH", "/nonexistent/consent.wav"),
         ):
             replacement.start()
             self.addCleanup(replacement.stop)
@@ -148,7 +148,7 @@ class StartupTests(unittest.TestCase):
 
     def test_experimental_mode_missing_recordings_does_not_fall_back(self):
         with (
-            patch("app.main.settings.ELARA_LIVE_VOICE_MODE", "experimental-inline"),
+            patch("app.main.settings.HUGBACK_LIVE_VOICE_MODE", "experimental-inline"),
             TestClient(app) as client,
             client.websocket_connect("/ws") as websocket,
         ):
@@ -181,9 +181,9 @@ class StartupTests(unittest.TestCase):
 
                 fake_client = SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
                 with (
-                    patch("app.main.settings.ELARA_LIVE_VOICE_MODE", "experimental-inline"),
+                    patch("app.main.settings.HUGBACK_LIVE_VOICE_MODE", "experimental-inline"),
                     patch("app.main.create_genai_client", return_value=fake_client),
-                    self.assertLogs("elara.broker", level="INFO") as logs,
+                    self.assertLogs("hugback.broker", level="INFO") as logs,
                     TestClient(app) as client,
                     client.websocket_connect("/ws") as websocket,
                 ):

@@ -35,9 +35,9 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
         self.voices = VoiceProfileStore(Path(temp.name) / "voices.sqlite3")
         self.store = DemoStore(self.path)
         for name, value in {
-            "LOCAL_DEMO_ENABLED": True, "ELARA_AUTH_MODE": "development", "ELARA_LIVE_VOICE_MODE": "preset",
-            "LOCAL_DEMO_DB_PATH": self.path, "ELARA_VOICE_DB_PATH": self.voices.path,
-            "ELARA_REPLICATED_TTS_ENABLED": True, "GEMINI_API_KEY": "synthetic-placeholder",
+            "LOCAL_DEMO_ENABLED": True, "HUGBACK_AUTH_MODE": "development", "HUGBACK_LIVE_VOICE_MODE": "preset",
+            "LOCAL_DEMO_DB_PATH": self.path, "HUGBACK_VOICE_DB_PATH": self.voices.path,
+            "HUGBACK_REPLICATED_TTS_ENABLED": True, "GEMINI_API_KEY": "synthetic-placeholder",
         }.items():
             item = patch.object(settings, name, value); item.start(); self.addCleanup(item.stop)
         self.family = self.store.create(OWNER, CreateFamily(**CREATE, label="Mother", relationship="mother"))
@@ -227,7 +227,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
             def __init__(self): self.queue = asyncio.Queue()
             async def send_client_content(self, **kwargs):
                 await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
-                    output_transcription=types.Transcription(text="I am Elara, an AI companion."), turn_complete=True,
+                    output_transcription=types.Transcription(text="I am Hugback, an AI companion."), turn_complete=True,
                 )))
             async def receive(self): yield await self.queue.get()
         @asynccontextmanager

@@ -5,7 +5,7 @@ description: Instructions for implementing low-latency, bidirectional audio stre
 
 # INSTRUCTIONS
 
-When tasked with building or modifying the real-time voice integration for Elara, you MUST adhere strictly to the following Google Cloud Platform specifications. DO NOT use third-party APIs like OpenAI, ElevenLabs, or Twilio for core AI generation.
+When tasked with building or modifying the real-time voice integration for Hugback, you MUST adhere strictly to the following Google Cloud Platform specifications. DO NOT use third-party APIs like OpenAI, ElevenLabs, or Twilio for core AI generation.
 
 ## 1. WebSocket Connection Setup
 - Use the Google Cloud AI Platform WebSocket endpoint for bidirectional streaming.

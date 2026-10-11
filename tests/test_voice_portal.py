@@ -24,7 +24,7 @@ from app.voice.playback import ReplicatedPlayback
 from test_voice_tts import make_wav
 
 ORIGIN = "http://127.0.0.1:3000"
-HEADERS = {"Origin": ORIGIN, "X-Elara-Development-User": "synthetic-voice-owner"}
+HEADERS = {"Origin": ORIGIN, "X-Hugback-Development-User": "synthetic-voice-owner"}
 
 
 def enrollment():
@@ -42,8 +42,8 @@ class PortalVoiceTests(unittest.TestCase):
         self.path = Path(temp.name) / "voice.sqlite3"
         self.store = VoiceProfileStore(self.path)
         for field, value in {
-            "ELARA_AUTH_MODE": "development", "ELARA_LIVE_VOICE_MODE": "preset",
-            "ELARA_REPLICATED_TTS_ENABLED": True, "ELARA_VOICE_DB_PATH": self.path,
+            "HUGBACK_AUTH_MODE": "development", "HUGBACK_LIVE_VOICE_MODE": "preset",
+            "HUGBACK_REPLICATED_TTS_ENABLED": True, "HUGBACK_VOICE_DB_PATH": self.path,
             "GEMINI_API_KEY": "synthetic-not-a-real-key", "LOCAL_DEMO_ENABLED": True,
             "LOCAL_DEMO_DB_PATH": Path(temp.name) / "demo.sqlite3",
             "FIRESTORE_ENABLED": False, "MEMORY_ENABLED": False, "FOLLOWUPS_ENABLED": False,
@@ -81,7 +81,7 @@ class PortalVoiceTests(unittest.TestCase):
 
     def test_other_owner_cannot_read_select_or_delete_profile(self):
         profile = self.create_profile()
-        other = {**HEADERS, "X-Elara-Development-User": "synthetic-other-owner"}
+        other = {**HEADERS, "X-Hugback-Development-User": "synthetic-other-owner"}
         self.assertIsNone(self.client.get("/api/voice/profile", headers=other).json()["profile"])
         self.assertEqual(self.client.put("/api/voice/profile", headers=other,
                          json={"profileId": profile["id"], "enabled": True}).status_code, 409)
@@ -113,7 +113,7 @@ class PortalVoiceTests(unittest.TestCase):
 
     def test_disabled_feature_denies_provider_but_allows_removal(self):
         self.create_profile(); self.provider.reset_mock()
-        with patch.object(settings, "ELARA_REPLICATED_TTS_ENABLED", False):
+        with patch.object(settings, "HUGBACK_REPLICATED_TTS_ENABLED", False):
             self.assertEqual(self.client.post("/api/voice/enroll", headers=HEADERS, json=enrollment()).status_code, 403)
             self.assertEqual(self.client.delete("/api/voice/profile", headers=HEADERS).status_code, 200)
         self.provider.assert_not_called()
@@ -127,7 +127,7 @@ class PortalVoiceTests(unittest.TestCase):
             self.assertIn(response.status_code, (400, 422))
             self.assertNotIn(body["voiceSampleAudio"], response.text)
         for headers in ({}, {**HEADERS, "Origin": "https://evil.example"},
-                        {"X-Elara-Development-User": "synthetic-voice-owner"}):
+                        {"X-Hugback-Development-User": "synthetic-voice-owner"}):
             self.assertIn(self.client.post("/api/voice/enroll", headers=headers, json=body).status_code, (401, 403))
         remote = TestClient(app, client=("203.0.113.1", 1234))
         self.assertEqual(remote.post("/api/voice/enroll", headers={**HEADERS, "X-Forwarded-For": "127.0.0.1"}, json=body).status_code, 403)
@@ -180,7 +180,7 @@ class PortalVoiceTests(unittest.TestCase):
                     model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(data=b"STALE", mime_type="audio/pcm"))]),
                     output_transcription=types.Transcription(text="Stale interrupted output."),
                 )))
-                for text in ("Hello, I am Elara AI.", "A second sentence."):
+                for text in ("Hello, I am Hugback AI.", "A second sentence."):
                     await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
                         model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(data=b"PRESET", mime_type="audio/pcm"))]),
                         output_transcription=types.Transcription(text=text), turn_complete=True,

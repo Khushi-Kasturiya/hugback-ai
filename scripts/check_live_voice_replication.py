@@ -225,13 +225,13 @@ async def run_spike(
         )
     else:
         client = create_genai_client()
-    print(f"Connecting to {settings.ELARA_MODEL}...")
+    print(f"Connecting to {settings.HUGBACK_MODEL}...")
 
     pcm_chunks: list[bytes] = []
     transcript: list[str] = []
     # Bound the live portion of this one-sentence compatibility probe.
     async with asyncio.timeout(45), client.aio.live.connect(
-        model=settings.ELARA_MODEL,
+        model=settings.HUGBACK_MODEL,
         config=config,
     ) as session:
         if mode == "inline" and wire_format == "sdk-wav":
@@ -294,17 +294,17 @@ async def run_spike(
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sample", type=Path, default=settings.ELARA_VOICE_REFERENCE_PATH)
-    parser.add_argument("--consent", type=Path, default=settings.ELARA_VOICE_CONSENT_PATH)
+    parser.add_argument("--sample", type=Path, default=settings.HUGBACK_VOICE_REFERENCE_PATH)
+    parser.add_argument("--consent", type=Path, default=settings.HUGBACK_VOICE_CONSENT_PATH)
     parser.add_argument(
         "--output",
         type=Path,
-        default=settings.ELARA_VOICE_TEST_OUTPUT_PATH
+        default=settings.HUGBACK_VOICE_TEST_OUTPUT_PATH
         or Path(__file__).resolve().parents[1] / "Voice/converted/live-replication-new-result.wav",
     )
     parser.add_argument(
         "--prompt",
-        default="Please say: I am Elara, an AI companion. How was your day?",
+        default="Please say: I am Hugback, an AI companion. How was your day?",
     )
     parser.add_argument(
         "--mode",

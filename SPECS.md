@@ -1,4 +1,4 @@
-# Elara - Technical Specifications
+# Hugback - Technical Specifications
 
 > **Retained-original storage (11 October 2026, v4.5):** Internal Forms/Drive
 > intake sink with private exact-byte Cloud Storage originals, Firestore
@@ -54,7 +54,7 @@
 > this pilot. See README and `app/memory/AGENTS.md` before extending it.
 
 > **Voice consistency hardening (11 October 2026):** Ordinary calls now use
-> `ELARA_LIVE_VOICE_MODE=preset` and reject browser enrollment overrides before
+> `HUGBACK_LIVE_VOICE_MODE=preset` and reject browser enrollment overrides before
 > Google. The explicit `experimental-inline` operator mode requires both
 > recordings and a provider consent acknowledgement before readiness, with no
 > preset fallback and no likeness claim. The prompt asks for one disclosed AI
@@ -64,7 +64,7 @@
 
 > **Current-direction note (10 October 2026):** The roadmap below predates the
 > no-app architecture in
-> `/Users/pratham.gupta/Documents/ChatGPT/ELARA/docs/Elara_No_App_Architecture_v4.md`.
+> `/Users/pratham.gupta/Documents/ChatGPT/HUGBACK/docs/Hugback_No_App_Architecture_v4.md`.
 > That architecture remains authoritative; this historical text does not
 > authorize a dashboard, monitoring service, or impersonation.
 >
@@ -93,7 +93,7 @@
 **Constraint:** 100% Google Cloud & Google AI Stack (Strict)
 
 ## 1. Product Vision
-Elara is a proactive, agentic audio companion designed to bridge the gap between elderly parents in their hometowns and their adult children overseas. It uses real-time, low-latency native audio, episodic memory, and voice cloning to simulate an empathetic, human-like phone call with the parent, actively monitoring for health and mood anomalies.
+Hugback is a proactive, agentic audio companion designed to bridge the gap between elderly parents in their hometowns and their adult children overseas. It uses real-time, low-latency native audio, episodic memory, and voice cloning to simulate an empathetic, human-like phone call with the parent, actively monitoring for health and mood anomalies.
 
 ## 2. Core Architecture
 - **Frontend / Client:** Next.js web application functioning as an audio client optimized for seniors (zero complex UI).

@@ -1,4 +1,4 @@
-# Elara backend
+# Hugback backend
 
 ## Retained original chat storage (v4.5, 11 October 2026)
 
@@ -56,8 +56,8 @@ explicitly requested portal integration. This is **local browser testing**, not
 telephone enrollment, production family authorization or independently verified
 speaker likeness. No real recordings or paid calls were used to verify this patch.
 
-1. Keep `ELARA_AUTH_MODE=development`, `ELARA_LIVE_VOICE_MODE=preset` and a
-   configured backend Gemini API key. Set `ELARA_REPLICATED_TTS_ENABLED=True` to
+1. Keep `HUGBACK_AUTH_MODE=development`, `HUGBACK_LIVE_VOICE_MODE=preset` and a
+   configured backend Gemini API key. Set `HUGBACK_REPLICATED_TTS_ENABLED=True` to
    expose upload capability. Keep `LOCAL_DEMO_ENABLED=True` for the parent demo.
    No new frontend key, sign-in form, Firebase resource or hosted processor.
 2. In `/childportal` → **Voice setup**, choose your own adult-speaker sample
@@ -85,11 +85,11 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    audio using that profile reaches playback. The key is NOT a Live voice ID.
    One bounded worker spans turns, cancels interrupted speech, closes SSE/client
    resources, and checkpoints actual emitted TTS for follow-ups. Failures stop
-   the call rather than mix preset/custom voices. Elara remains disclosed AI.
+   the call rather than mix preset/custom voices. Hugback remains disclosed AI.
 
 **Storage:** source audio is transient browser/backend memory, not saved by this
 flow. A client-managed key and metadata persist in private mode-0600 SQLite at
-`ELARA_VOICE_DB_PATH` (default backend `.local-voice/voices.sqlite3`), scoped to the
+`HUGBACK_VOICE_DB_PATH` (default backend `.local-voice/voices.sqlite3`), scoped to the
 browser development identity. This vault is separate from synthetic family data,
 gitignored and excluded from Docker context. It is not encrypted at rest. Raw audio
 is sent to Google on explicit upload; `store=False` is not a blanket promise about
@@ -115,8 +115,8 @@ synthetic and all provider I/O is mocked. Never use real family material in test
 The user approved a **synthetic-only** local family simulator. It is separate
 from all production enrollment, storage and sharing. No sign-in UI is added.
 
-Configuration: set `LOCAL_DEMO_ENABLED=TRUE`, `ELARA_AUTH_MODE=development`,
-`ELARA_LIVE_VOICE_MODE=preset` locally. Keep `MEMORY_ENABLED`, `FIRESTORE_ENABLED`
+Configuration: set `LOCAL_DEMO_ENABLED=TRUE`, `HUGBACK_AUTH_MODE=development`,
+`HUGBACK_LIVE_VOICE_MODE=preset` locally. Keep `MEMORY_ENABLED`, `FIRESTORE_ENABLED`
 and `FOLLOWUPS_ENABLED` false for the demo. Existing Google credentials/model
 configuration is reused **only when an operator starts a call**. Structured
 post-call extraction uses `FOLLOWUP_EXTRACTION_MODEL`; its availability,
@@ -144,7 +144,7 @@ Never run the simulator for private/real family data or expose it publicly.
    as `memory_failed`, never fabricated as success. The next call waits while the
    previous call for that recipient is active or processing.
 
-Persistence: `.local-demo/elara.sqlite3` (gitignored, owner-only file permissions;
+Persistence: `.local-demo/hugback.sqlite3` (gitignored, owner-only file permissions;
 override via `LOCAL_DEMO_DB_PATH`). Distinct server-generated family, child and
 parent IDs survive browser refresh and backend restart. The browser credential
 still lives in localStorage; clearing it loses access and has no recovery.
@@ -222,7 +222,7 @@ memory.
 ## Local development
 
 1. Copy `.env.example` to `.env` and configure Gemini authentication.
-2. Leave `ELARA_AUTH_MODE=development`, `MEMORY_ENABLED=FALSE`, and
+2. Leave `HUGBACK_AUTH_MODE=development`, `MEMORY_ENABLED=FALSE`, and
    `FIRESTORE_ENABLED=FALSE` for a memory-free local call.
 3. Install dependencies and run the service:
 
@@ -245,17 +245,17 @@ support for this Live model or an acoustic-identity guarantee.
 ### Deterministic voice selection
 
 - The pulled replicated-voice Voices API/TTS path is retained separately behind
-  `ELARA_REPLICATED_TTS_ENABLED=FALSE` by default. It is **not** a Live voice ID
+  `HUGBACK_REPLICATED_TTS_ENABLED=FALSE` by default. It is **not** a Live voice ID
   or part of the local demo. Enabling it requires an explicit provider,
   recording-consent, identity, and privacy review; neither the endpoint nor a
   browser `voiceKey` activates it while the gate is off. An API response alone
   does not establish speaker likeness.
-- `ELARA_LIVE_VOICE_MODE=preset` is the ordinary-call default. It uses
-  `ELARA_VOICE_NAME` (currently `Aoede`) for the whole upstream session.
+- `HUGBACK_LIVE_VOICE_MODE=preset` is the ordinary-call default. It uses
+  `HUGBACK_VOICE_NAME` (currently `Aoede`) for the whole upstream session.
 - A saved browser sample/consent payload is **rejected before Google**, not
   allowed to override the preset or silently ignored. Existing test clients with
   a saved voice profile must remove it before making a preset call.
-- `ELARA_LIVE_VOICE_MODE=experimental-inline` is for explicitly authorized
+- `HUGBACK_LIVE_VOICE_MODE=experimental-inline` is for explicitly authorized
   operator research only, not an approved MVP feature. Every call must supply
   both recordings; missing/invalid inputs stop the call instead of falling back.
   This mode transmits recordings during Live setup; validate adult-speaker
@@ -355,8 +355,8 @@ gave valid consent. A previously generated result WAV is **output for comparison
 never a replacement for the reference or consent.
 
 Keep inputs outside the repository. The optional settings
-`ELARA_VOICE_REFERENCE_PATH`, `ELARA_VOICE_CONSENT_PATH`, and
-`ELARA_VOICE_TEST_OUTPUT_PATH` supply paths to the isolated script only. Set them
+`HUGBACK_VOICE_REFERENCE_PATH`, `HUGBACK_VOICE_CONSENT_PATH`, and
+`HUGBACK_VOICE_TEST_OUTPUT_PATH` supply paths to the isolated script only. Set them
 in your private `.env`, or pass `--sample`, `--consent`, and `--output`. Do not
 point output at an existing result; the script refuses to overwrite it.
 
@@ -581,14 +581,14 @@ Do not use this path for production wellbeing memory.
    ```dotenv
    MEMORY_ENABLED=TRUE
    FIRESTORE_ENABLED=TRUE
-   ELARA_AUTH_MODE=firebase
+   HUGBACK_AUTH_MODE=firebase
    FIREBASE_PROJECT_ID=your-project-id
    ```
 
 6. Set `NEXT_PUBLIC_FIREBASE_API_KEY` in the frontend `.env.local` file.
 
 The Memory Bank setup uses `gemini-embedding-001` for multilingual semantic
-retrieval, a structured `elara-care-profile`, memory revisions, and TTL refresh
+retrieval, a structured `hugback-care-profile`, memory revisions, and TTL refresh
 when a fact is reinforced.
 
 ## Production post-call processing
@@ -598,7 +598,7 @@ Create a Cloud Tasks queue and configure the deployed backend:
 ```dotenv
 MEMORY_PROCESSING_MODE=cloud_tasks
 CLOUD_TASKS_LOCATION=us-central1
-CLOUD_TASKS_QUEUE=elara-memory
+CLOUD_TASKS_QUEUE=hugback-memory
 MEMORY_PROCESSOR_URL=https://YOUR_SERVICE/internal/memory/process
 CLOUD_TASKS_SERVICE_ACCOUNT=YOUR_TASK_INVOKER_SERVICE_ACCOUNT
 ```
@@ -615,7 +615,7 @@ authentication.
   transcripts.
 
 With Firebase authentication, send `Authorization: Bearer FIREBASE_ID_TOKEN`.
-For local development only, send `X-Elara-Development-User: BROWSER_USER_ID`.
+For local development only, send `X-Hugback-Development-User: BROWSER_USER_ID`.
 
 ## Tests
 

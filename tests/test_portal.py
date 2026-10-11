@@ -73,28 +73,28 @@ class PortalRouteTests(unittest.IsolatedAsyncioTestCase):
             return await client.get(path, headers=headers or {})
 
     async def test_development_never_reads_firestore_even_when_enabled(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "development"), \
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "development"), \
              patch.object(settings, "PORTAL_SHARING_ENABLED", True), \
              patch.object(settings, "FIRESTORE_ENABLED", True), \
              patch("app.portal.routes.read_shared_summaries", new_callable=AsyncMock) as read:
-            response = await self.request("/api/portal/summaries", {"X-Elara-Development-User": "synthetic-123"})
+            response = await self.request("/api/portal/summaries", {"X-Hugback-Development-User": "synthetic-123"})
             self.assertEqual(response.json(), {"status": "development_only", "summaries": []})
             self.assertEqual(response.headers["cache-control"], "no-store")
             read.assert_not_awaited()
 
     async def test_development_denies_remote_requests_and_spoofed_forwarded_header(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "development"):
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "development"):
             response = await self.request("/api/portal/status", {
-                "X-Elara-Development-User": "synthetic-123", "X-Forwarded-For": "127.0.0.1",
+                "X-Hugback-Development-User": "synthetic-123", "X-Forwarded-For": "127.0.0.1",
             }, host="203.0.113.1")
             self.assertEqual(response.status_code, 403)
 
     async def test_identity_required(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "development"):
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "development"):
             self.assertEqual((await self.request("/api/portal/status")).status_code, 401)
 
     async def test_firebase_recipient_comes_from_verified_token_not_query(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "firebase"), \
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"), \
              patch.object(settings, "PORTAL_SHARING_ENABLED", True), \
              patch.object(settings, "FIRESTORE_ENABLED", True), \
              patch("app.auth._verify_firebase_id_token", return_value={"sub": "child-a"}), \
@@ -104,7 +104,7 @@ class PortalRouteTests(unittest.IsolatedAsyncioTestCase):
             read.assert_awaited_once_with("child-a")
 
     async def test_backend_failure_is_not_misreported_as_no_summaries(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "firebase"), \
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"), \
              patch.object(settings, "PORTAL_SHARING_ENABLED", True), \
              patch.object(settings, "FIRESTORE_ENABLED", True), \
              patch("app.auth._verify_firebase_id_token", return_value={"sub": "child-a"}), \
@@ -113,14 +113,14 @@ class PortalRouteTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status_code, 503)
 
     async def test_invalid_firebase_token_does_not_fall_back(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "firebase"), \
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"), \
              patch("app.auth._verify_firebase_id_token", side_effect=ValueError):
-            response = await self.request("/api/portal/status", {"Authorization": "Bearer synthetic", "X-Elara-Development-User": "synthetic-123"})
+            response = await self.request("/api/portal/status", {"Authorization": "Bearer synthetic", "X-Hugback-Development-User": "synthetic-123"})
             self.assertEqual(response.status_code, 401)
 
     async def test_unknown_auth_mode_is_denied(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "typo"):
-            response = await self.request("/api/portal/status", {"X-Elara-Development-User": "synthetic-123"})
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "typo"):
+            response = await self.request("/api/portal/status", {"X-Hugback-Development-User": "synthetic-123"})
             self.assertEqual(response.status_code, 401)
 
     async def test_actual_mailbox_adapter_scopes_read_and_closes_client(self):
@@ -144,7 +144,7 @@ class PortalRouteTests(unittest.IsolatedAsyncioTestCase):
         client.close.assert_awaited_once()
 
     async def test_disabled_production_sharing_does_not_read_cloud(self):
-        with patch.object(settings, "ELARA_AUTH_MODE", "firebase"), \
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"), \
              patch.object(settings, "PORTAL_SHARING_ENABLED", False), \
              patch("app.auth._verify_firebase_id_token", return_value={"sub": "child-a"}), \
              patch("app.portal.routes.read_shared_summaries", new_callable=AsyncMock) as read:

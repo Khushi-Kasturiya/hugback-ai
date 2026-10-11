@@ -126,7 +126,7 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
         audio = await synthesize_replicated_speech(
             client,
             voice_key="voicekey_test123",
-            text="Hello from Elara.",
+            text="Hello from Hugback.",
             model="gemini-3.8-flash-lite-tts",
         )
 
@@ -173,7 +173,7 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
             async for chunk in stream_replicated_speech(
                 client,
                 voice_key="voicekey_test123",
-                text="Hello from Elara.",
+                text="Hello from Hugback.",
                 model="gemini-3.8-flash-lite-tts",
             )
         ]
@@ -226,7 +226,7 @@ class LiveVoiceSelectionTests(unittest.TestCase):
 class ReplicatedTTSGateTests(unittest.IsolatedAsyncioTestCase):
     async def test_enrollment_gate_stops_before_authentication_or_provider_calls(self):
         with (
-            patch("app.config.settings.ELARA_REPLICATED_TTS_ENABLED", False),
+            patch("app.config.settings.HUGBACK_REPLICATED_TTS_ENABLED", False),
             patch("app.voice.routes.authenticate_http_headers") as authenticate,
             patch("app.voice.routes.provision_voice") as client,
         ):

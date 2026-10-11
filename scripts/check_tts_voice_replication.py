@@ -26,7 +26,7 @@ from app.voice.service import MAX_WAV_BYTES, validate_wav  # noqa: E402
 
 
 DEFAULT_TEXT = (
-    "Namaste, main Elara hoon, ek AI companion. Aaj aapka din kaisa raha?"
+    "Namaste, main Hugback hoon, ek AI companion. Aaj aapka din kaisa raha?"
 )
 TTS_MODELS = ("gemini-3.8-flash-tts", "gemini-3.8-flash-lite-tts")
 
@@ -196,13 +196,13 @@ async def run_probe(
     save_new_output(output, data)
     print(f"TTS preview saved to {output}")
     print("Not a cloning-success verdict: the speaker must review likeness.")
-    print("No voice key persisted; normal Elara conversations are unchanged.")
+    print("No voice key persisted; normal Hugback conversations are unchanged.")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--sample", type=Path, default=settings.ELARA_VOICE_REFERENCE_PATH)
-    parser.add_argument("--consent", type=Path, default=settings.ELARA_VOICE_CONSENT_PATH)
+    parser.add_argument("--sample", type=Path, default=settings.HUGBACK_VOICE_REFERENCE_PATH)
+    parser.add_argument("--consent", type=Path, default=settings.HUGBACK_VOICE_CONSENT_PATH)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--text", default=DEFAULT_TEXT)
     parser.add_argument("--model", choices=TTS_MODELS, default=TTS_MODELS[0])

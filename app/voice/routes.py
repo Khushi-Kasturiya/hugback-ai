@@ -15,7 +15,7 @@ from app.voice.profiles import enrollment_available, get_voice_store, require_lo
 from app.voice.service import MAX_BASE64_CHARS, VoiceEnrollmentError, parse_inline_voice
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
-logger = logging.getLogger("elara.voice")
+logger = logging.getLogger("hugback.voice")
 _enrolling: set[str] = set()  # Local single-worker server, not a distributed lock.
 
 
@@ -35,7 +35,7 @@ class VoiceSelectionRequest(BaseModel):
 
 async def voice_identity(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
-    response.headers["Vary"] = "Authorization, X-Elara-Development-User"
+    response.headers["Vary"] = "Authorization, X-Hugback-Development-User"
     try:
         require_local_voice(
             request.client.host if request.client else None, request.headers.get("origin"),

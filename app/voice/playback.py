@@ -7,7 +7,7 @@ import logging
 
 from app.voice.service import stream_replicated_speech
 
-logger = logging.getLogger("elara.voice")
+logger = logging.getLogger("hugback.voice")
 
 
 class ReplicatedPlayback:

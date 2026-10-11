@@ -13,8 +13,8 @@ router = APIRouter(prefix="/api/portal", tags=["child-portal"])
 
 async def portal_identity(request: Request, response: Response) -> UserIdentity:
     response.headers["Cache-Control"] = "no-store"
-    response.headers["Vary"] = "Authorization, X-Elara-Development-User"
-    if settings.ELARA_AUTH_MODE.lower() == "development":
+    response.headers["Vary"] = "Authorization, X-Hugback-Development-User"
+    if settings.HUGBACK_AUTH_MODE.lower() == "development":
         # Never trust X-Forwarded-For. This only enables the local development
         # interface; even localhost callers never receive private cloud records.
         if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
@@ -36,7 +36,7 @@ def sharing_gate(identity: UserIdentity) -> str:
 @router.get("/status")
 async def portal_status(identity: UserIdentity = Depends(portal_identity)):
     profile = None
-    if identity.provider == "development" and settings.ELARA_VOICE_DB_PATH.exists():
+    if identity.provider == "development" and settings.HUGBACK_VOICE_DB_PATH.exists():
         try:
             profile = await asyncio.to_thread(get_voice_store().get, identity.user_id)
         except Exception as exc:
@@ -44,7 +44,7 @@ async def portal_status(identity: UserIdentity = Depends(portal_identity)):
     return {
         "identityMode": identity.provider,
         "voice": {
-            "mode": settings.ELARA_LIVE_VOICE_MODE, "name": settings.ELARA_VOICE_NAME,
+            "mode": settings.HUGBACK_LIVE_VOICE_MODE, "name": settings.HUGBACK_VOICE_NAME,
             "replicatedTtsEnabled": enrollment_available(),
             "profile": profile,
         },

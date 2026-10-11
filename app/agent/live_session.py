@@ -7,10 +7,10 @@ from google import genai
 from google.genai import types
 
 from app.config import settings
-from app.agent.prompts import ELARA_SYSTEM_INSTRUCTION
+from app.agent.prompts import HUGBACK_SYSTEM_INSTRUCTION
 from app.voice.service import validate_call_voice_selection
 
-logger = logging.getLogger("elara.live_session")
+logger = logging.getLogger("hugback.live_session")
 
 
 def create_genai_client() -> genai.Client:
@@ -46,7 +46,7 @@ def create_live_config(
 ) -> types.LiveConnectConfig:
     """Construct LiveConnectConfig for native bidirectional audio conversation."""
     validate_call_voice_selection(voice_sample_audio, consent_audio, voice_id)
-    system_instruction = ELARA_SYSTEM_INSTRUCTION
+    system_instruction = HUGBACK_SYSTEM_INSTRUCTION
     if memory_context:
         system_instruction = f"{system_instruction}\n\n{memory_context}"
     if followup_context:
@@ -135,7 +135,7 @@ def create_live_config(
     else:
         voice_config = types.VoiceConfig(
             prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name=settings.ELARA_VOICE_NAME
+                voice_name=settings.HUGBACK_VOICE_NAME
             )
         )
 

@@ -1,6 +1,6 @@
-# Elara memory implementation rules
+# Hugback memory implementation rules
 
-- The no-app architecture in the ELARA workspace remains authoritative.
+- The no-app architecture in the HUGBACK workspace remains authoritative.
 - Firestore canonical follow-up records authorize recall. Legacy Memory Bank
   strings must not bypass consent, suppression, expiry, or deletion.
 - Model output is an untrusted proposal. Validate source turn, user role, exact

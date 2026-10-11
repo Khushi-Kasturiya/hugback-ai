@@ -54,7 +54,7 @@ def validate_call_voice_selection(
             "Managed/TTS voice IDs are not enabled for ordinary Live calls. "
             "Use the separate compatibility probe."
         )
-    if settings.ELARA_LIVE_VOICE_MODE == "preset":
+    if settings.HUGBACK_LIVE_VOICE_MODE == "preset":
         if voice_sample_audio is not None or consent_audio is not None:
             raise VoiceEnrollmentError(
                 "This server uses a fixed preset voice. Remove the saved voice "
@@ -71,7 +71,7 @@ def parse_call_voice(message: Mapping[str, Any]) -> "InlineVoice | None":
     """Apply the server's voice mode before decoding or forwarding recordings."""
     if not isinstance(message, Mapping):
         raise VoiceEnrollmentError("Voice input must be a JSON object")
-    if settings.ELARA_LIVE_VOICE_MODE == "preset" and (
+    if settings.HUGBACK_LIVE_VOICE_MODE == "preset" and (
         "voiceSampleAudio" in message or "consentAudio" in message
     ):
         # Presence itself is an error, including null/empty/stale browser fields.

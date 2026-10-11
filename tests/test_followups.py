@@ -401,7 +401,7 @@ class ExtractorAndConfigTests(unittest.IsolatedAsyncioTestCase):
             )
         factory.assert_not_called()
     async def test_live_tools_cannot_grant_consent_or_choose_owner(self):
-        with patch("app.config.settings.ELARA_LIVE_VOICE_MODE", "preset"):
+        with patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "preset"):
             config = create_live_config(enable_followup_tools=True)
         declarations = config.tools[0].function_declarations
         self.assertEqual([d.name for d in declarations], ["claim_followup", "control_followup"])

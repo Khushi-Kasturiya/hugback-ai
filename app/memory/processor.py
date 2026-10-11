@@ -11,7 +11,7 @@ from app.memory.models import ProcessMemoryRequest, TranscriptTurn
 from app.memory.service import get_memory_service
 from app.memory.store import get_session_store
 
-logger = logging.getLogger("elara.memory_processor")
+logger = logging.getLogger("hugback.memory_processor")
 
 
 async def process_session_memory(request: ProcessMemoryRequest) -> str:
@@ -79,7 +79,7 @@ def _enqueue_cloud_task(request: ProcessMemoryRequest) -> None:
     )
     headers = {"Content-Type": "application/json"}
     if settings.MEMORY_TASK_SECRET:
-        headers["X-Elara-Task-Secret"] = settings.MEMORY_TASK_SECRET
+        headers["X-Hugback-Task-Secret"] = settings.MEMORY_TASK_SECRET
     http_request: dict[str, Any] = {
         "http_method": tasks_v2.HttpMethod.POST,
         "url": settings.MEMORY_PROCESSOR_URL,
@@ -97,7 +97,7 @@ def _enqueue_cloud_task(request: ProcessMemoryRequest) -> None:
 def task_request_is_authorized(headers: Any) -> bool:
     """Cloud Run IAM is primary; this secret supports local/private deployments."""
     if settings.MEMORY_TASK_SECRET:
-        supplied = headers.get("x-elara-task-secret", "")
+        supplied = headers.get("x-hugback-task-secret", "")
         return hmac.compare_digest(supplied, settings.MEMORY_TASK_SECRET)
 
     if not settings.CLOUD_TASKS_SERVICE_ACCOUNT or not settings.MEMORY_PROCESSOR_URL:

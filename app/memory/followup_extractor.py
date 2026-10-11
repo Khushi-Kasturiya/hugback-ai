@@ -34,7 +34,7 @@ class GoogleFollowupExtractor:
 
     async def extract(self, turns: list[TranscriptTurn], plan: CallPlan) -> ObservationBatch:
         allowed = (
-            settings.LOCAL_DEMO_ENABLED and settings.ELARA_AUTH_MODE.lower() == "development"
+            settings.LOCAL_DEMO_ENABLED and settings.HUGBACK_AUTH_MODE.lower() == "development"
             if self.local_demo else settings.FOLLOWUPS_ENABLED
         )
         if not allowed or not plan.consent:

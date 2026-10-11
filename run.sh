@@ -12,5 +12,5 @@ else
     UVICORN_EXEC="uvicorn"
 fi
 
-echo "Starting Elara Multimodal Live Backend on port 8000..."
+echo "Starting Hugback Multimodal Live Backend on port 8000..."
 exec "$UVICORN_EXEC" app.main:app --host 0.0.0.0 --port 8000

@@ -27,7 +27,7 @@ from app.memory.followups import ObservationBatch, revoke
 from app.memory.models import TranscriptTurn
 
 ORIGIN = "http://127.0.0.1:3000"
-HEADERS = {"Origin": ORIGIN, "X-Elara-Development-User": "synthetic-browser-a"}
+HEADERS = {"Origin": ORIGIN, "X-Hugback-Development-User": "synthetic-browser-a"}
 CREATE = {
     "syntheticOnly": True, "simulateChildConsent": True,
     "simulateParentConsent": True, "enableMemory": True,
@@ -55,8 +55,8 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         for item in (
             patch.object(settings, "LOCAL_DEMO_ENABLED", True),
             patch.object(settings, "LOCAL_DEMO_DB_PATH", self.path),
-            patch.object(settings, "ELARA_AUTH_MODE", "development"),
-            patch.object(settings, "ELARA_LIVE_VOICE_MODE", "preset"),
+            patch.object(settings, "HUGBACK_AUTH_MODE", "development"),
+            patch.object(settings, "HUGBACK_LIVE_VOICE_MODE", "preset"),
         ):
             item.start()
             self.addCleanup(item.stop)
@@ -207,7 +207,7 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
                 require_demo(peer, origin, mutation=True)
         with patch.object(settings, "LOCAL_DEMO_ENABLED", False), self.assertRaises(DemoError):
             require_demo("127.0.0.1", ORIGIN)
-        with patch.object(settings, "ELARA_AUTH_MODE", "firebase"), self.assertRaises(DemoError):
+        with patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"), self.assertRaises(DemoError):
             require_demo("127.0.0.1", ORIGIN)
 
     def test_http_contract_scope_and_no_cloud_reads(self):
@@ -222,11 +222,11 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
             response = client.put("/api/demo/background", headers=HEADERS, json=review(recipient=self.recipient_id))
             self.assertEqual(response.status_code, 200)
             self.assertEqual(response.headers["cache-control"], "no-store")
-            other = HEADERS | {"X-Elara-Development-User": "synthetic-browser-b"}
+            other = HEADERS | {"X-Hugback-Development-User": "synthetic-browser-b"}
             self.assertEqual(client.get("/api/demo/family", headers=other).status_code, 404)
             self.assertEqual(client.put("/api/demo/background", headers=HEADERS, json=review(recipient=self.recipient_id)).status_code, 409)
             self.assertEqual(client.post("/api/demo/family", headers={
-                "X-Elara-Development-User": "synthetic-browser-a",
+                "X-Hugback-Development-User": "synthetic-browser-a",
             }, json=CREATE).status_code, 403)
 
     def test_websocket_rejects_remote_peer_and_unknown_family_before_provider(self):
@@ -255,7 +255,7 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
             async def send_tool_response(self, function_responses):
                 claims.append(function_responses[0].response)
                 await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
-                    output_transcription=types.Transcription(text="I am Elara, an AI companion."),
+                    output_transcription=types.Transcription(text="I am Hugback, an AI companion."),
                     turn_complete=True,
                 )))
 

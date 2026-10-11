@@ -1,4 +1,4 @@
-"""FastAPI application for Elara's authenticated live-audio WebSocket broker.
+"""FastAPI application for Hugback's authenticated live-audio WebSocket broker.
 
 Uses official Google GenAI SDK (google-genai) with direct support for both
 Google AI Studio GEMINI_API_KEY and Vertex AI Application Default Credentials.
@@ -57,14 +57,14 @@ logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL.upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
-logger = logging.getLogger("elara.broker")
+logger = logging.getLogger("hugback.broker")
 # Strong references keep bounded local finalizers alive when a browser closes
 # its ASGI/WebSocket task. This is not a durable queue across server shutdown.
 _demo_finalizers: set[asyncio.Task] = set()
 
 # Initialize FastAPI
 app = FastAPI(
-    title="Elara Multimodal Live Audio Broker",
+    title="Hugback Multimodal Live Audio Broker",
     version="0.1.0",
     description="Bidirectional low-latency audio broker connecting to Gemini Multimodal Live API",
 )
@@ -108,10 +108,10 @@ async def healthz():
         "has_api_key": bool(settings.GEMINI_API_KEY),
         "project": settings.GOOGLE_CLOUD_PROJECT,
         "location": settings.GOOGLE_CLOUD_LOCATION,
-        "model": settings.ELARA_MODEL,
-        "voice": settings.ELARA_VOICE_NAME,
-        "voice_mode": settings.ELARA_LIVE_VOICE_MODE,
-        "caller_auth": settings.ELARA_AUTH_MODE,
+        "model": settings.HUGBACK_MODEL,
+        "voice": settings.HUGBACK_VOICE_NAME,
+        "voice_mode": settings.HUGBACK_LIVE_VOICE_MODE,
+        "caller_auth": settings.HUGBACK_AUTH_MODE,
         "memory_configured": settings.MEMORY_ENABLED,
         "memory_operational": memory_service.enabled,
         "memory_error": getattr(memory_service, "reason", None),
@@ -220,7 +220,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             )
         elif (
             not inline_voice and identity.provider == "development"
-            and settings.ELARA_VOICE_DB_PATH.exists()
+            and settings.HUGBACK_VOICE_DB_PATH.exists()
             and websocket.client and websocket.client.host in {"127.0.0.1", "::1"}
             and "demoParent" not in authentication_message
         ):
@@ -275,7 +275,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         return
 
     try:
-        model = settings.ELARA_MODEL
+        model = settings.HUGBACK_MODEL
         followup_context = ""
         if demo_state or settings.FOLLOWUPS_ENABLED:
             # Do not let legacy unfiltered semantic memories reintroduce a
@@ -308,12 +308,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     except Exception as e:
         if demo_state:
             await asyncio.to_thread(demo_store.call_status, user_id, session_id, "failed", release=True)
-        logger.error(f"Failed to initialize Elara services: {e}", exc_info=True)
+        logger.error(f"Failed to initialize Hugback services: {e}", exc_info=True)
         await websocket.send_text(
             json.dumps({
                 "type": "error",
                 "message": (
-                    "Elara could not initialize this call. Check Gemini and memory configuration."
+                    "Hugback could not initialize this call. Check Gemini and memory configuration."
                 ),
             })
         )
@@ -386,7 +386,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
 
             playback = ReplicatedPlayback(
-                client, websocket, voice_key=voice_key, model=settings.ELARA_TTS_MODEL,
+                client, websocket, voice_key=voice_key, model=settings.HUGBACK_TTS_MODEL,
                 on_audio=checkpoint_audio,
             ) if voice_key else None
 

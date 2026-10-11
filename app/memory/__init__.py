@@ -1,1 +1,1 @@
-"""Elara long-term memory package."""
+"""Hugback long-term memory package."""

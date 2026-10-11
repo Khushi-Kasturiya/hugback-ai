@@ -25,7 +25,7 @@ def configured():
 
 
 def family_id(uid):
-    return "family-" + hashlib.sha256(("elara-cloud-family:" + uid).encode()).hexdigest()
+    return "family-" + hashlib.sha256(("hugback-cloud-family:" + uid).encode()).hexdigest()
 
 
 def valid_id(value, kind):

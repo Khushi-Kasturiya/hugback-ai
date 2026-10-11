@@ -18,9 +18,9 @@ def now():
 
 def enrollment_available():
     return (
-        settings.ELARA_REPLICATED_TTS_ENABLED
-        and settings.ELARA_AUTH_MODE.lower() == "development"
-        and settings.ELARA_LIVE_VOICE_MODE == "preset"
+        settings.HUGBACK_REPLICATED_TTS_ENABLED
+        and settings.HUGBACK_AUTH_MODE.lower() == "development"
+        and settings.HUGBACK_LIVE_VOICE_MODE == "preset"
         and bool(settings.GEMINI_API_KEY)
     )
 
@@ -28,7 +28,7 @@ def enrollment_available():
 def require_local_voice(peer, origin, *, mutation=True):
     # Deletes/reads must remain possible after the enrollment feature is disabled.
     parsed = urlparse(origin or "")
-    if settings.ELARA_AUTH_MODE.lower() != "development" or peer not in {"127.0.0.1", "::1"}:
+    if settings.HUGBACK_AUTH_MODE.lower() != "development" or peer not in {"127.0.0.1", "::1"}:
         raise VoiceEnrollmentError("Voice setup is currently a localhost development feature.")
     if origin is not None or mutation:
         if (
@@ -124,4 +124,4 @@ class VoiceProfileStore:
 
 
 def get_voice_store():
-    return VoiceProfileStore(settings.ELARA_VOICE_DB_PATH)
+    return VoiceProfileStore(settings.HUGBACK_VOICE_DB_PATH)

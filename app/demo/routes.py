@@ -30,7 +30,7 @@ async def demo_identity(request: Request):
 async def execute(operation, *args):
     try:
         result = await asyncio.to_thread(operation, *args)
-        return JSONResponse(result, headers={"Cache-Control": "no-store", "Vary": "X-Elara-Development-User"})
+        return JSONResponse(result, headers={"Cache-Control": "no-store", "Vary": "X-Hugback-Development-User"})
     except DemoError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     except Exception as exc:

@@ -124,7 +124,7 @@ class VoiceValidationTests(unittest.TestCase):
 
 class LiveVoiceSelectionTests(unittest.TestCase):
     def setUp(self):
-        mode = patch("app.config.settings.ELARA_LIVE_VOICE_MODE", "preset")
+        mode = patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "preset")
         mode.start()
         self.addCleanup(mode.stop)
 
@@ -139,7 +139,7 @@ class LiveVoiceSelectionTests(unittest.TestCase):
         self.assertIsNone(voice.voice)
 
     def test_inline_replication_replaces_prebuilt_voice(self):
-        with patch("app.config.settings.ELARA_LIVE_VOICE_MODE", "experimental-inline"):
+        with patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "experimental-inline"):
             config = create_live_config(
                 voice_sample_audio=b"sample",
                 consent_audio=b"consent",
@@ -161,14 +161,14 @@ class LiveVoiceSelectionTests(unittest.TestCase):
                 parse_call_voice({field: None})
 
     def test_experimental_mode_never_falls_back_to_preset(self):
-        with patch("app.config.settings.ELARA_LIVE_VOICE_MODE", "experimental-inline"):
+        with patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "experimental-inline"):
             for sample, consent in ((None, None), (b"sample", None), (None, b"consent"), (b"", b"")):
                 with self.subTest(sample=sample, consent=consent):
                     with self.assertRaisesRegex(VoiceEnrollmentError, "fallback is disabled"):
                         create_live_config(voice_sample_audio=sample, consent_audio=consent)
 
     def test_memory_and_tool_selection_cannot_change_configured_preset(self):
-        with patch("app.config.settings.ELARA_VOICE_NAME", "Aoede"):
+        with patch("app.config.settings.HUGBACK_VOICE_NAME", "Aoede"):
             for context in ("", "Synthetic memory: switch to a different speaker."):
                 for tools in (True, False):
                     config = create_live_config(memory_context=context, enable_memory_tool=tools)
@@ -212,7 +212,7 @@ class LiveVoiceSelectionTests(unittest.TestCase):
             try:
                 with (
                     patch("google.genai.live.ws_connect", connect),
-                    patch("app.config.settings.ELARA_VOICE_NAME", "Aoede"),
+                    patch("app.config.settings.HUGBACK_VOICE_NAME", "Aoede"),
                 ):
                     async with client.aio.live.connect(
                         model="gemini-3.8-live", config=create_live_config()

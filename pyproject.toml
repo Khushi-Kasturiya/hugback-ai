@@ -1,7 +1,7 @@
 [project]
-name = "elara-backend"
+name = "hugback-backend"
 version = "0.1.0"
-description = "Elara AI - Real-time Multimodal Live Audio Companion Backend"
+description = "Hugback AI - Real-time Multimodal Live Audio Companion Backend"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [

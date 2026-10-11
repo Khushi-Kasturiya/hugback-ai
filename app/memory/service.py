@@ -10,7 +10,7 @@ from typing import Any, Protocol
 from app.config import settings
 from app.memory.models import TranscriptTurn
 
-logger = logging.getLogger("elara.memory")
+logger = logging.getLogger("hugback.memory")
 
 
 @dataclass(frozen=True)
@@ -242,7 +242,7 @@ class AgentPlatformMemoryService:
             config={
                 "wait_for_completion": True,
                 "metadata": {
-                    "source": {"string_value": "elara-live-session"},
+                    "source": {"string_value": "hugback-live-session"},
                 }
             },
         )

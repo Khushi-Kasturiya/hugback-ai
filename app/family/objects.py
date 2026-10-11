@@ -30,7 +30,7 @@ class PrivateObjects:
             raise FamilyError("Original file integrity could not be confirmed.", 409)
         self.check_private()
         blob = self.bucket.blob(path)
-        blob.metadata = {"elaraSha256": sha}
+        blob.metadata = {"hugbackSha256": sha}
         # No filename-based path, no overwrite, no automatic upload retry.
         try:
             blob.upload_from_string(raw, content_type="application/octet-stream",
@@ -38,7 +38,7 @@ class PrivateObjects:
         except PreconditionFailed:
             # A prior attempt may have saved bytes before its Firestore commit failed.
             blob.reload(timeout=10, retry=None)
-            if blob.size != len(raw) or (blob.metadata or {}).get("elaraSha256") != sha:
+            if blob.size != len(raw) or (blob.metadata or {}).get("hugbackSha256") != sha:
                 raise FamilyError("An existing original did not match this import. Nothing was overwritten.", 409)
             # Do not trust matching custom metadata alone. Confirm the bytes of
             # the exact generation before recovering a partially completed save.

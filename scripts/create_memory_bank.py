@@ -1,4 +1,4 @@
-"""Create Elara's managed semantic Memory Bank and structured care profile.
+"""Create Hugback's managed semantic Memory Bank and structured care profile.
 
 Run from the backend directory after ADC authentication:
     python scripts/create_memory_bank.py
@@ -33,7 +33,7 @@ class MemoryBankCareProfile(BaseModel):
         description="Upcoming events, appointments, visits, and follow-up topics."
     )
     communication_preferences: list[str] = Field(
-        description="How the user prefers Elara to communicate and offer support."
+        description="How the user prefers Hugback to communicate and offer support."
     )
 
 
@@ -46,7 +46,7 @@ def main() -> None:
         f"projects/{settings.GOOGLE_CLOUD_PROJECT}/locations/"
         f"{settings.GOOGLE_CLOUD_LOCATION}/publishers/google/models/gemini-embedding-001"
     )
-    display_name = "Elara User Memory"
+    display_name = "Hugback User Memory"
     existing = next(
         (
             bank
@@ -68,7 +68,7 @@ def main() -> None:
                     "scope_keys": ["user_id"],
                     "schema_configs": [
                         {
-                            "id": "elara-care-profile",
+                            "id": "hugback-care-profile",
                             "memory_schema": MemoryBankCareProfile.model_json_schema(),
                         }
                     ]

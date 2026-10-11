@@ -1,4 +1,4 @@
-"""Configuration settings for Elara AI backend."""
+"""Configuration settings for Hugback AI backend."""
 
 import os
 from pathlib import Path
@@ -25,30 +25,30 @@ class Settings(BaseSettings):
     # Live API models (support bidiGenerateContent):
     #   gemini-3.8-live, gemini-2.5-flash-native-audio-preview-12-2025
     # Non-live models like gemini-2.0-flash-exp do NOT support bidiGenerateContent
-    ELARA_MODEL: str = "gemini-3.8-live"
-    ELARA_VOICE_NAME: str = "Aoede"
+    HUGBACK_MODEL: str = "gemini-3.8-live"
+    HUGBACK_VOICE_NAME: str = "Aoede"
     # Replicated voices are synthesized through the supported TTS endpoint;
     # the Voices endpoint itself must choose its creation model automatically.
-    ELARA_TTS_MODEL: str = "gemini-3.8-flash-lite-tts"
+    HUGBACK_TTS_MODEL: str = "gemini-3.8-flash-lite-tts"
     # Explicit portal TTS capability; never inferred from old browser recordings
     # or enabled solely by the local call simulator.
-    ELARA_REPLICATED_TTS_ENABLED: bool = False
+    HUGBACK_REPLICATED_TTS_ENABLED: bool = False
     # Private single-machine vault; no raw recordings and no cloud fallback.
-    ELARA_VOICE_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-voice" / "voices.sqlite3"
+    HUGBACK_VOICE_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-voice" / "voices.sqlite3"
     # Never infer the call's voice mode from browser storage. Experimental mode
     # requires both recordings on every call and must never fall back to a preset.
-    ELARA_LIVE_VOICE_MODE: Literal["preset", "experimental-inline"] = "preset"
+    HUGBACK_LIVE_VOICE_MODE: Literal["preset", "experimental-inline"] = "preset"
 
     # Optional inputs for the isolated voice test script, NOT a global caller
     # voice. Merely configuring these paths must never upload any recordings.
-    ELARA_VOICE_REFERENCE_PATH: Path | None = None
-    ELARA_VOICE_CONSENT_PATH: Path | None = None
-    ELARA_VOICE_TEST_OUTPUT_PATH: Path | None = None
+    HUGBACK_VOICE_REFERENCE_PATH: Path | None = None
+    HUGBACK_VOICE_CONSENT_PATH: Path | None = None
+    HUGBACK_VOICE_TEST_OUTPUT_PATH: Path | None = None
 
     # Identity. Use "firebase" in deployed environments. Development mode
     # accepts only a constrained, browser-generated ID and must never be used
     # as an authorization boundary in production.
-    ELARA_AUTH_MODE: str = "development"
+    HUGBACK_AUTH_MODE: str = "development"
     FIREBASE_PROJECT_ID: str | None = None
 
     # Long-term memory and durable session storage.
@@ -66,7 +66,7 @@ class Settings(BaseSettings):
 
     # Synthetic, loopback-only hackathon simulator. Never a production store.
     LOCAL_DEMO_ENABLED: bool = False
-    LOCAL_DEMO_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-demo" / "elara.sqlite3"
+    LOCAL_DEMO_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-demo" / "hugback.sqlite3"
 
     # Internal Forms/Drive intake storage only; no browser route or consent grant.
     # Requires pre-existing resources. Enabling Firestore alone does not upload.
@@ -85,7 +85,7 @@ class Settings(BaseSettings):
     # is durable on Cloud Run and is the required production setting.
     MEMORY_PROCESSING_MODE: str = "inline"
     CLOUD_TASKS_LOCATION: str = "us-central1"
-    CLOUD_TASKS_QUEUE: str = "elara-memory"
+    CLOUD_TASKS_QUEUE: str = "hugback-memory"
     MEMORY_PROCESSOR_URL: str | None = None
     CLOUD_TASKS_SERVICE_ACCOUNT: str | None = None
     MEMORY_TASK_SECRET: str | None = None

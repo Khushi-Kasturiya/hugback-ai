@@ -1,1 +1,1 @@
-"""Elara AI backend package."""
+"""Hugback AI backend package."""

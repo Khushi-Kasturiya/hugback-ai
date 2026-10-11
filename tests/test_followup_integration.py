@@ -20,8 +20,8 @@ class FollowupBrokerTests(unittest.TestCase):
     def setUp(self):
         for item in (
             patch("app.main.settings.FOLLOWUPS_ENABLED", True),
-            patch("app.main.settings.ELARA_AUTH_MODE", "development"),
-            patch("app.main.settings.ELARA_LIVE_VOICE_MODE", "preset"),
+            patch("app.main.settings.HUGBACK_AUTH_MODE", "development"),
+            patch("app.main.settings.HUGBACK_LIVE_VOICE_MODE", "preset"),
         ):
             item.start()
             self.addCleanup(item.stop)
@@ -59,7 +59,7 @@ class FollowupBrokerTests(unittest.TestCase):
             async def send_tool_response(self, function_responses):
                 self.result = function_responses[0].response
                 await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
-                    output_transcription=types.Transcription(text="Hello, I am Elara, an AI companion."),
+                    output_transcription=types.Transcription(text="Hello, I am Hugback, an AI companion."),
                     turn_complete=True,
                 )))
 
@@ -200,7 +200,7 @@ class FollowupBrokerTests(unittest.TestCase):
             )),
             TestClient(app) as client,
         ):
-            response = client.delete("/api/memories", headers={"X-Elara-Development-User": "parent-12345678"})
+            response = client.delete("/api/memories", headers={"X-Hugback-Development-User": "parent-12345678"})
         self.assertEqual(response.status_code, 200)
         self.assertEqual([step for step, _ in order], ["tombstone", "semantic", "sessions"])
 
