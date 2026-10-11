@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from google.genai import types
+from pydantic import BaseModel
 
 from app.agent.live_session import create_genai_client, create_live_config
 from app.auth import (
@@ -30,8 +31,15 @@ from app.memory.processor import (
 )
 from app.memory.service import get_memory_service, render_memory_context
 from app.memory.store import get_session_store
-from app.memory.transcript import TranscriptCollector
-from app.voice.service import VoiceEnrollmentError, parse_inline_voice
+from app.memory.transcript import TranscriptCollector, merge_transcription
+from app.voice.service import (
+    VoiceEnrollmentError,
+    create_replicated_voice_key,
+    parse_inline_voice,
+    parse_voice_key,
+    split_ready_speech,
+    stream_replicated_speech,
+)
 
 # Configure logging
 logging.basicConfig(
@@ -117,6 +125,50 @@ async def delete_memories(request: Request):
     return {"status": "deleted"}
 
 
+class VoiceEnrollmentRequest(BaseModel):
+    voiceSampleAudio: str
+    consentAudio: str
+
+
+@app.post("/api/voice/enroll")
+async def enroll_voice(payload: VoiceEnrollmentRequest, request: Request):
+    """Create Google's seven-day stateless voice key after verifying consent."""
+    try:
+        await authenticate_http_headers(request.headers)
+        recordings = parse_inline_voice(payload.model_dump())
+        if recordings is None:
+            raise VoiceEnrollmentError("Both voice recordings are required")
+    except (AuthenticationError, VoiceEnrollmentError) as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    client = create_genai_client()
+
+    try:
+        voice_key = await asyncio.to_thread(
+            create_replicated_voice_key,
+            client,
+            recordings,
+        )
+    except Exception as exc:
+        message = str(exc)
+        if "Paid Quota Tier 1" in message or "PERMISSION_DENIED" in message:
+            raise HTTPException(
+                status_code=402,
+                detail=(
+                    "Google Voice Replication requires Gemini API Paid Tier 1 "
+                    "with an active API billing balance. Confirm this API key belongs "
+                    "to the upgraded project, then try again."
+                ),
+            ) from exc
+        logger.error("Voice replication provisioning failed: %s", exc, exc_info=True)
+        raise HTTPException(
+            status_code=502,
+            detail="Google could not create the replicated voice. Check the recordings and try again.",
+        ) from exc
+
+    return {"voiceKey": voice_key, "expiresInSeconds": 7 * 24 * 60 * 60}
+
+
 def get_client_ip(ws: WebSocket) -> str:
     """Extract client IP."""
     xff = ws.headers.get("x-forwarded-for")
@@ -133,7 +185,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     started_at = datetime.now(timezone.utc)
     collector = TranscriptCollector()
     user_id: str | None = None
-    inline_voice = None
+    voice_key = None
 
     logger.info(f"Incoming WebSocket connection from {client_ip} [session: {session_id}]")
     await websocket.accept()
@@ -142,7 +194,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         authentication_text = await asyncio.wait_for(websocket.receive_text(), timeout=15)
         authentication_message = json.loads(authentication_text)
         identity = await authenticate_message(authentication_message)
-        inline_voice = parse_inline_voice(authentication_message)
+        voice_key = parse_voice_key(authentication_message)
         user_id = identity.user_id
     except (
         AuthenticationError,
@@ -164,8 +216,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         live_config = create_live_config(
             memory_context=render_memory_context(memory_context),
             enable_memory_tool=memory_service.enabled,
-            voice_sample_audio=inline_voice.sample if inline_voice else None,
-            consent_audio=inline_voice.consent if inline_voice else None,
         )
     except Exception as e:
         logger.error(f"Failed to initialize Elara services: {e}", exc_info=True)
@@ -189,11 +239,110 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             # that the local broker accepted the browser connection.
             await websocket.send_text(json.dumps({
                 "type": "ready",
-                "voice": "replicated" if inline_voice else "default",
+                "voice": "replicated" if voice_key else "default",
             }))
 
             received_audio = False
             sent_audio = False
+            replicated_turn_text = ""
+            tts_pending_text = ""
+            tts_generation = 0
+            tts_queue: asyncio.Queue[tuple[str, bool]] = asyncio.Queue()
+            tts_worker_task: asyncio.Task[None] | None = None
+
+            def cancel_replicated_speech() -> None:
+                nonlocal tts_generation, tts_queue, tts_worker_task, tts_pending_text
+                tts_generation += 1
+                tts_pending_text = ""
+                if tts_worker_task is not None and not tts_worker_task.done():
+                    tts_worker_task.cancel()
+                tts_queue = asyncio.Queue()
+                tts_worker_task = None
+
+            async def replicated_speech_worker(
+                queue: asyncio.Queue[tuple[str, bool]], generation: int
+            ) -> None:
+                """Synthesize queued phrases in order and stream each immediately."""
+                nonlocal sent_audio
+                try:
+                    while True:
+                        text, final = await queue.get()
+                        if text:
+                            synthesis_started = asyncio.get_running_loop().time()
+                            chunk_count = 0
+                            async for audio in stream_replicated_speech(
+                                client,
+                                voice_key=voice_key or "",
+                                text=text,
+                                model=settings.ELARA_TTS_MODEL,
+                            ):
+                                if generation != tts_generation:
+                                    return
+                                chunk_count += 1
+                                if chunk_count == 1:
+                                    logger.info(
+                                        "Replicated TTS first audio for %s in %.2fs "
+                                        "(%d chars)",
+                                        session_id,
+                                        asyncio.get_running_loop().time()
+                                        - synthesis_started,
+                                        len(text),
+                                    )
+                                sent_audio = True
+                                await websocket.send_text(json.dumps({
+                                    "content": {
+                                        "parts": [{
+                                            "inlineData": {
+                                                "mimeType": (
+                                                    f"audio/pcm;rate={audio.sample_rate}"
+                                                ),
+                                                "data": base64.b64encode(
+                                                    audio.pcm
+                                                ).decode("ascii"),
+                                            }
+                                        }]
+                                    }
+                                }))
+                            logger.info(
+                                "Replicated TTS segment completed for %s in %.2fs "
+                                "(%d chunks)",
+                                session_id,
+                                asyncio.get_running_loop().time() - synthesis_started,
+                                chunk_count,
+                            )
+                        if final:
+                            if generation == tts_generation:
+                                await websocket.send_text(
+                                    json.dumps({"turnComplete": True})
+                                )
+                            return
+                except asyncio.CancelledError:
+                    return
+                except Exception as exc:
+                    logger.error(
+                        "Replicated voice synthesis failed for %s: %s",
+                        session_id,
+                        exc,
+                        exc_info=True,
+                    )
+                    try:
+                        await websocket.send_text(json.dumps({
+                            "type": "error",
+                            "message": "Google could not synthesize the replicated voice.",
+                        }))
+                    except Exception:
+                        pass
+
+            def queue_replicated_speech(text: str, *, final: bool = False) -> None:
+                nonlocal tts_worker_task
+                if tts_worker_task is None or tts_worker_task.done():
+                    generation = tts_generation
+                    queue = tts_queue
+                    tts_worker_task = asyncio.create_task(
+                        replicated_speech_worker(queue, generation),
+                        name=f"tts-{session_id}",
+                    )
+                tts_queue.put_nowait((text, final))
 
             async def upstream_task() -> None:
                 """Reads microphone PCM audio and controls from browser and sends to Gemini."""
@@ -247,6 +396,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
                                 elif msg_type == "turn_complete":
                                     logger.info(f"Client edge VAD signaled turn_complete for {session_id}")
+                                    cancel_replicated_speech()
                                     await live_session.send_client_content(
                                         turn_complete=True,
                                     )
@@ -275,7 +425,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             async def downstream_task() -> None:
                 """Receives audio and events from Gemini and streams them back to the browser."""
-                nonlocal sent_audio
+                nonlocal sent_audio, replicated_turn_text, tts_pending_text
                 try:
                     # The SDK's receive() iterator represents one complete
                     # model turn and intentionally stops at turn_complete.
@@ -329,6 +479,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 if server_content.model_turn is not None:
                                     for part in server_content.model_turn.parts:
                                         if part.inline_data and part.inline_data.data:
+                                            # Gemini Live currently rejects replicated voice
+                                            # IDs. For enrolled users, discard its prebuilt
+                                            # audio and synthesize the transcription through
+                                            # the supported Flash-Lite TTS endpoint instead.
+                                            if voice_key:
+                                                continue
                                             if not sent_audio:
                                                 logger.info(
                                                     "Streaming Gemini audio response for %s",
@@ -359,6 +515,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     server_content.output_transcription
                                     and server_content.output_transcription.text
                                 ):
+                                    previous_text = replicated_turn_text
+                                    replicated_turn_text = merge_transcription(
+                                        replicated_turn_text,
+                                        server_content.output_transcription.text,
+                                    )
+                                    if voice_key and replicated_turn_text.startswith(previous_text):
+                                        tts_pending_text += replicated_turn_text[len(previous_text):]
+                                        ready, tts_pending_text = split_ready_speech(
+                                            tts_pending_text
+                                        )
+                                        for segment in ready:
+                                            queue_replicated_speech(segment)
                                     collector.add_model(
                                         server_content.output_transcription.text
                                     )
@@ -389,11 +557,31 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 # 4. Turn completion signal
                                 if server_content.turn_complete:
                                     collector.complete_turn()
-                                    await websocket.send_text(json.dumps({"turnComplete": True}))
+                                    if voice_key:
+                                        ready, tts_pending_text = split_ready_speech(
+                                            tts_pending_text,
+                                            final=True,
+                                        )
+                                        if ready:
+                                            for segment in ready[:-1]:
+                                                queue_replicated_speech(segment)
+                                            queue_replicated_speech(
+                                                ready[-1], final=True
+                                            )
+                                        else:
+                                            # A zero-text marker closes a turn whose
+                                            # complete sentences are already queued.
+                                            queue_replicated_speech("", final=True)
+                                        replicated_turn_text = ""
+                                    else:
+                                        replicated_turn_text = ""
+                                        await websocket.send_text(json.dumps({"turnComplete": True}))
 
                                 # 5. Interruption signal (Gemini detected user speech)
                                 if server_content.interrupted:
                                     logger.info(f"Gemini signaled interrupted for {session_id}")
+                                    cancel_replicated_speech()
+                                    replicated_turn_text = ""
                                     await websocket.send_text(json.dumps({"interrupted": True}))
 
                 except asyncio.CancelledError:
@@ -423,6 +611,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     task.cancel()
                     try:
                         await task
+                    except asyncio.CancelledError:
+                        pass
+                cancel_replicated_speech()
+                if tts_worker_task is not None:
+                    try:
+                        await tts_worker_task
                     except asyncio.CancelledError:
                         pass
             except Exception as e:

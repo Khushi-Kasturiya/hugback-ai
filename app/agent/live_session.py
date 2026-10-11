@@ -17,6 +17,10 @@ def create_genai_client() -> genai.Client:
     if settings.GEMINI_API_KEY:
         logger.info("Initializing Google GenAI Client using GEMINI_API_KEY")
         return genai.Client(
+            # Be explicit here. The google-genai SDK otherwise lets an inherited
+            # GOOGLE_GENAI_USE_VERTEXAI=true override API-key mode. Voice-key
+            # provisioning and the Gemini Developer API must use this transport.
+            vertexai=False,
             api_key=settings.GEMINI_API_KEY,
             http_options={"api_version": "v1alpha"},
         )
@@ -35,9 +39,6 @@ def create_genai_client() -> genai.Client:
 def create_live_config(
     memory_context: str = "",
     enable_memory_tool: bool = False,
-    voice_id: str | None = None,
-    voice_sample_audio: bytes | None = None,
-    consent_audio: bytes | None = None,
 ) -> types.LiveConnectConfig:
     """Construct LiveConnectConfig for native bidirectional audio conversation."""
     system_instruction = ELARA_SYSTEM_INSTRUCTION
@@ -77,34 +78,15 @@ def create_live_config(
             )
         ]
 
-    if voice_id:
-        print(f"\n==================================================")
-        print(f"🎤 [VOICE CONFIG] Using Voice ID: {voice_id}")
-        print(f"==================================================\n", flush=True)
-        logger.info(f"Using Voice ID: {voice_id}")
-        voice_config = types.VoiceConfig(voice=voice_id)
-    elif voice_sample_audio and consent_audio:
-        print(f"\n==================================================")
-        print(f"🎤 [VOICE CONFIG] Using REPLICATED / CLONED VOICE (sample={len(voice_sample_audio)} bytes, consent={len(consent_audio)} bytes)")
-        print(f"==================================================\n", flush=True)
-        logger.info(f"Using REPLICATED / CLONED VOICE (sample={len(voice_sample_audio)} bytes, consent={len(consent_audio)} bytes)")
-        voice_config = types.VoiceConfig(
-            replicated_voice_config=types.ReplicatedVoiceConfig(
-                mime_type="audio/wav",
-                voice_sample_audio=voice_sample_audio,
-                consent_audio=consent_audio,
-            )
+    print(f"\n==================================================")
+    print(f"🎤 [VOICE CONFIG] Using DEFAULT PREBUILT VOICE: {settings.ELARA_VOICE_NAME}")
+    print(f"==================================================\n", flush=True)
+    logger.info(f"Using DEFAULT PREBUILT VOICE: {settings.ELARA_VOICE_NAME}")
+    voice_config = types.VoiceConfig(
+        prebuilt_voice_config=types.PrebuiltVoiceConfig(
+            voice_name=settings.ELARA_VOICE_NAME
         )
-    else:
-        print(f"\n==================================================")
-        print(f"🎤 [VOICE CONFIG] Using DEFAULT PREBUILT VOICE: {settings.ELARA_VOICE_NAME}")
-        print(f"==================================================\n", flush=True)
-        logger.info(f"Using DEFAULT PREBUILT VOICE: {settings.ELARA_VOICE_NAME}")
-        voice_config = types.VoiceConfig(
-            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                voice_name=settings.ELARA_VOICE_NAME
-            )
-        )
+    )
 
 
     return types.LiveConnectConfig(

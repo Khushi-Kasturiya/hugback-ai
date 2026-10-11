@@ -27,23 +27,6 @@ def _write_wav(path: Path, rate: int = 24_000, channels: int = 1) -> None:
 
 
 class VoiceReplicationSpikeTests(unittest.TestCase):
-    def test_live_config_serializes_native_replication_audio(self):
-        config = spike.build_replication_config(b"sample", b"consent")
-        voice = config.speech_config.voice_config
-        self.assertIsNotNone(voice.replicated_voice_config)
-        self.assertEqual(
-            voice.replicated_voice_config.voice_sample_audio,
-            b"sample",
-        )
-        self.assertIsNone(voice.prebuilt_voice_config)
-
-    def test_live_config_serializes_voice_identifier(self):
-        config = spike.build_voice_id_config("voicekey_test")
-        voice = config.speech_config.voice_config
-        self.assertEqual(voice.voice, "voicekey_test")
-        self.assertIsNone(voice.prebuilt_voice_config)
-        self.assertIsNone(voice.replicated_voice_config)
-
     def test_wav_validator_accepts_required_format(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "valid.wav"

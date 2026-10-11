@@ -154,6 +154,40 @@ class MemoryIsolationTests(unittest.TestCase):
         self.assertEqual(facts, ["User fact"])
         self.assertEqual(api.scope, {"user_id": "firebase-user-a"})
 
+    def test_billing_error_opens_circuit_before_second_retrieval(self):
+        class DeniedMemoryApi:
+            def __init__(self):
+                self.profile_calls = 0
+                self.fact_calls = 0
+
+            def retrieve_profiles(self, **kwargs):
+                self.profile_calls += 1
+                raise RuntimeError("403 PERMISSION_DENIED: BILLING_DISABLED")
+
+            def retrieve(self, **kwargs):
+                self.fact_calls += 1
+                return type("Result", (), {"page": []})()
+
+        api = DeniedMemoryApi()
+        service = object.__new__(AgentPlatformMemoryService)
+        service._name = "memory-bank"
+        service._enabled = True
+        service.reason = None
+        service._client = type(
+            "Client",
+            (),
+            {"memory_banks": type("Banks", (), {"memories": api})()},
+        )()
+
+        first = asyncio.run(service.initial_context("firebase-user-a"))
+        second = asyncio.run(service.initial_context("firebase-user-a"))
+
+        self.assertTrue(first.is_empty)
+        self.assertTrue(second.is_empty)
+        self.assertFalse(service.enabled)
+        self.assertEqual(api.profile_calls, 1)
+        self.assertEqual(api.fact_calls, 0)
+
 
 class OptionalCloudDependencyTests(unittest.TestCase):
     def tearDown(self):

@@ -25,6 +25,9 @@ class Settings(BaseSettings):
     # Non-live models like gemini-2.0-flash-exp do NOT support bidiGenerateContent
     ELARA_MODEL: str = "gemini-3.8-live"
     ELARA_VOICE_NAME: str = "Aoede"
+    # Replicated voices are synthesized through the supported TTS endpoint;
+    # the Voices endpoint itself must choose its creation model automatically.
+    ELARA_TTS_MODEL: str = "gemini-3.8-flash-lite-tts"
 
     # Identity. Use "firebase" in deployed environments. Development mode
     # accepts only a constrained, browser-generated ID and must never be used

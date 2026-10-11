@@ -29,6 +29,11 @@ def _merge(existing: str, chunk: str) -> str:
     return _clean(f"{existing}{separator}{chunk}")
 
 
+def merge_transcription(existing: str, chunk: str) -> str:
+    """Merge streaming delta or cumulative transcription text."""
+    return _merge(existing, chunk)
+
+
 class TranscriptCollector:
     def __init__(self) -> None:
         self._pending_user = ""

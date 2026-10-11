@@ -2,9 +2,21 @@ import base64
 import io
 import unittest
 import wave
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
 
-from app.agent.live_session import create_live_config
-from app.voice.service import VoiceEnrollmentError, parse_inline_voice, validate_wav
+from app.agent.live_session import create_genai_client, create_live_config
+from app.voice.service import (
+    InlineVoice,
+    VoiceEnrollmentError,
+    create_replicated_voice_key,
+    parse_inline_voice,
+    parse_voice_key,
+    split_ready_speech,
+    stream_replicated_speech,
+    synthesize_replicated_speech,
+    validate_wav,
+)
 
 
 def make_wav(
@@ -23,6 +35,21 @@ def make_wav(
 
 
 class VoiceValidationTests(unittest.TestCase):
+    def test_replication_lets_google_select_model_and_uses_stateless_storage(self):
+        client = Mock()
+        client.voices.create.return_value = SimpleNamespace(key="voicekey_created")
+        recordings = InlineVoice(sample=b"sample", consent=b"consent")
+
+        key = create_replicated_voice_key(
+            client,
+            recordings,
+        )
+
+        self.assertEqual(key, "voicekey_created")
+        request = client.voices.create.call_args.kwargs
+        self.assertFalse(request["store"])
+        self.assertNotIn("model", request["voice"])
+
     def test_accepts_gemini_ready_wav(self):
         recording = validate_wav(
             make_wav(), label="Voice sample", minimum_seconds=10
@@ -63,30 +90,127 @@ class VoiceValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(VoiceEnrollmentError, "Both"):
             parse_inline_voice({"voiceSampleAudio": "abc"})
 
+    def test_accepts_google_voice_key(self):
+        self.assertEqual(
+            parse_voice_key({"voiceKey": "voicekey_test123"}),
+            "voicekey_test123",
+        )
+
+    def test_rejects_non_google_voice_key(self):
+        with self.assertRaisesRegex(VoiceEnrollmentError, "invalid"):
+            parse_voice_key({"voiceKey": "Aoede"})
+
+
+class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
+    async def test_flash_lite_synthesizes_with_returned_voice_key(self):
+        wav = make_wav(duration=1)
+        client = Mock()
+        client.aio.interactions.create = AsyncMock(
+            return_value=SimpleNamespace(
+                output_audio=SimpleNamespace(
+                    data=base64.b64encode(wav).decode("ascii")
+                )
+            )
+        )
+
+        audio = await synthesize_replicated_speech(
+            client,
+            voice_key="voicekey_test123",
+            text="Hello from Elara.",
+            model="gemini-3.8-flash-lite-tts",
+        )
+
+        self.assertEqual(audio.sample_rate, 24_000)
+        self.assertEqual(len(audio.pcm), 48_000)
+        request = client.aio.interactions.create.await_args.kwargs
+        self.assertEqual(request["api_version"], "v1beta")
+        self.assertEqual(request["model"], "gemini-3.8-flash-lite-tts")
+        self.assertEqual(
+            request["generation_config"]["speech_config"][0]["voice"],
+            "voicekey_test123",
+        )
+
+    async def test_streaming_tts_yields_raw_audio_deltas(self):
+        events = [
+            SimpleNamespace(event_type="interaction.created"),
+            SimpleNamespace(
+                event_type="step.delta",
+                delta=SimpleNamespace(
+                    type="audio",
+                    data=base64.b64encode(b"pcm-one").decode("ascii"),
+                    sample_rate=24_000,
+                ),
+            ),
+            SimpleNamespace(
+                event_type="step.delta",
+                delta=SimpleNamespace(
+                    type="audio",
+                    data=base64.b64encode(b"pcm-two").decode("ascii"),
+                    sample_rate=24_000,
+                ),
+            ),
+        ]
+
+        async def event_stream():
+            for event in events:
+                yield event
+
+        client = Mock()
+        client.aio.interactions.create = AsyncMock(return_value=event_stream())
+
+        chunks = [
+            chunk
+            async for chunk in stream_replicated_speech(
+                client,
+                voice_key="voicekey_test123",
+                text="Hello from Elara.",
+                model="gemini-3.8-flash-lite-tts",
+            )
+        ]
+
+        self.assertEqual([chunk.pcm for chunk in chunks], [b"pcm-one", b"pcm-two"])
+        request = client.aio.interactions.create.await_args.kwargs
+        self.assertTrue(request["stream"])
+        self.assertFalse(request["store"])
+        self.assertEqual(request["response_format"]["mime_type"], "audio/l16")
+
+
+class StreamingSpeechSegmentationTests(unittest.TestCase):
+    def test_releases_complete_sentence_and_keeps_partial_text(self):
+        ready, pending = split_ready_speech(
+            "I remember that. Let me think about your next"
+        )
+        self.assertEqual(ready, ["I remember that."])
+        self.assertEqual(pending, "Let me think about your next")
+
+    def test_final_flushes_short_unpunctuated_text(self):
+        ready, pending = split_ready_speech("Of course", final=True)
+        self.assertEqual(ready, ["Of course"])
+        self.assertEqual(pending, "")
+
+    def test_releases_punctuated_sentence_at_stream_boundary(self):
+        ready, pending = split_ready_speech("I can help with that.")
+        self.assertEqual(ready, ["I can help with that."])
+        self.assertEqual(pending, "")
+
+    def test_long_text_is_bounded_without_waiting_for_turn_end(self):
+        ready, pending = split_ready_speech("word " * 80, maximum_chars=100)
+        self.assertTrue(ready)
+        self.assertTrue(all(len(segment) <= 100 for segment in ready))
+        self.assertTrue(pending)
+
 
 class LiveVoiceSelectionTests(unittest.TestCase):
-    def test_managed_voice_id_replaces_prebuilt_voice(self):
-        config = create_live_config(voice_id="voice_test123")
-        voice = config.speech_config.voice_config
-        self.assertEqual(voice.voice, "voice_test123")
-        self.assertIsNone(voice.prebuilt_voice_config)
+    @patch("app.agent.live_session.genai.Client")
+    def test_api_key_client_forces_developer_api_mode(self, client):
+        create_genai_client()
+        self.assertFalse(client.call_args.kwargs["vertexai"])
 
     def test_default_voice_remains_available(self):
         config = create_live_config()
         voice = config.speech_config.voice_config
         self.assertIsNotNone(voice.prebuilt_voice_config)
         self.assertIsNone(voice.voice)
-
-    def test_inline_replication_replaces_prebuilt_voice(self):
-        config = create_live_config(
-            voice_sample_audio=b"sample",
-            consent_audio=b"consent",
-        )
-        voice = config.speech_config.voice_config
-        self.assertEqual(voice.replicated_voice_config.voice_sample_audio, b"sample")
-        self.assertEqual(voice.replicated_voice_config.consent_audio, b"consent")
-        self.assertIsNone(voice.prebuilt_voice_config)
-
 
 if __name__ == "__main__":
     unittest.main()
