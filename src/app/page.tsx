@@ -1,12 +1,28 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useLiveAudio } from "@/hooks/useLiveAudio";
+import { parentCallUrl } from "@/lib/demo-api";
+import { useDemoFamily } from "@/hooks/useDemoFamily";
 import { Phone, PhoneOff, Mic, Volume2, Sparkles, AlertCircle } from "lucide-react";
-import { VoiceEnrollment } from "@/components/VoiceEnrollment";
+import Link from "next/link";
 
 export default function Home() {
+  return <Suspense fallback={<main className="p-8 text-stone-600">Loading call test…</main>}><CallTest /></Suspense>;
+}
+
+function CallTest() {
   const [showSubtitles, setShowSubtitles] = useState(true);
+  const params = useSearchParams();
+  const router = useRouter();
+  const demoParent = params.get("demo") === "parent";
+  const recipientId = params.get("recipient") || "";
+  const [demoAcknowledged, setDemoAcknowledged] = useState(false);
+  const demo = useDemoFamily(demoParent === true, true);
+
+  const recipient = demo.family?.recipients.find((item) => item.recipientId === recipientId);
+  useEffect(() => { setDemoAcknowledged(false); }, [recipientId]);
 
   const {
     status,
@@ -18,7 +34,14 @@ export default function Home() {
     isCallActive,
     startCall,
     endCall,
-  } = useLiveAudio();
+    callInfo,
+  } = useLiveAudio({ demoParent: demoParent === true, recipientId });
+  const canStart = !demoParent ||
+    (demoAcknowledged && !!recipient && !recipient.busy && !demo.error);
+  const startSelectedCall = () => { if (canStart) void startCall(); };
+  useEffect(() => {
+    if (demoParent && !isCallActive) void demo.refresh();
+  }, [demoParent, isCallActive, demo.refresh]);
 
   // Status message text
   const getStatusDisplay = () => {
@@ -34,6 +57,12 @@ export default function Home() {
       case "error":
         return { title: "Connection Error", desc: errorMessage || "Please check backend", color: "text-rose-700" };
       default:
+        if (demoParent && !canStart) {
+          return { title: recipient?.busy ? "Finishing the Previous Call" : "Prepare Your Demo Call",
+            desc: recipient?.busy ? "Waiting for its memory update before the next call" :
+              demo.family ? (recipient ? `Confirm role-play as ${recipient.label} above` : "Choose the recipient you are role-playing") : "Complete Child setup first",
+            color: "text-stone-700" };
+        }
         return { title: "Ready to Call", desc: "Tap the big button below to begin", color: "text-stone-700" };
     }
   };
@@ -69,6 +98,37 @@ export default function Home() {
         </button>
       </header>
 
+      {demoParent && <section className="mt-6 w-full rounded-2xl border border-emerald-200 bg-emerald-50/70 p-5 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-bold text-emerald-900">Hackathon · Parent call test</h2>
+          {!isCallActive && <Link href="/childportal" className="font-semibold text-emerald-800 underline">← Child setup</Link>}
+        </div>
+        <p className="mt-2 leading-6 text-stone-600">Choose exactly one recipient for this call. Their background and memory stay separate from everyone else’s, even when Elara uses the same child voice. End the call before another person takes over; speaker identity is not verified.</p>
+        {demo.family && <label className="portal-label mt-4 block">Call recipient
+          <select className="portal-input" aria-label="Call recipient" value={recipient?.recipientId || ""} disabled={isCallActive} onChange={(event) => { setDemoAcknowledged(false); router.replace(parentCallUrl(event.target.value)); }}>
+            <option value="">Choose a recipient</option>
+            {demo.family.recipients.map((item) => <option key={item.recipientId} value={item.recipientId}>{item.label}{item.busy ? " · busy" : ""}</option>)}
+          </select>
+        </label>}
+        {recipientId && demo.family && !recipient && <p role="alert" className="mt-3 text-rose-800">This recipient is not in your demo family. Choose an available recipient; no call can start.</p>}
+        {recipient && <div className="mt-3 space-y-2">
+          <p className="font-bold text-emerald-900">Calling as {recipient.label} · {recipient.voice.mode === "child" ? "Assigned child voice" : "Standard Elara voice"}</p>
+          <p>{recipient.background.length} reviewed background excerpts · {recipient.memoryCount} retained wellbeing records</p>
+          <p className="break-all text-xs text-stone-500">Recipient: {recipient.recipientId}</p>
+          <p className="text-xs text-stone-600">{recipient.memoryEnabled ? `Memory enabled: new concerns may be followed up in the next call. Once selected, follow-ups have a ${recipient.memoryCooldownHours}-hour cooldown.` : "Memory is off or paused. Calls do not enable it automatically."}</p>
+          {recipient.busy && !isCallActive && <p role="status" className="font-semibold text-amber-800">Previous call active or saving memory. Please wait; this view refreshes automatically.</p>}
+          {recipient.calls.length > 0 && <p className="text-xs text-stone-600">Last session: {recipient.calls.at(-1)?.status.replaceAll("_", " ")}. No transcript or recap is shared here.</p>}
+          {recipient.calls.at(-1)?.status === "memory_failed" && <p role="alert" className="text-rose-800">The last call’s memory update failed. Do not assume it was remembered; check the backend’s extraction model configuration.</p>}
+        </div>}
+        {!demo.family && !demo.loading && !demo.error && <p className="mt-3">Create a local demo family in <Link className="underline" href="/childportal">Child setup</Link> first.</p>}
+        {demo.error && <p role="alert" className="mt-3 text-rose-800">{demo.error}</p>}
+        {callInfo && callInfo.parentId === recipient?.recipientId && <p className="mt-3 break-all text-xs text-stone-500">Call: {callInfo.sessionId} · Memory: {callInfo.memoryStatus} · Voice: {callInfo.voice}</p>}
+        <label className="mt-4 flex items-start gap-3 leading-6">
+          <input type="checkbox" className="mt-1.5 shrink-0" checked={demoAcknowledged} disabled={isCallActive} onChange={(e) => setDemoAcknowledged(e.target.checked)} />
+          I will role-play only as {recipient?.label || "the selected recipient"}, using fictional details. I will end the call before switching people. Starting this call sends microphone audio and reviewed demo context to Google; enabled memory also processes the demo transcript. Configured provider usage may incur charges. Elara is AI, not my child.
+        </label>
+      </section>}
+
       {/* Center Interactive Orb & Visual Feedback */}
       <section className="flex flex-col items-center justify-center my-auto w-full py-10">
         {/* Animated Breathing Orb */}
@@ -86,8 +146,11 @@ export default function Home() {
           />
 
           {/* Core Orb */}
-          <div
-            className={`w-48 h-48 sm:w-56 sm:h-56 rounded-full flex flex-col items-center justify-center shadow-xl transition-all duration-200 cursor-pointer select-none ${
+          <button
+            type="button"
+            aria-label={isCallActive ? "End current call" : "Start selected call"}
+            disabled={!isCallActive && !canStart}
+            className={`relative w-48 h-48 sm:w-56 sm:h-56 rounded-full flex flex-col items-center justify-center shadow-xl transition-all duration-200 cursor-pointer select-none disabled:cursor-not-allowed ${
               status === "speaking"
                 ? "bg-gradient-to-tr from-emerald-500 to-teal-400 text-white"
                 : isCallActive
@@ -95,7 +158,7 @@ export default function Home() {
                 : "bg-gradient-to-tr from-stone-200 to-stone-100 text-stone-600 border border-stone-300"
             }`}
             style={{ transform: `scale(${orbScale})` }}
-            onClick={isCallActive ? endCall : startCall}
+            onClick={isCallActive ? endCall : startSelectedCall}
           >
             {isCallActive ? (
               status === "speaking" ? (
@@ -106,7 +169,7 @@ export default function Home() {
             ) : (
               <Phone className="w-16 h-16" />
             )}
-          </div>
+          </button>
         </div>
 
         {/* Big Legible Status Text */}
@@ -151,17 +214,22 @@ export default function Home() {
         </section>
       )}
 
-      <VoiceEnrollment disabled={isCallActive} />
+      {!isCallActive && (
+        <Link href="/childportal" className="mb-6 rounded-full border border-stone-300 px-5 py-2.5 text-sm font-semibold text-stone-700 hover:bg-white">
+          Child portal · Voice, background &amp; summaries
+        </Link>
+      )}
 
       {/* Accessible Action Controls */}
       <footer className="w-full flex items-center justify-center gap-4 pb-4">
         {!isCallActive ? (
           <button
-            onClick={startCall}
-            className="w-full sm:w-auto min-w-[240px] px-8 py-5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3"
+            onClick={startSelectedCall}
+            disabled={!canStart}
+            className="w-full sm:w-auto min-w-[240px] px-8 py-5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Phone className="w-6 h-6" />
-            <span>Call Elara</span>
+            <span>{demoParent ? "Call as demo parent" : "Call Elara"}</span>
           </button>
         ) : (
           <button

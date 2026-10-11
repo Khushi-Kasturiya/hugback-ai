@@ -5,6 +5,9 @@ import { startAudioRecorder, RecorderHandle } from "@/lib/audio-recorder";
 import { startAudioPlayer, PlayerHandle, base64ToArrayBuffer } from "@/lib/audio-player";
 import { getAuthenticationMessage } from "@/lib/identity";
 import { getInlineVoicePayload } from "@/lib/voice-profile";
+import { portalGet, PortalStatus } from "@/lib/portal-api";
+import { selectedVoicePayload } from "@/lib/voice-api";
+import { demoRequest, recipientCallPayload } from "@/lib/demo-api";
 
 const CONNECTION_TIMEOUT_MS = 15_000;
 const SPEECH_THRESHOLD = 0.05;
@@ -33,11 +36,15 @@ export type CallStatus =
 
 interface UseLiveAudioOptions {
   wsUrl?: string;
+  demoParent?: boolean;
+  recipientId?: string;
   onTranscriptionUpdate?: (role: "user" | "elara", text: string) => void;
 }
 
 export function useLiveAudio({
   wsUrl = defaultWebSocketUrl(),
+  demoParent = false,
+  recipientId,
   onTranscriptionUpdate,
 }: UseLiveAudioOptions = {}) {
   const [status, setStatus] = useState<CallStatus>("disconnected");
@@ -46,6 +53,7 @@ export function useLiveAudio({
   const [elaraTranscript, setElaraTranscript] = useState<string>("");
   const [userVolume, setUserVolume] = useState<number>(0);
   const [elaraVolume, setElaraVolume] = useState<number>(0);
+  const [callInfo, setCallInfo] = useState<{ sessionId: string; memoryStatus: string; parentId?: string; recipientLabel?: string; voice?: string }>();
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<RecorderHandle | null>(null);
@@ -53,10 +61,12 @@ export function useLiveAudio({
   const isAgentSpeakingRef = useRef<boolean>(false);
   const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intentionalCloseRef = useRef<boolean>(false);
+  const callAttemptRef = useRef(0);
   const userSpeechActiveRef = useRef<boolean>(false);
   const silenceStartedAtRef = useRef<number | null>(null);
 
   const releaseCallResources = useCallback((closeSocket: boolean) => {
+    callAttemptRef.current++;
     const ws = wsRef.current;
     wsRef.current = null;
 
@@ -97,6 +107,18 @@ export function useLiveAudio({
     setStatus("disconnected");
   }, [releaseCallResources]);
 
+  useEffect(() => {
+    // URL/back navigation must not relabel a running call or keep the previous
+    // recipient's subtitles visible under the new identity.
+    intentionalCloseRef.current = true;
+    releaseCallResources(true);
+    setStatus("disconnected");
+    setCallInfo(undefined);
+    setUserTranscript("");
+    setElaraTranscript("");
+    setErrorMessage(null);
+  }, [recipientId, demoParent, releaseCallResources]);
+
   const startCall = useCallback(async () => {
     if (status === "connecting" || status === "connected" || status === "speaking" || status === "listening") {
       return;
@@ -105,21 +127,43 @@ export function useLiveAudio({
     setErrorMessage(null);
     setStatus("connecting");
     intentionalCloseRef.current = false;
+    const attempt = ++callAttemptRef.current;
+    const isCurrentAttempt = () => callAttemptRef.current === attempt && !intentionalCloseRef.current;
 
     try {
-      const [identityMessage, voicePayload] = await Promise.all([
+      const [identityMessage, portalStatus] = await Promise.all([
         getAuthenticationMessage(),
-        getInlineVoicePayload(),
+        portalGet<PortalStatus>("/status"),
       ]);
+      if (!isCurrentAttempt()) return;
+      if (demoParent && (!portalStatus.localDemoEnabled || portalStatus.voice.mode !== "preset")) {
+        throw new Error("Parent demo calls require local demo mode and preset or portal-enrolled TTS voice.");
+      }
+      if (demoParent && !recipientId) throw new Error("Choose the recipient for this demo call first.");
+      const selectedVoice = demoParent
+        ? recipientCallPayload(await demoRequest("/family"), recipientId, portalStatus.voice)
+        : selectedVoicePayload(portalStatus.voice);
+      if (!isCurrentAttempt()) return;
+      // Never upload saved recordings into an ordinary preset call.
+      const voicePayload = portalStatus.voice.mode === "experimental-inline"
+        ? await getInlineVoicePayload()
+        : null;
+      if (!isCurrentAttempt()) return;
+      if (portalStatus.voice.mode === "experimental-inline" && !voicePayload) {
+        throw new Error("Experimental mode requires local voice and consent recordings. Open the child portal to prepare them.");
+      }
       const authenticationMessage = {
         ...identityMessage,
         ...(voicePayload || {}),
+        ...selectedVoice,
       };
+      setCallInfo(undefined);
       setUserTranscript("");
       setElaraTranscript("");
 
       // 1. Initialize Player first
       const player = await startAudioPlayer();
+      if (!isCurrentAttempt()) { player.stop(); return; }
       playerRef.current = player;
 
       // 2. Initialize WebSocket
@@ -127,6 +171,7 @@ export function useLiveAudio({
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
+        if (!isCurrentAttempt() || wsRef.current !== ws) return;
         try {
           const adkEvent = JSON.parse(event.data);
 
@@ -137,6 +182,9 @@ export function useLiveAudio({
           }
 
           if (adkEvent.type === "ready") {
+            setCallInfo({ sessionId: adkEvent.sessionId, memoryStatus: adkEvent.memoryStatus, parentId: adkEvent.demo?.parentId,
+              recipientLabel: adkEvent.demo?.recipientLabel,
+              voice: adkEvent.voice === "replicated" ? "Custom AI voice · Google TTS" : adkEvent.voiceName || adkEvent.voice });
             return;
           }
 
@@ -223,6 +271,7 @@ export function useLiveAudio({
         }, CONNECTION_TIMEOUT_MS);
 
         const handleOpen = () => {
+          if (!isCurrentAttempt()) { ws.close(); return; }
           console.log("[Elara] WebSocket connection established. Waiting for Gemini...");
           ws.send(JSON.stringify(authenticationMessage));
         };
@@ -265,7 +314,7 @@ export function useLiveAudio({
         ws.addEventListener("close", handleClose);
       });
 
-      if (intentionalCloseRef.current || wsRef.current !== ws) {
+      if (!isCurrentAttempt() || wsRef.current !== ws) {
         return;
       }
 
@@ -273,6 +322,7 @@ export function useLiveAudio({
         console.error("[Elara] WebSocket error:", event);
       };
       ws.onclose = () => {
+        if (wsRef.current !== ws) return;
         console.log("[Elara] WebSocket closed.");
         releaseCallResources(false);
         if (!intentionalCloseRef.current) {
@@ -283,7 +333,7 @@ export function useLiveAudio({
 
       // Start recording only after Gemini confirms the live session is ready.
       const recorder = await startAudioRecorder((pcm16Buffer) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        if (isCurrentAttempt() && wsRef.current === ws && ws.readyState === WebSocket.OPEN) {
           // Stream raw 16-bit PCM binary frame
           wsRef.current.send(pcm16Buffer);
 
@@ -332,10 +382,12 @@ export function useLiveAudio({
           }
         }
       });
+      if (!isCurrentAttempt()) { recorder.stop(); return; }
       recorderRef.current = recorder;
 
       setStatus("listening");
     } catch (err: unknown) {
+      if (callAttemptRef.current !== attempt) return;
       console.error("[Elara] Failed to start call:", err);
       releaseCallResources(true);
       if (!intentionalCloseRef.current) {
@@ -344,7 +396,7 @@ export function useLiveAudio({
         setStatus("error");
       }
     }
-  }, [status, wsUrl, onTranscriptionUpdate, releaseCallResources]);
+  }, [status, wsUrl, demoParent, recipientId, onTranscriptionUpdate, releaseCallResources]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -360,6 +412,7 @@ export function useLiveAudio({
     elaraTranscript,
     userVolume,
     elaraVolume,
+    callInfo,
     isCallActive: status !== "disconnected" && status !== "error",
     startCall,
     endCall,

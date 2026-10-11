@@ -33,9 +33,10 @@ async function withStore<T>(
   const database = await openDatabase();
   try {
     return await new Promise<T>((resolve, reject) => {
-      const request = action(database.transaction(STORE_NAME, mode).objectStore(STORE_NAME));
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error || new Error("Private voice storage failed"));
+      const transaction = database.transaction(STORE_NAME, mode);
+      const request = action(transaction.objectStore(STORE_NAME));
+      transaction.oncomplete = () => resolve(request.result);
+      transaction.onerror = transaction.onabort = () => reject(transaction.error || new Error("Private voice storage failed"));
     });
   } finally {
     database.close();
