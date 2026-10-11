@@ -1,4 +1,4 @@
-# Elara frontend
+# Hugback frontend
 
 Current product is **no-app**: child setup through Forms/Drive, parent calls on an
 ordinary phone. Existing `/childportal` and `/` are internal local prototype/test
@@ -52,8 +52,8 @@ explicitly requested portal integration. This is **local browser testing**, not
 telephone enrollment, production family authorization or independently verified
 speaker likeness. No real recordings or paid calls were used to verify this patch.
 
-1. Keep `ELARA_AUTH_MODE=development`, `ELARA_LIVE_VOICE_MODE=preset` and a
-   configured backend Gemini API key. Set `ELARA_REPLICATED_TTS_ENABLED=True` to
+1. Keep `HUGBACK_AUTH_MODE=development`, `HUGBACK_LIVE_VOICE_MODE=preset` and a
+   configured backend Gemini API key. Set `HUGBACK_REPLICATED_TTS_ENABLED=True` to
    expose upload capability. Keep `LOCAL_DEMO_ENABLED=True` for the parent demo.
    No new frontend key, sign-in form, Firebase resource or hosted processor.
 2. In `/childportal` → **Voice setup**, choose your own adult-speaker sample
@@ -81,11 +81,11 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    audio using that profile reaches playback. The key is NOT a Live voice ID.
    One bounded worker spans turns, cancels interrupted speech, closes SSE/client
    resources, and checkpoints actual emitted TTS for follow-ups. Failures stop
-   the call rather than mix preset/custom voices. Elara remains disclosed AI.
+   the call rather than mix preset/custom voices. Hugback remains disclosed AI.
 
 **Storage:** source audio is transient browser/backend memory, not saved by this
 flow. A client-managed key and metadata persist in private mode-0600 SQLite at
-`ELARA_VOICE_DB_PATH` (default backend `.local-voice/voices.sqlite3`), scoped to the
+`HUGBACK_VOICE_DB_PATH` (default backend `.local-voice/voices.sqlite3`), scoped to the
 browser development identity. This vault is separate from synthetic family data,
 gitignored and excluded from Docker context. It is not encrypted at rest. Raw audio
 is sent to Google on explicit upload; `store=False` is not a blanket promise about
@@ -110,7 +110,7 @@ synthetic and all provider I/O is mocked. Never use real family material in test
 
 The same `src/lib/identity.ts` helper serves calls and portal HTTP requests.
 With the existing `NEXT_PUBLIC_FIREBASE_API_KEY`, anonymous Firebase enrollment
-and refresh happen automatically. Backend `ELARA_AUTH_MODE=firebase` must match
+and refresh happen automatically. Backend `HUGBACK_AUTH_MODE=firebase` must match
 that project and verify ID tokens. Firebase anonymous auth must already be
 enabled by an authorized operator; this patch does not enable it.
 

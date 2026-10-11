@@ -3,7 +3,7 @@ const { mkdtempSync, rmSync, readdirSync } = require("node:fs");
 const { tmpdir } = require("node:os");
 const { join } = require("node:path");
 const { spawnSync } = require("node:child_process");
-const out = mkdtempSync(join(tmpdir(), "elara-portal-tests-"));
+const out = mkdtempSync(join(tmpdir(), "hugback-portal-tests-"));
 let status = 1;
 try {
   const compile = spawnSync(process.execPath, [
@@ -17,7 +17,7 @@ try {
   if (compile.status === 0) {
     const tests = readdirSync("tests").filter((name) => name.endsWith(".test.cjs")).map((name) => join("tests", name));
     status = spawnSync(process.execPath, ["--test", ...tests], {
-      stdio: "inherit", env: { ...process.env, ELARA_TEST_BUILD: out },
+      stdio: "inherit", env: { ...process.env, HUGBACK_TEST_BUILD: out },
     }).status ?? 1;
   }
 } finally {

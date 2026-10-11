@@ -50,29 +50,25 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
     } catch (err) { setError(err instanceof Error ? err.message : "Voice assignment failed."); }
     finally { setBusy(false); }
   }
-  return <section className="mb-8 rounded-2xl border border-emerald-200 bg-emerald-50/60 p-5 sm:p-6">
+  return <section>
     <div className="flex flex-wrap items-start justify-between gap-3">
-      <div><p className="text-xs font-bold uppercase tracking-widest text-emerald-800">Hackathon · Family setup</p>
-        <h2 className="mt-2 text-xl font-semibold">One family. A separate memory for each person.</h2></div>
-      {family && <button className="portal-secondary" disabled={busy || family.recipients.length >= 8} onClick={() => { setAdding(!adding); setSynthetic(false); setChild(false); setParent(false); setError(""); }}>{adding ? "Cancel adding" : "+ Add recipient"}</button>}
+      <p className="max-w-2xl text-sm leading-6 text-stone-600">Select one person to view or prepare their check-in. Calls, context, and memory stay separate for every family member.</p>
+      {family && <button className="portal-secondary" disabled={busy || family.recipients.length >= 8} onClick={() => { setAdding(!adding); setSynthetic(false); setChild(false); setParent(false); setError(""); }}>{adding ? "Cancel" : "+ Add recipient"}</button>}
     </div>
-    <p className="mt-2 text-sm leading-6 text-stone-600">One adult child can prepare calls for Mother, Father or another relative. Choose the recipient before importing background or calling. This local simulator does not recognize or verify who is speaking.</p>
     {family && <>
-      <div className="mt-5 grid gap-3 sm:grid-cols-2 lg:grid-cols-3" role="group" aria-label="Family recipients">
+      <div className="mt-5 flex flex-wrap gap-3" role="group" aria-label="Family recipients">
         {family.recipients.map((r) => <button key={r.recipientId} type="button" aria-pressed={r.recipientId === selectedId} disabled={busy}
           onClick={() => { onSelect(r.recipientId); setError(""); }}
-          className={`min-w-0 rounded-xl border p-4 text-left transition ${r.recipientId === selectedId ? "border-emerald-800 bg-emerald-900 text-white" : "border-stone-200 bg-white text-stone-700 hover:border-emerald-500"}`}>
-          <span className="block break-words font-bold">{r.label}</span>
-          <span className="mt-1 block text-xs opacity-80">{r.background.length} excerpts · {r.calls.length} calls · {r.voice.mode === "child" ? "Child voice assigned" : "Standard voice"}</span>
-          {r.busy && <span className="mt-2 block text-xs font-semibold">Call active / saving memory</span>}
+          className={`min-w-32 rounded-full border px-5 py-3 text-left transition-all duration-200 ${r.recipientId === selectedId ? "-translate-y-0.5 border-[#56619C] bg-[#56619C] text-white shadow-md" : "border-[#DDE2F0] bg-[#F7F8FC] text-stone-700 hover:-translate-y-0.5 hover:border-[#9BA5FC] hover:bg-white"}`}>
+          <span className="block break-words text-sm font-bold">{r.label}</span>
+          <span className="mt-0.5 block text-[10px] opacity-75">{r.calls.length} {r.calls.length === 1 ? "check-in" : "check-ins"}{r.busy ? " · active" : ""}</span>
         </button>)}
       </div>
-      {selected ? <div className="mt-4 rounded-xl border border-emerald-200 bg-white/80 p-4 text-sm">
-        <p className="font-semibold">Preparing for {selected.label}</p>
-        <p className="mt-1 text-xs leading-5 text-stone-600">Only this recipient’s background, calls and memory are used. {selected.memoryEnabled ? "Wellbeing memory enabled." : "Wellbeing memory off or paused."}</p>
+      {selected ? <div className="dashboard-enter mt-5 rounded-2xl border border-[#D7EAFE] bg-[#F1F8FF] p-5 text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-3"><div><p className="font-bold text-stone-800">{selected.label} is selected</p><p className="mt-1 text-xs leading-5 text-stone-600">{selected.background.length} reviewed excerpts · {selected.memoryEnabled ? "Memory on" : "Memory paused"}</p></div>{selected.busy && <span className="rounded-full bg-white px-3 py-1 text-xs font-bold text-[#56619C]">Check-in active</span>}</div>
         {selected.legacy && <p className="mt-2 text-xs leading-5 text-amber-800">Preserved from the old single-parent demo. Its history has not been assumed to belong to Mother or Father. Add new recipients for clean, separate histories; old background remains here.</p>}
         <div className="mt-4 flex flex-wrap items-center gap-2" role="group" aria-label={`Voice for ${selected.label}`}>
-          <span className="mr-1 text-xs font-bold uppercase tracking-wide text-stone-500">Elara’s voice</span>
+          <span className="mr-1 text-xs font-bold text-stone-600">Voice</span>
           <button className="portal-secondary" aria-pressed={selected.voice.mode === "standard"} disabled={busy || selected.busy || selected.voice.mode === "standard"} onClick={() => void selectVoice("standard")}>Use standard voice</button>
           <button className="portal-secondary" aria-pressed={selected.voice.mode === "child" && !assignedVoiceUnavailable} disabled={busy || selected.busy || !childVoiceAvailable || (selected.voice.mode === "child" && !assignedVoiceUnavailable)} onClick={() => void selectVoice("child")}>Assign child voice</button>
         </div>
@@ -80,9 +76,9 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
         {assignedVoiceUnavailable && <p role="alert" className="mt-2 text-xs leading-5 text-rose-800">The assigned child voice is unavailable or was replaced. Reassign an enabled voice or explicitly choose standard voice before calling.</p>}
         {selected.busy ? <p role="status" className="mt-3 text-xs text-amber-800">Wait for this recipient’s call and memory update before changing their setup.</p> : !assignedVoiceUnavailable && <Link className="portal-primary mt-4 inline-flex" href={parentCallUrl(selected.recipientId)}>Test a call as {selected.label} →</Link>}
       </div> : <p role="status" className="mt-4 text-sm font-semibold text-emerald-900">Select a recipient above. Nothing is selected automatically.</p>}
-      <p className="mt-3 text-xs leading-5 text-stone-500">Separate recipient histories persist in local SQLite until {new Date(family.expiresAt).toLocaleDateString()}. No Firebase storage or recap sharing. Up to eight recipients.</p>
+      <details className="mt-4 text-xs leading-5 text-stone-500"><summary className="cursor-pointer font-semibold">Demo storage details</summary><p className="mt-2">Separate histories remain in local SQLite until {new Date(family.expiresAt).toLocaleDateString()}. Up to eight recipients. This local simulator does not verify who is speaking.</p></details>
     </>}
-    {(!family || adding) && !loading && !loadError && <div className="mt-5 space-y-3 rounded-xl border border-stone-200 bg-white p-4 text-sm">
+    {(!family || adding) && !loading && !loadError && <div className="mt-5 space-y-3 rounded-2xl border border-[#DDE2F0] bg-[#F7F8FC] p-5 text-sm">
       <h3 className="font-bold">{family ? "Add a recipient with their own history" : "Create a family and its first recipient"}</h3>
       <div className="grid gap-3 sm:grid-cols-2">
         <label className="portal-label">Relationship<select className="portal-input" disabled={busy} value={relationship} onChange={(e) => { setRelationship(e.target.value as DemoRecipient["relationship"]); setLabel(e.target.selectedOptions[0].text); }}>

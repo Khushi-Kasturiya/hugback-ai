@@ -19,7 +19,7 @@ const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 async function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("elara-child-portal", 1);
+    const request = indexedDB.open("hugback-child-portal", 1);
     request.onupgradeneeded = () => request.result.createObjectStore("imports", { keyPath: "id" });
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(new Error("This browser could not open local background storage."));

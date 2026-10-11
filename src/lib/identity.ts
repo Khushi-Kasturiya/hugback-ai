@@ -1,7 +1,7 @@
 // Anonymous Firebase identity with a safe local-development fallback.
 
-const STORAGE_KEY = "elara.firebase.identity.v1";
-const DEVELOPMENT_KEY = "elara.development.user.v1";
+const STORAGE_KEY = "hugback.firebase.identity.v1";
+const DEVELOPMENT_KEY = "hugback.development.user.v1";
 const FIREBASE_API_KEY = process.env.NEXT_PUBLIC_FIREBASE_API_KEY;
 
 interface FirebaseIdentity {
@@ -132,7 +132,7 @@ export function getAuthenticationMessage(): Promise<AuthenticationMessage> {
     // Coordinate first enrollment and refresh across tabs on this origin.
     identityRequest = (async () => {
       if (typeof navigator !== "undefined" && navigator.locks) {
-        return await navigator.locks.request("elara-anonymous-identity", resolveAuthenticationMessage);
+        return await navigator.locks.request("hugback-anonymous-identity", resolveAuthenticationMessage);
       }
       return resolveAuthenticationMessage();
     })().finally(() => { identityRequest = null; });
@@ -152,5 +152,5 @@ export async function getAuthenticationHeaders(): Promise<Record<string, string>
   const auth = await getAuthenticationMessage();
   return "idToken" in auth
     ? { Authorization: `Bearer ${auth.idToken}` }
-    : { "X-Elara-Development-User": auth.userId };
+    : { "X-Hugback-Development-User": auth.userId };
 }

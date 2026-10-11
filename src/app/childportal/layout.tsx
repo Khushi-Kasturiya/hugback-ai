@@ -1,8 +1,8 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Child portal · Elara",
-  description: "Prepare family background, manage voice setup and view parent-approved updates.",
+  title: "Child portal · Hugback",
+  description: "See parent check-ins, prepare personal context and view parent-approved Hugback updates.",
   robots: { index: false, follow: false },
 };
 

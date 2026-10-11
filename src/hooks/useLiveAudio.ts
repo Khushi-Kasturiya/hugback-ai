@@ -14,8 +14,8 @@ const SPEECH_THRESHOLD = 0.05;
 const END_OF_SPEECH_SILENCE_MS = 700;
 
 function defaultWebSocketUrl(): string {
-  if (process.env.NEXT_PUBLIC_ELARA_WS_URL) {
-    return process.env.NEXT_PUBLIC_ELARA_WS_URL;
+  if (process.env.NEXT_PUBLIC_HUGBACK_WS_URL) {
+    return process.env.NEXT_PUBLIC_HUGBACK_WS_URL;
   }
   if (typeof window === "undefined") {
     return "ws://localhost:8000/ws";
@@ -38,7 +38,7 @@ interface UseLiveAudioOptions {
   wsUrl?: string;
   demoParent?: boolean;
   recipientId?: string;
-  onTranscriptionUpdate?: (role: "user" | "elara", text: string) => void;
+  onTranscriptionUpdate?: (role: "user" | "hugback", text: string) => void;
 }
 
 export function useLiveAudio({
@@ -50,9 +50,9 @@ export function useLiveAudio({
   const [status, setStatus] = useState<CallStatus>("disconnected");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [userTranscript, setUserTranscript] = useState<string>("");
-  const [elaraTranscript, setElaraTranscript] = useState<string>("");
+  const [hugbackTranscript, setHugbackTranscript] = useState<string>("");
   const [userVolume, setUserVolume] = useState<number>(0);
-  const [elaraVolume, setElaraVolume] = useState<number>(0);
+  const [hugbackVolume, setHugbackVolume] = useState<number>(0);
   const [callInfo, setCallInfo] = useState<{ sessionId: string; memoryStatus: string; parentId?: string; recipientLabel?: string; voice?: string }>();
 
   const wsRef = useRef<WebSocket | null>(null);
@@ -97,7 +97,7 @@ export function useLiveAudio({
     userSpeechActiveRef.current = false;
     silenceStartedAtRef.current = null;
     setUserVolume(0);
-    setElaraVolume(0);
+    setHugbackVolume(0);
   }, []);
 
   const endCall = useCallback(() => {
@@ -115,7 +115,7 @@ export function useLiveAudio({
     setStatus("disconnected");
     setCallInfo(undefined);
     setUserTranscript("");
-    setElaraTranscript("");
+    setHugbackTranscript("");
     setErrorMessage(null);
   }, [recipientId, demoParent, releaseCallResources]);
 
@@ -159,7 +159,7 @@ export function useLiveAudio({
       };
       setCallInfo(undefined);
       setUserTranscript("");
-      setElaraTranscript("");
+      setHugbackTranscript("");
 
       // 1. Initialize Player first
       const player = await startAudioPlayer();
@@ -209,14 +209,14 @@ export function useLiveAudio({
 
                 isAgentSpeakingRef.current = true;
                 setStatus("speaking");
-                setElaraVolume(0.8);
+                setHugbackVolume(0.8);
 
                 if (speakingTimeoutRef.current) {
                   clearTimeout(speakingTimeoutRef.current);
                 }
                 speakingTimeoutRef.current = setTimeout(() => {
                   isAgentSpeakingRef.current = false;
-                  setElaraVolume(0);
+                  setHugbackVolume(0);
                   setStatus("listening");
                 }, 3000);
               }
@@ -233,8 +233,8 @@ export function useLiveAudio({
           // Handle agent speech transcription
           if (adkEvent.outputTranscription && adkEvent.outputTranscription.text) {
             const text = adkEvent.outputTranscription.text;
-            setElaraTranscript((prev) => (prev ? `${prev} ${text}` : text));
-            onTranscriptionUpdate?.("elara", text);
+            setHugbackTranscript((prev) => (prev ? `${prev} ${text}` : text));
+            onTranscriptionUpdate?.("hugback", text);
           }
 
           // Handle turn completion
@@ -243,22 +243,22 @@ export function useLiveAudio({
               clearTimeout(speakingTimeoutRef.current);
             }
             isAgentSpeakingRef.current = false;
-            setElaraVolume(0);
+            setHugbackVolume(0);
             setStatus("listening");
           }
 
           // Handle Gemini server-side interruption event
           if (adkEvent.interrupted) {
-            console.log("[Elara] Server interruption signal received. Flushing audio.");
+            console.log("[Hugback] Server interruption signal received. Flushing audio.");
             if (playerRef.current) {
               playerRef.current.flush();
             }
             isAgentSpeakingRef.current = false;
-            setElaraVolume(0);
+            setHugbackVolume(0);
             setStatus("listening");
           }
         } catch (err) {
-          console.error("[Elara] Error processing WebSocket message:", err);
+          console.error("[Hugback] Error processing WebSocket message:", err);
         }
       };
 
@@ -267,12 +267,12 @@ export function useLiveAudio({
       // listening while no AI session exists yet.
       await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
-          reject(new Error("Elara backend did not become ready in time"));
+          reject(new Error("Hugback backend did not become ready in time"));
         }, CONNECTION_TIMEOUT_MS);
 
         const handleOpen = () => {
           if (!isCurrentAttempt()) { ws.close(); return; }
-          console.log("[Elara] WebSocket connection established. Waiting for Gemini...");
+          console.log("[Hugback] WebSocket connection established. Waiting for Gemini...");
           ws.send(JSON.stringify(authenticationMessage));
         };
         const handleMessage = (event: MessageEvent) => {
@@ -285,7 +285,7 @@ export function useLiveAudio({
             } else if (message.type === "error") {
               window.clearTimeout(timeout);
               removeStartupListeners();
-              reject(new Error(message.message || "Elara backend failed to start a session"));
+              reject(new Error(message.message || "Hugback backend failed to start a session"));
             }
           } catch {
             // Ignore non-JSON messages while waiting for the ready event.
@@ -294,12 +294,12 @@ export function useLiveAudio({
         const handleError = () => {
           window.clearTimeout(timeout);
           removeStartupListeners();
-          reject(new Error(`Unable to connect to Elara backend on ${wsUrl}`));
+          reject(new Error(`Unable to connect to Hugback backend on ${wsUrl}`));
         };
         const handleClose = () => {
           window.clearTimeout(timeout);
           removeStartupListeners();
-          reject(new Error("Elara backend disconnected before Gemini was ready"));
+          reject(new Error("Hugback backend disconnected before Gemini was ready"));
         };
         const removeStartupListeners = () => {
           ws.removeEventListener("open", handleOpen);
@@ -319,14 +319,14 @@ export function useLiveAudio({
       }
 
       ws.onerror = (event) => {
-        console.error("[Elara] WebSocket error:", event);
+        console.error("[Hugback] WebSocket error:", event);
       };
       ws.onclose = () => {
         if (wsRef.current !== ws) return;
-        console.log("[Elara] WebSocket closed.");
+        console.log("[Hugback] WebSocket closed.");
         releaseCallResources(false);
         if (!intentionalCloseRef.current) {
-          setErrorMessage((current) => current || "Elara lost its connection. Please call again.");
+          setErrorMessage((current) => current || "Hugback lost its connection. Please call again.");
           setStatus("error");
         }
       };
@@ -366,15 +366,15 @@ export function useLiveAudio({
           }
 
           // Edge VAD Barge-in Check:
-          // If the user speaks firmly (volume > threshold) while Elara is actively speaking,
+          // If the user speaks firmly (volume > threshold) while Hugback is actively speaking,
           // instantly flush client playback and signal turn_complete to reclaim floor!
           if (normalizedVol > 0.35 && isAgentSpeakingRef.current) {
-            console.log("[Elara] Edge VAD barge-in triggered by user voice!");
+            console.log("[Hugback] Edge VAD barge-in triggered by user voice!");
             if (playerRef.current) {
               playerRef.current.flush();
             }
             isAgentSpeakingRef.current = false;
-            setElaraVolume(0);
+            setHugbackVolume(0);
             setStatus("listening");
 
             // Signal to backend
@@ -388,7 +388,7 @@ export function useLiveAudio({
       setStatus("listening");
     } catch (err: unknown) {
       if (callAttemptRef.current !== attempt) return;
-      console.error("[Elara] Failed to start call:", err);
+      console.error("[Hugback] Failed to start call:", err);
       releaseCallResources(true);
       if (!intentionalCloseRef.current) {
         const message = err instanceof Error ? err.message : "Failed to access microphone or connect";
@@ -409,9 +409,9 @@ export function useLiveAudio({
     status,
     errorMessage,
     userTranscript,
-    elaraTranscript,
+    hugbackTranscript,
     userVolume,
-    elaraVolume,
+    hugbackVolume,
     callInfo,
     isCallActive: status !== "disconnected" && status !== "error",
     startCall,

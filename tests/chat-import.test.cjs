@@ -1,6 +1,6 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parseChat, SYNTHETIC_CHAT } = require(`${process.env.ELARA_TEST_BUILD}/chat-import.js`);
+const { parseChat, SYNTHETIC_CHAT } = require(`${process.env.HUGBACK_TEST_BUILD}/chat-import.js`);
 
 test("Android WhatsApp multiline, system messages, Unicode and timestamps", () => {
   const result = parseChat("\ufeff1/10/2026, 6:00 PM - Messages are encrypted\n1/10/2026, 6:01 PM - Parent: नमस्ते\nA second line\n1/10/2026, 6:02 PM - Child: Hello", "whatsapp");

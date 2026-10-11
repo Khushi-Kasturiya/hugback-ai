@@ -22,9 +22,9 @@ export interface SharedSummary {
 }
 
 export function backendUrl(): string {
-  const configured = process.env.NEXT_PUBLIC_ELARA_API_URL;
+  const configured = process.env.NEXT_PUBLIC_HUGBACK_API_URL;
   if (configured) return configured.replace(/\/$/, "");
-  const ws = process.env.NEXT_PUBLIC_ELARA_WS_URL;
+  const ws = process.env.NEXT_PUBLIC_HUGBACK_WS_URL;
   if (ws) {
     const url = new URL(ws);
     url.protocol = url.protocol === "wss:" ? "https:" : "http:";

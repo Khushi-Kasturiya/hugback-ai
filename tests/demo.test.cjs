@@ -1,8 +1,8 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
-const { reviewedExcerpts } = require(join(process.env.ELARA_TEST_BUILD, "demo-api.js"));
-const { parseChat, SYNTHETIC_CHAT } = require(join(process.env.ELARA_TEST_BUILD, "chat-import.js"));
+const { reviewedExcerpts } = require(join(process.env.HUGBACK_TEST_BUILD, "demo-api.js"));
+const { parseChat, SYNTHETIC_CHAT } = require(join(process.env.HUGBACK_TEST_BUILD, "chat-import.js"));
 
 test("demo review preserves exact quotes, participants, dates and source indexes", () => {
   const preview = parseChat(SYNTHETIC_CHAT, "whatsapp");
@@ -23,8 +23,8 @@ test("demo review rejects unreviewed, duplicated, oversized or unmapped input", 
   assert.throws(() => reviewedExcerpts(preview, [0], "Child", "Parent"));
 });
 
-const { recipientCallPayload, parentCallUrl } = require(join(process.env.ELARA_TEST_BUILD, "demo-api.js"));
-const { importsForRecipient } = require(join(process.env.ELARA_TEST_BUILD, "portal-storage.js"));
+const { recipientCallPayload, parentCallUrl } = require(join(process.env.HUGBACK_TEST_BUILD, "demo-api.js"));
+const { importsForRecipient } = require(join(process.env.HUGBACK_TEST_BUILD, "portal-storage.js"));
 const mother = { recipientId: "mother", revision: 3, busy: false, voice: { mode: "standard", profileId: null } };
 const father = { recipientId: "father", revision: 1, busy: false, voice: { mode: "child", profileId: "child-profile" } };
 const family = { recipients: [mother, father] };

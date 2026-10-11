@@ -1,7 +1,7 @@
 const { test, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
-const { selectedVoicePayload, audioBase64, voiceRequest } = require(join(process.env.ELARA_TEST_BUILD, "voice-api.js"));
+const { selectedVoicePayload, audioBase64, voiceRequest } = require(join(process.env.HUGBACK_TEST_BUILD, "voice-api.js"));
 const profile = { id: "synthetic-profile", expiresAt: "2099-01-01T00:00:00Z", enabled: true, expired: false };
 const voice = { mode: "preset", name: "Aoede", replicatedTtsEnabled: true, profile };
 const originalFetch = global.fetch;
@@ -32,7 +32,7 @@ test("upload uses existing identity and JSON acknowledgements with no automatic 
   global.fetch = async (url, options) => {
     attempts++;
     assert.equal(url, "http://127.0.0.1:8000/api/voice/enroll");
-    assert.equal(options.headers["X-Elara-Development-User"], "synthetic-owner");
+    assert.equal(options.headers["X-Hugback-Development-User"], "synthetic-owner");
     assert.equal(options.cache, "no-store");
     assert.equal(JSON.parse(options.body).adultOwnVoice, true);
     throw new TypeError("network unavailable");

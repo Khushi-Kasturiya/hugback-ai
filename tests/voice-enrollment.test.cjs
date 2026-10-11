@@ -21,6 +21,7 @@ function harness({ enabled = true, profile = null, failUpload = false } = {}) {
     'react/jsx-runtime': { jsx: (type, props) => ({ type, props }), jsxs: (type, props) => ({ type, props }) },
     'next/link': { default: 'a' },
     'lucide-react': new Proxy({}, { get: (_, name) => String(name) }),
+    '@/components/BrowserAudioRecorder': { BrowserAudioRecorder: 'BrowserAudioRecorder' },
     '@/lib/voice-wav': { prepareVoiceWav: async (file) => file },
     '@/lib/voice-profile': { deleteLocalVoiceProfile: async () => {}, hasLocalVoiceProfile: async () => false },
     '@/lib/portal-api': { portalGet: async () => ({ identityMode: 'development', voice: initialVoice }) },
@@ -48,22 +49,22 @@ function harness({ enabled = true, profile = null, failUpload = false } = {}) {
   }
   function button(label) { return nodes().find((n) => n.type === 'button' && text(n).includes(label)); }
   function prepare() {
-    nodes().filter((n) => n.type === 'input' && n.props.type === 'file').forEach((n) => n.props.onChange({ target: { files: [{ name: 'synthetic.wav' }] } }));
+    nodes().filter((n) => n.type === 'BrowserAudioRecorder').forEach((n) => n.props.onRecorded({ name: 'synthetic.webm' }));
     render();
   }
   function consent() { nodes().find((n) => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } }); render(); }
   render();
   return { render, button, nodes, requests, prepare, consent };
 }
-test('file selection is local; upload requires explicit consent and separate activation', async () => {
+test('browser recording stays local; voice creation requires explicit consent and separate activation', async () => {
   const ui = harness();
-  assert.equal(ui.button('Upload & create').props.disabled, true);
+  assert.equal(ui.button('Create voice').props.disabled, true);
   ui.prepare();
   assert.equal(ui.requests.length, 0);
-  assert.equal(ui.button('Upload & create').props.disabled, true);
+  assert.equal(ui.button('Create voice').props.disabled, true);
   ui.consent();
-  assert.equal(ui.button('Upload & create').props.disabled, false);
-  await ui.button('Upload & create').props.onClick(); ui.render();
+  assert.equal(ui.button('Create voice').props.disabled, false);
+  await ui.button('Create voice').props.onClick(); ui.render();
   assert.equal(ui.requests.length, 1);
   assert.equal(ui.requests[0].body.consentToGoogleAndBilling, true);
   assert.equal(ui.requests[0].body.adultOwnVoice, true);
@@ -74,19 +75,20 @@ test('file selection is local; upload requires explicit consent and separate act
   await ui.button('Disable child voice').props.onClick(); ui.render();
   assert.equal(ui.requests[2].body.enabled, false);
 });
-test('feature disabled blocks every upload input and makes no requests', () => {
+test('feature disabled blocks both browser recorders and makes no requests', () => {
   const ui = harness({ enabled: false });
-  assert.equal(ui.button('Upload & create').props.disabled, true);
+  assert.equal(ui.button('Create voice').props.disabled, true);
+  for (const node of ui.nodes().filter((n) => n.type === 'BrowserAudioRecorder')) assert.equal(node.props.disabled, true);
   for (const node of ui.nodes().filter((n) => n.type === 'input')) assert.equal(node.props.disabled, true);
   assert.equal(ui.requests.length, 0);
 });
 test('uncertain upload blocks repeated paid submission until explicit refresh', async () => {
   const ui = harness({ failUpload: true }); ui.prepare(); ui.consent();
-  await ui.button('Upload & create').props.onClick(); ui.render();
-  assert.equal(ui.button('Upload & create').props.disabled, true);
+  await ui.button('Create voice').props.onClick(); ui.render();
+  assert.equal(ui.button('Create voice').props.disabled, true);
   assert.equal(ui.requests.length, 1);
   await ui.button('Refresh status').props.onClick(); ui.render();
-  assert.equal(ui.button('Upload & create').props.disabled, false);
+  assert.equal(ui.button('Create voice').props.disabled, false);
 });
 test('expired voice can be disabled or removed, never enabled', async () => {
   const ui = harness({ profile: { ...created, enabled: true, expired: true } });

@@ -1,11 +1,12 @@
 "use client";
 
 import React, { Suspense, useEffect, useState } from "react";
+import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLiveAudio } from "@/hooks/useLiveAudio";
 import { parentCallUrl } from "@/lib/demo-api";
 import { useDemoFamily } from "@/hooks/useDemoFamily";
-import { Phone, PhoneOff, Mic, Volume2, Sparkles, AlertCircle } from "lucide-react";
+import { Phone, PhoneOff, Mic, Volume2, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function Home() {
@@ -28,9 +29,9 @@ function CallTest() {
     status,
     errorMessage,
     userTranscript,
-    elaraTranscript,
+    hugbackTranscript,
     userVolume,
-    elaraVolume,
+    hugbackVolume,
     isCallActive,
     startCall,
     endCall,
@@ -47,13 +48,13 @@ function CallTest() {
   const getStatusDisplay = () => {
     switch (status) {
       case "connecting":
-        return { title: "Connecting...", desc: "Starting voice line with Elara", color: "text-amber-700" };
+        return { title: "Connecting...", desc: "Starting voice line with Hugback", color: "text-amber-700" };
       case "speaking":
-        return { title: "Elara is Speaking", desc: "Speak at any time to interrupt", color: "text-emerald-700" };
+        return { title: "Hugback is Speaking", desc: "Speak at any time to interrupt", color: "text-emerald-700" };
       case "listening":
-        return { title: "Elara is Listening", desc: "Go ahead, I'm listening to you", color: "text-amber-800" };
+        return { title: "Hugback is Listening", desc: "Go ahead, I'm listening to you", color: "text-amber-800" };
       case "interrupted":
-        return { title: "You Interrupted", desc: "Elara paused to listen to you", color: "text-blue-700" };
+        return { title: "You Interrupted", desc: "Hugback paused to listen to you", color: "text-blue-700" };
       case "error":
         return { title: "Connection Error", desc: errorMessage || "Please check backend", color: "text-rose-700" };
       default:
@@ -72,27 +73,25 @@ function CallTest() {
   // Orb scaling calculation
   const orbScale = isCallActive
     ? status === "speaking"
-      ? 1 + elaraVolume * 0.25
+      ? 1 + hugbackVolume * 0.25
       : 1 + userVolume * 0.35
     : 1;
 
   return (
-    <main className="flex flex-col items-center justify-between min-h-screen p-6 sm:p-10 max-w-3xl mx-auto selection:bg-amber-100">
+    <main className="flex min-h-screen max-w-3xl flex-col items-center justify-between p-6 sm:p-10 mx-auto">
       {/* Top Header */}
-      <header className="w-full flex items-center justify-between pt-4 pb-2 border-b border-stone-200">
+      <header className="w-full flex items-center justify-between gap-4 pt-2 pb-4 border-b border-stone-200/80">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-full bg-amber-100 flex items-center justify-center text-amber-800 shadow-sm">
-            <Sparkles className="w-5 h-5" />
-          </div>
+          <Image src="/logo.png" width={727} height={343} priority alt="" className="h-8 w-[4.25rem] object-contain sm:h-11 sm:w-[5.8rem]" />
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-stone-900">Elara</h1>
-            <p className="text-xs text-stone-500 font-medium">Google Cloud AI Companion • Phase 1</p>
+            <Image src="/hugback.png" width={983} height={254} priority alt="Hugback AI" className="h-auto w-28 sm:w-40" />
+            <p className="hidden text-xs text-stone-500 font-medium sm:block">Google Cloud AI Companion • Phase 1</p>
           </div>
         </div>
 
         <button
           onClick={() => setShowSubtitles((prev) => !prev)}
-          className="text-xs font-semibold px-3 py-1.5 rounded-full border border-stone-300 text-stone-600 hover:bg-stone-100 transition-colors"
+          className="shrink-0 text-xs font-semibold px-3 py-1.5 rounded-full border border-stone-300 bg-white/80 text-stone-600 hover:border-amber-300 hover:bg-amber-50 transition-colors"
         >
           {showSubtitles ? "Hide Subtitles" : "Show Subtitles"}
         </button>
@@ -103,7 +102,7 @@ function CallTest() {
           <h2 className="font-bold text-emerald-900">Hackathon · Parent call test</h2>
           {!isCallActive && <Link href="/childportal" className="font-semibold text-emerald-800 underline">← Child setup</Link>}
         </div>
-        <p className="mt-2 leading-6 text-stone-600">Choose exactly one recipient for this call. Their background and memory stay separate from everyone else’s, even when Elara uses the same child voice. End the call before another person takes over; speaker identity is not verified.</p>
+        <p className="mt-2 leading-6 text-stone-600">Choose exactly one recipient for this call. Their background and memory stay separate from everyone else’s, even when Hugback uses the same child voice. End the call before another person takes over; speaker identity is not verified.</p>
         {demo.family && <label className="portal-label mt-4 block">Call recipient
           <select className="portal-input" aria-label="Call recipient" value={recipient?.recipientId || ""} disabled={isCallActive} onChange={(event) => { setDemoAcknowledged(false); router.replace(parentCallUrl(event.target.value)); }}>
             <option value="">Choose a recipient</option>
@@ -112,7 +111,7 @@ function CallTest() {
         </label>}
         {recipientId && demo.family && !recipient && <p role="alert" className="mt-3 text-rose-800">This recipient is not in your demo family. Choose an available recipient; no call can start.</p>}
         {recipient && <div className="mt-3 space-y-2">
-          <p className="font-bold text-emerald-900">Calling as {recipient.label} · {recipient.voice.mode === "child" ? "Assigned child voice" : "Standard Elara voice"}</p>
+          <p className="font-bold text-emerald-900">Calling as {recipient.label} · {recipient.voice.mode === "child" ? "Assigned child voice" : "Standard Hugback voice"}</p>
           <p>{recipient.background.length} reviewed background excerpts · {recipient.memoryCount} retained wellbeing records</p>
           <p className="break-all text-xs text-stone-500">Recipient: {recipient.recipientId}</p>
           <p className="text-xs text-stone-600">{recipient.memoryEnabled ? `Memory enabled: new concerns may be followed up in the next call. Once selected, follow-ups have a ${recipient.memoryCooldownHours}-hour cooldown.` : "Memory is off or paused. Calls do not enable it automatically."}</p>
@@ -125,7 +124,7 @@ function CallTest() {
         {callInfo && callInfo.parentId === recipient?.recipientId && <p className="mt-3 break-all text-xs text-stone-500">Call: {callInfo.sessionId} · Memory: {callInfo.memoryStatus} · Voice: {callInfo.voice}</p>}
         <label className="mt-4 flex items-start gap-3 leading-6">
           <input type="checkbox" className="mt-1.5 shrink-0" checked={demoAcknowledged} disabled={isCallActive} onChange={(e) => setDemoAcknowledged(e.target.checked)} />
-          I will role-play only as {recipient?.label || "the selected recipient"}, using fictional details. I will end the call before switching people. Starting this call sends microphone audio and reviewed demo context to Google; enabled memory also processes the demo transcript. Configured provider usage may incur charges. Elara is AI, not my child.
+          I will role-play only as {recipient?.label || "the selected recipient"}, using fictional details. I will end the call before switching people. Starting this call sends microphone audio and reviewed demo context to Google; enabled memory also processes the demo transcript. Configured provider usage may incur charges. Hugback is AI, not my child.
         </label>
       </section>}
 
@@ -152,9 +151,9 @@ function CallTest() {
             disabled={!isCallActive && !canStart}
             className={`relative w-48 h-48 sm:w-56 sm:h-56 rounded-full flex flex-col items-center justify-center shadow-xl transition-all duration-200 cursor-pointer select-none disabled:cursor-not-allowed ${
               status === "speaking"
-                ? "bg-gradient-to-tr from-emerald-500 to-teal-400 text-white"
+                ? "bg-gradient-to-tr from-hugback-indigo via-hugback-periwinkle to-hugback-sky text-white"
                 : isCallActive
-                ? "bg-gradient-to-tr from-amber-500 to-amber-300 text-stone-900"
+                ? "bg-gradient-to-tr from-hugback-sky via-hugback-periwinkle to-hugback-violet text-stone-900"
                 : "bg-gradient-to-tr from-stone-200 to-stone-100 text-stone-600 border border-stone-300"
             }`}
             style={{ transform: `scale(${orbScale})` }}
@@ -192,7 +191,7 @@ function CallTest() {
       </section>
 
       {/* Live Transcript / Subtitles Section */}
-      {showSubtitles && (isCallActive || elaraTranscript || userTranscript) && (
+      {showSubtitles && (isCallActive || hugbackTranscript || userTranscript) && (
         <section className="w-full bg-white/90 backdrop-blur rounded-2xl p-5 border border-stone-200 shadow-sm mb-6 max-h-48 overflow-y-auto space-y-3">
           {userTranscript && (
             <div className="text-sm">
@@ -200,13 +199,13 @@ function CallTest() {
               <span className="text-stone-800">{userTranscript}</span>
             </div>
           )}
-          {elaraTranscript && (
+          {hugbackTranscript && (
             <div className="text-sm">
-              <span className="font-bold text-emerald-800">Elara: </span>
-              <span className="text-stone-800">{elaraTranscript}</span>
+              <span className="font-bold text-emerald-800">Hugback: </span>
+              <span className="text-stone-800">{hugbackTranscript}</span>
             </div>
           )}
-          {!userTranscript && !elaraTranscript && (
+          {!userTranscript && !hugbackTranscript && (
             <p className="text-xs text-stone-400 italic text-center">
               Transcripts will appear here in real-time as you converse...
             </p>
@@ -229,7 +228,7 @@ function CallTest() {
             className="w-full sm:w-auto min-w-[240px] px-8 py-5 rounded-full bg-emerald-600 hover:bg-emerald-700 active:scale-95 text-white font-bold text-xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-3 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Phone className="w-6 h-6" />
-            <span>{demoParent ? "Call as demo parent" : "Call Elara"}</span>
+            <span>{demoParent ? "Call as demo parent" : "Call Hugback"}</span>
           </button>
         ) : (
           <button

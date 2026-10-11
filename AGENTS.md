@@ -1,4 +1,4 @@
-# Elara frontend
+# Hugback frontend
 
 - Current product is no-app: Forms/Drive intake and ordinary-phone parents.
   Existing browser surfaces are local prototype tooling only. This storage

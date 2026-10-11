@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const vm = require('node:vm');
 const ts = require('typescript');
 const { join } = require('node:path');
-const { parentCallUrl, reviewedExcerpts } = require(join(process.env.ELARA_TEST_BUILD, 'demo-api.js'));
+const { parentCallUrl, reviewedExcerpts } = require(join(process.env.HUGBACK_TEST_BUILD, 'demo-api.js'));
 
 const mother = { recipientId: 'mother', label: 'Mother', revision: 4, background: [], calls: [], voice: { mode: 'standard', profileId: null } };
 const father = { ...mother, recipientId: 'father', label: 'Father', revision: 1 };

@@ -1,4 +1,4 @@
-const DATABASE_NAME = "elara-private-voice";
+const DATABASE_NAME = "hugback-private-voice";
 const STORE_NAME = "profiles";
 const PROFILE_KEY = "active";
 
