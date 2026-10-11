@@ -17,6 +17,12 @@
   Model tools cannot choose an owner, enable memory, or grant consent.
 - Test with temporary databases, synthetic content and mocked Google calls.
 
+- A separately consented demo wellbeing signal may store one bounded,
+  non-diagnostic call-level estimate per session. Never store raw audio,
+  transcripts, model reasoning or cross-recipient signals. Low-confidence and
+  unclear drafts are abstentions. An in-call don't-share request revokes this
+  sharing independently of conversational memory.
+
 - Voice portal integration approved 11 October: adult own-voice + spoken consent
   and explicit Google upload/billing acknowledgement may create a temporary TTS
   key in a separate private local SQLite vault. This is not synthetic family

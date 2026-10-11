@@ -159,9 +159,28 @@ the next call, but selection then applies a 24-hour cooldown and one-claim limit
 Only fever, sleep, appetite, energy and physical comfort are extracted in this
 slice. This is not unrestricted autobiographical memory or model fine-tuning.
 
+### Consent-gated conversation signals
+
+Recipient creation now offers a separate simulated consent for a short
+AI-estimated call signal. This permission is independent from cross-call memory.
+When enabled, Gemini Live may silently propose one bounded category (`upbeat`,
+`calm`, `neutral`, `lower_energy`, `tense`, or `unclear`) with confidence and a
+fixed list of evidence types. The model never supplies the recipient ID and its
+proposal never writes directly to storage.
+
+The server rechecks the active call, recipient, consent generation and schema.
+`low` confidence and `unclear` are abstentions. A publishable signal is rendered
+from server-owned text, retained locally for 72 hours, capped at ten per
+recipient, and shown only in that selected recipient's child-portal card. Raw
+audio, transcripts and model reasoning are not stored by this path. An in-call
+"don't share/tell" request clears existing signals and revokes this sharing
+without changing conversational-memory consent. Signals are explicitly labeled
+AI-estimated and non-medical; they never create an emergency alert.
+
 Routes: `GET/POST /api/demo/family`, `POST /api/demo/recipients`,
 `PUT /api/demo/recipient-voice`, `PUT /api/demo/background`,
-`POST /api/demo/background/clear`. Family responses have `schemaVersion: 2` and
+`POST /api/demo/background/clear`, `PUT /api/demo/wellbeing-sharing`. Family
+responses have `schemaVersion: 2` and
 a `recipients` array; private canonical memory/leases are not returned. Background
 and voice mutations require `recipientId` and the recipient's current `revision`. Mutations and demo sockets require an
 allowlisted loopback Origin and the actual loopback network peer; forwarded

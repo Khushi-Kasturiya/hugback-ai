@@ -43,6 +43,8 @@ def create_live_config(
     followup_context: str = "",
     enable_followup_tools: bool = False,
     background_context: str = "",
+    wellbeing_signal_context: str = "",
+    enable_wellbeing_signal_tool: bool = False,
 ) -> types.LiveConnectConfig:
     """Construct LiveConnectConfig for native bidirectional audio conversation."""
     validate_call_voice_selection(voice_sample_audio, consent_audio, voice_id)
@@ -53,6 +55,8 @@ def create_live_config(
         system_instruction = f"{system_instruction}\n\n{followup_context}"
     if background_context:
         system_instruction = f"{system_instruction}\n\n{background_context}"
+    if wellbeing_signal_context:
+        system_instruction = f"{system_instruction}\n\n{wellbeing_signal_context}"
 
     tools = None
     if enable_memory_tool:
@@ -123,6 +127,35 @@ def create_live_config(
             ),
         ])
         tools = (tools or []) + [followup_tool]
+
+    if enable_wellbeing_signal_tool:
+        signal_tool = types.Tool(function_declarations=[
+            types.FunctionDeclaration(
+                name="propose_call_wellbeing_signal",
+                description=(
+                    "Silently propose one non-diagnostic estimate of this call's overall "
+                    "conversation tone. Use unclear/low when evidence is weak. This tool "
+                    "does not notify anyone or grant sharing consent."
+                ),
+                behavior=types.Behavior.NON_BLOCKING,
+                parameters_json_schema={
+                    "type": "object",
+                    "properties": {
+                        "category": {"type": "string", "enum": [
+                            "upbeat", "calm", "neutral", "lower_energy", "tense", "unclear",
+                        ]},
+                        "confidence": {"type": "string", "enum": ["low", "medium", "high"]},
+                        "basis": {"type": "array", "minItems": 1, "maxItems": 3,
+                                  "items": {"type": "string", "enum": [
+                                      "explicit_self_report", "conversation_content", "vocal_cues",
+                                  ]}},
+                    },
+                    "required": ["category", "confidence", "basis"],
+                    "additionalProperties": False,
+                },
+            )
+        ])
+        tools = (tools or []) + [signal_tool]
 
     if voice_sample_audio and consent_audio:
         voice_config = types.VoiceConfig(

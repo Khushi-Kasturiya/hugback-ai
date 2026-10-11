@@ -18,6 +18,7 @@ class CreateRecipient(DemoInput):
     label: str = Field(default="Parent", min_length=1, max_length=40)
     relationship: Literal["mother", "father", "grandmother", "grandfather", "other"] = "other"
     enableMemory: bool = False
+    enableWellbeingSharing: bool = False
     timeZone: str = Field(default="Asia/Kolkata", max_length=80)
 
     @field_validator("label")
@@ -55,6 +56,18 @@ class SelectRecipientVoice(RecipientTarget):
     def explicit_voice(self):
         if (self.mode == "child") != (self.profileId is not None):
             raise ValueError("Choose standard voice or a specific authorized child voice")
+        return self
+
+
+class SetWellbeingSharing(RecipientTarget):
+    enabled: bool
+    simulateChildConsent: bool = False
+    simulateParentConsent: bool = False
+
+    @model_validator(mode="after")
+    def explicit_consent(self):
+        if self.enabled and not (self.simulateChildConsent and self.simulateParentConsent):
+            raise ValueError("Enabling demo signal sharing requires both simulated consents")
         return self
 
 

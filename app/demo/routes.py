@@ -4,7 +4,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.auth import AuthenticationError, authenticate_http_headers
-from app.demo.models import ClearBackground, CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice
+from app.demo.models import (
+    ClearBackground, CreateFamily, CreateRecipient, ReviewBackground,
+    SelectRecipientVoice, SetWellbeingSharing,
+)
 from app.demo.service import get_demo_store, require_demo
 from app.demo.store import DemoError
 from app.voice.profiles import enrollment_available, get_voice_store
@@ -73,3 +76,8 @@ async def recipient_voice(payload: SelectRecipientVoice, uid=Depends(demo_identi
         except VoiceEnrollmentError as exc:
             raise HTTPException(409, str(exc)) from exc
     return await execute(get_demo_store().select_voice, uid, payload)
+
+
+@router.put("/wellbeing-sharing")
+async def wellbeing_sharing(payload: SetWellbeingSharing, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_wellbeing_sharing, uid, payload)

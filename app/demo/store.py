@@ -11,8 +11,12 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from app.config import settings
-from app.demo.models import CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice
+from app.demo.models import (
+    CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice,
+    SetWellbeingSharing,
+)
 from app.memory.followups import FollowupState, expire, record_consent
+from app.wellbeing.models import WellbeingSignalDraft, display_text
 
 MAX_RECIPIENTS = 8
 
@@ -83,6 +87,13 @@ class DemoStore:
         state = json.loads(row[1])
         if state.get("schemaVersion") != 2:
             raise DemoError("Unsupported demo data version; no call was started.")
+        # Additive v2 defaults preserve existing local demo families without
+        # silently granting sharing consent.
+        for recipient in state["recipients"]:
+            recipient.setdefault("wellbeingSharing", {
+                "enabled": False, "generation": 0, "consentedAt": None,
+            })
+            recipient.setdefault("wellbeingSignals", [])
         return row[0], state
 
     @staticmethod
@@ -109,6 +120,10 @@ class DemoStore:
 
     @staticmethod
     def public_recipient(recipient):
+        recipient.setdefault("wellbeingSharing", {
+            "enabled": False, "generation": 0, "consentedAt": None,
+        })
+        recipient.setdefault("wellbeingSignals", [])
         memory = FollowupState.model_validate(recipient["memory"])
         expire(memory, now())
         active = recipient.get("activeCall")
@@ -120,6 +135,15 @@ class DemoStore:
             "memoryCount": len(memory.concerns) if memory.consent and not memory.privacy_hold else 0,
             "memoryCooldownHours": settings.FOLLOWUP_COOLDOWN_HOURS,
             "busy": bool(active and active["leaseUntil"] > now().isoformat()),
+            "wellbeingSharingEnabled": bool(recipient["wellbeingSharing"]["enabled"]),
+            "wellbeingSignals": [
+                {key: signal[key] for key in (
+                    "signalId", "category", "confidence", "basis", "displayText",
+                    "observedAt", "expiresAt", "policyVersion", "syntheticOnly",
+                )}
+                for signal in recipient["wellbeingSignals"]
+                if signal["expiresAt"] > now().isoformat()
+            ][-10:],
         }
 
     def public(self, state):
@@ -139,6 +163,12 @@ class DemoStore:
             "relationship": request.relationship, "timeZone": request.timeZone,
             "revision": 0, "background": [], "calls": [], "activeCall": None,
             "memory": memory.model_dump(mode="json"), "voice": {"mode": "standard", "profileId": None},
+            "wellbeingSharing": {
+                "enabled": request.enableWellbeingSharing,
+                "generation": 1 if request.enableWellbeingSharing else 0,
+                "consentedAt": now().isoformat() if request.enableWellbeingSharing else None,
+            },
+            "wellbeingSignals": [],
         }
 
     def create(self, uid: str, request: CreateFamily):
@@ -214,6 +244,25 @@ class DemoStore:
             self._save(conn, owner, state)
             return self.public(state)
 
+    def set_wellbeing_sharing(self, uid, request: SetWellbeingSharing):
+        with self.connection() as conn:
+            owner, state, recipient = self._editable(
+                conn, uid, request.recipientId, request.revision,
+            )
+            sharing = recipient["wellbeingSharing"]
+            if sharing["enabled"] == request.enabled:
+                return self.public(state)
+            sharing.update(
+                enabled=request.enabled,
+                generation=sharing["generation"] + 1,
+                consentedAt=now().isoformat() if request.enabled else None,
+            )
+            # A new sharing decision never revives or carries forward old output.
+            recipient["wellbeingSignals"] = []
+            recipient["revision"] += 1
+            self._save(conn, owner, state)
+            return self.public(state)
+
     def start_call(self, uid, session_id, recipient_id, revision, voice_profile_id=None):
         if not isinstance(recipient_id, str) or type(revision) is not int or revision < 0:
             raise DemoError("Explicit recipient selection and current setup revision are required.", 400)
@@ -248,6 +297,56 @@ class DemoStore:
                         call["endedAt"] = now().isoformat()
             if release:
                 recipient["activeCall"] = None
+            self._save(conn, owner, state)
+            return True
+
+    def record_wellbeing_signal(
+        self, parent, session_id, expected_generation, draft: WellbeingSignalDraft,
+        *, model: str, retention_hours=72,
+    ):
+        """Commit one bounded signal after rechecking recipient, call and consent."""
+        with self.connection() as conn:
+            owner, state = self._row(conn, parent=parent)
+            recipient = self._recipient(state, parent)
+            sharing = recipient["wellbeingSharing"]
+            active = recipient.get("activeCall")
+            if (
+                not sharing["enabled"] or sharing["generation"] != expected_generation
+                or not active or active["sessionId"] != session_id
+                or draft.category == "unclear" or draft.confidence == "low"
+            ):
+                return False
+            if any(item["sessionId"] == session_id for item in recipient["wellbeingSignals"]):
+                return False
+            created = now()
+            recipient["wellbeingSignals"] = [
+                item for item in recipient["wellbeingSignals"] if item["expiresAt"] > created.isoformat()
+            ][-9:] + [{
+                "signalId": f"signal-{uuid.uuid4().hex}",
+                "sessionId": session_id,
+                "category": draft.category,
+                "confidence": draft.confidence,
+                "basis": list(dict.fromkeys(draft.basis)),
+                "displayText": display_text(draft.category),
+                "observedAt": created.isoformat(),
+                "expiresAt": (created + timedelta(hours=retention_hours)).isoformat(),
+                "policyVersion": "wellbeing-signal-v1",
+                "modelVersion": model[:100],
+                "syntheticOnly": True,
+            }]
+            self._save(conn, owner, state)
+            return True
+
+    def revoke_wellbeing_sharing(self, parent, expected_generation):
+        """Honor an in-call don't-share request without altering memory consent."""
+        with self.connection() as conn:
+            owner, state = self._row(conn, parent=parent)
+            recipient = self._recipient(state, parent)
+            sharing = recipient["wellbeingSharing"]
+            if sharing["generation"] != expected_generation:
+                return False
+            sharing.update(enabled=False, generation=sharing["generation"] + 1, consentedAt=None)
+            recipient["wellbeingSignals"] = []
             self._save(conn, owner, state)
             return True
 

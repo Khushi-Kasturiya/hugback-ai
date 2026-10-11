@@ -40,6 +40,11 @@ from app.portal.routes import router as portal_router
 from app.demo.routes import router as demo_router
 from app.demo.service import background_context, get_demo_coordinator, get_demo_store, require_demo
 from app.demo.store import DemoError
+from app.wellbeing.service import (
+    SIGNAL_CONTEXT,
+    SignalCollector,
+    contains_signal_privacy_request,
+)
 from app.voice.service import (
     VoiceConsentError,
     VoiceEnrollmentError,
@@ -194,6 +199,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     demo_state = None
     demo_store = None
     call_ready = False
+    signal_collector = SignalCollector(enabled=False)
+    signal_generation = 0
 
     logger.info(f"Incoming WebSocket connection from {client_ip} [session: {session_id}]")
     await websocket.accept()
@@ -247,6 +254,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             # The selector is untrusted. Membership/revision/voice are validated
             # against this browser owner's family before choosing memory scope.
             user_id = demo_state["parentId"]
+            signal_generation = demo_state["wellbeingSharing"]["generation"]
+            signal_collector = SignalCollector(
+                enabled=bool(demo_state["wellbeingSharing"]["enabled"])
+            )
     except DemoError as exc:
         await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
         await websocket.close(code=1008)
@@ -304,6 +315,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             followup_context=followup_context,
             enable_followup_tools=followups is not None and followup_plan is not None,
             background_context=background_context(demo_state) if demo_state else "",
+            wellbeing_signal_context=SIGNAL_CONTEXT if signal_collector.enabled else "",
+            enable_wellbeing_signal_tool=signal_collector.enabled,
         )
     except Exception as e:
         if demo_state:
@@ -507,7 +520,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             if response.tool_call:
                                 function_responses = []
                                 for call in response.tool_call.function_calls:
-                                    if call.name in ("claim_followup", "control_followup"):
+                                    if call.name == "propose_call_wellbeing_signal":
+                                        result = signal_collector.propose(call.args)
+                                    elif call.name in ("claim_followup", "control_followup"):
                                         result = {"allowed": False, "changed": False}
                                         if followups and followup_plan:
                                             try:
@@ -768,16 +783,40 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 # wellbeing memory; honor privacy even if that
                                 # optional extractor is disabled/unavailable.
                                 await asyncio.to_thread(demo_store.forget_background, user_id)
+                            if contains_signal_privacy_request(turns):
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.revoke_wellbeing_sharing,
+                                        user_id, signal_generation,
+                                    )
+                                except Exception:
+                                    logger.warning("Local demo signal revocation was not saved session=%s", session_id)
                             if followups and followup_plan:
-                                result = await asyncio.wait_for(
-                                    followups.finish(user_id, followup_plan, turns), timeout=25,
-                                )
-                                if result in ("privacy_hold", "revoked"):
-                                    outcome = result
-                                    # Safe over-removal after unhandled privacy intent.
-                                    await asyncio.to_thread(demo_store.forget_background, user_id)
+                                try:
+                                    result = await asyncio.wait_for(
+                                        followups.finish(user_id, followup_plan, turns), timeout=25,
+                                    )
+                                    if result in ("privacy_hold", "revoked"):
+                                        outcome = result
+                                        # Safe over-removal after unhandled privacy intent.
+                                        await asyncio.to_thread(demo_store.forget_background, user_id)
+                                except Exception:
+                                    outcome = "memory_failed"
+                                    logger.warning("Local demo memory was not saved session=%s", session_id)
                             elif any(turn.role == "user" for turn in turns):
                                 outcome = "memory_failed"
+                            signal = signal_collector.publishable(turns)
+                            if signal is not None:
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.record_wellbeing_signal,
+                                        user_id, session_id, signal_generation, signal,
+                                        model=settings.HUGBACK_MODEL,
+                                    )
+                                except Exception:
+                                    # Signals are optional: never relabel a successful
+                                    # call or memory update because this path failed.
+                                    logger.warning("Local demo wellbeing signal was not saved session=%s", session_id)
                         except asyncio.CancelledError:
                             outcome = "memory_failed"
                             raise
