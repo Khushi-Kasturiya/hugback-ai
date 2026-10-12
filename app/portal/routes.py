@@ -5,8 +5,9 @@ from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from app.auth import AuthenticationError, UserIdentity, authenticate_http_headers
 from app.config import settings
 from app.portal.service import read_shared_summaries
-from app.demo.service import enabled as demo_enabled
-from app.voice.profiles import enrollment_available, get_voice_store
+from app.demo.service import enabled as demo_enabled, require_demo, require_demo_identity
+from app.demo.store import DemoError
+from app.voice.profiles import enrollment_available, get_voice_store, voice_owner
 
 router = APIRouter(prefix="/api/portal", tags=["child-portal"])
 
@@ -20,12 +21,21 @@ async def portal_identity(request: Request, response: Response) -> UserIdentity:
         if not request.client or request.client.host not in {"127.0.0.1", "::1"}:
             raise HTTPException(403, "Development portal is localhost-only")
     try:
-        return await authenticate_http_headers(request.headers)
+        identity = await authenticate_http_headers(request.headers)
+        if settings.HUGBACK_DEMO_STORE == "firestore":
+            require_demo(request.client.host if request.client else None, request.headers.get("origin"),
+                         mutation=False)
+            require_demo_identity(identity)
+        return identity
     except AuthenticationError as exc:
         raise HTTPException(401, "Unable to verify portal identity") from exc
+    except DemoError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
 
 
 def sharing_gate(identity: UserIdentity) -> str:
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        return "synthetic_test_only"
     if identity.provider != "firebase":
         return "development_only"
     if not settings.PORTAL_SHARING_ENABLED or not settings.FIRESTORE_ENABLED:
@@ -36,9 +46,9 @@ def sharing_gate(identity: UserIdentity) -> str:
 @router.get("/status")
 async def portal_status(identity: UserIdentity = Depends(portal_identity)):
     profile = None
-    if identity.provider == "development" and settings.HUGBACK_VOICE_DB_PATH.exists():
+    if (identity.provider == "development" or demo_enabled()) and settings.HUGBACK_VOICE_DB_PATH.exists():
         try:
-            profile = await asyncio.to_thread(get_voice_store().get, identity.user_id)
+            profile = await asyncio.to_thread(get_voice_store().get, voice_owner(identity))
         except Exception as exc:
             raise HTTPException(503, "Voice selection is unavailable; call setup is blocked.") from exc
     return {
@@ -51,6 +61,8 @@ async def portal_status(identity: UserIdentity = Depends(portal_identity)):
         "sharingStatus": sharing_gate(identity),
         "importsStatus": "local_preview_only",
         "localDemoEnabled": demo_enabled(),
+        "demoStorage": settings.HUGBACK_DEMO_STORE,
+        "workflowEnabled": settings.HUGBACK_WORKFLOW_ENABLED,
     }
 
 

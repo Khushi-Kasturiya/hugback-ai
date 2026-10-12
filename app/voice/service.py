@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import io
@@ -16,6 +17,7 @@ MAX_WAV_BYTES = 2 * 1024 * 1024
 MAX_BASE64_CHARS = 4 * ((MAX_WAV_BYTES + 2) // 3)
 MAX_RECORDING_SECONDS = 30
 _SENTENCE_BOUNDARY = re.compile(r'(?<=[.!?।])["\'’”)]*(?:\s+|$)')
+_CLAUSE_BOUNDARY = re.compile(r'(?<!\d[,;:，；：])(?<=[,;:，；：])(?:\s+|$)')
 
 
 class VoiceEnrollmentError(ValueError):
@@ -109,22 +111,33 @@ def split_ready_speech(
     *,
     final: bool = False,
     maximum_chars: int = 280,
+    first_phrase_chars: int | None = None,
 ) -> tuple[list[str], str]:
     """Take complete, reasonably sized phrases from streaming transcription.
 
-    Waiting for sentence punctuation avoids a paid TTS request for every token,
-    while the size cap prevents a punctuation-light response from blocking audio
-    until the entire model turn has completed.
+    The first phrase may use an earlier clause/word boundary. Subsequent
+    phrases keep normal batching, avoiding a paid request for every token.
     """
     remaining = text.lstrip()
     ready: list[str] = []
     while remaining:
+        limit = first_phrase_chars if first_phrase_chars and not ready else maximum_chars
         boundary = _SENTENCE_BOUNDARY.search(remaining)
-        if boundary and boundary.end() <= maximum_chars:
+        if first_phrase_chars and not ready:
+            # Avoid micro-requests for "Yes," or splitting a number like 1,000.
+            clause = next((item for item in _CLAUSE_BOUNDARY.finditer(remaining)
+                           if 24 <= item.end() <= limit), None)
+            if clause and (not boundary or clause.end() < boundary.end()):
+                boundary = clause
+        if boundary and boundary.end() <= limit:
             cut = boundary.end()
-        elif len(remaining) > maximum_chars:
-            cut = remaining.rfind(" ", 0, maximum_chars + 1)
+        elif len(remaining) > limit:
+            cut = remaining.rfind(" ", 0, limit + 1)
             if cut <= 0:
+                # Never chop the first low-latency phrase inside a word or an
+                # unfinished Hindi grapheme. The normal bound still applies.
+                if first_phrase_chars and not ready and len(remaining) <= maximum_chars:
+                    break
                 cut = maximum_chars
         else:
             break
@@ -278,7 +291,10 @@ async def stream_replicated_speech(
         # Closing the iterator alone does not close the SDK's HTTP SSE response.
         close = getattr(stream, "aclose", None) or getattr(stream, "close", None)
         if close:
-            await close()
+            # Cancellation must not leave the SSE transport holding a synthesis
+            # slot indefinitely when an interrupted turn needs to start.
+            async with asyncio.timeout(2):
+                await close()
 
 
 def validate_wav(

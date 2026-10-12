@@ -167,10 +167,36 @@ class PortalVoiceTests(unittest.TestCase):
             syntheticOnly=True, simulateChildConsent=True, simulateParentConsent=True, enableMemory=False,
         ))
         recipient = family["recipients"][0]
+        # Real replacement handoff: enabling the new profile cannot mutate any
+        # recipient's assignment, and the old pinned profile cannot fall back.
+        other = self.client.post("/api/demo/recipients", headers=HEADERS, json={
+            "syntheticOnly": True, "simulateChildConsent": True, "simulateParentConsent": True,
+            "label": "Father", "relationship": "father",
+        })
+        self.assertEqual(other.status_code, 200)
         family = DemoStore(settings.LOCAL_DEMO_DB_PATH).select_voice("synthetic-voice-owner", SelectRecipientVoice(
             syntheticOnly=True, recipientId=recipient["recipientId"], revision=0, mode="child", profileId=profile["id"],
         ))
         recipient = family["recipients"][0]
+        old_profile = profile
+        self.provider.return_value = SimpleNamespace(key="voicekey_synthetic_replacement", expire_time=now()+timedelta(days=2))
+        profile = self.create_profile()
+        with patch("app.main.create_genai_client") as google:
+            with self.client.websocket_connect("/ws", headers={"Origin": ORIGIN}) as ws:
+                ws.send_json({"type": "authenticate", "userId": "synthetic-voice-owner",
+                    "demoParent": True, "demoRecipientId": recipient["recipientId"],
+                    "demoRecipientRevision": recipient["revision"], "voiceProfileId": old_profile["id"]})
+                self.assertEqual(ws.receive_json()["code"], "voice_selection_rejected")
+            google.assert_not_called()
+        self.assertEqual(self.client.put("/api/voice/profile", headers=HEADERS,
+            json={"profileId": profile["id"], "enabled": True}).status_code, 200)
+        assigned = self.client.put("/api/demo/recipient-voice", headers=HEADERS, json={
+            "syntheticOnly": True, "recipientId": recipient["recipientId"], "revision": recipient["revision"],
+            "mode": "child", "profileId": profile["id"],
+        })
+        self.assertEqual(assigned.status_code, 200)
+        recipient = assigned.json()["recipients"][0]
+        self.assertEqual(assigned.json()["recipients"][1]["voice"]["mode"], "standard")
         coordinator = SimpleNamespace(begin=AsyncMock(side_effect=RuntimeError("memory off")))
         class Live:
             def __init__(self): self.queue = asyncio.Queue()
@@ -182,14 +208,17 @@ class PortalVoiceTests(unittest.TestCase):
                 )))
                 for text in ("Hello, I am Hugback AI.", "A second sentence."):
                     await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
-                        model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(data=b"PRESET", mime_type="audio/pcm"))]),
+                        model_turn=types.Content(parts=[
+                            types.Part(inline_data=types.Blob(data=b"PRESET", mime_type="audio/pcm")),
+                            types.Part(text="Unspoken Live draft must not be shown."),
+                        ]),
                         output_transcription=types.Transcription(text=text), turn_complete=True,
                     )))
             async def receive(self): yield await self.queue.get()
         @asynccontextmanager
         async def connect(**kwargs): yield Live()
         async def synthesize(*args, **kwargs):
-            self.assertEqual(kwargs["voice_key"], "voicekey_synthetic")
+            self.assertEqual(kwargs["voice_key"], "voicekey_synthetic_replacement")
             self.assertNotIn("Stale", kwargs["text"])
             await asyncio.sleep(0.01)
             yield SynthesizedAudio(pcm=b"CUSTOM", sample_rate=24000)
@@ -205,14 +234,89 @@ class PortalVoiceTests(unittest.TestCase):
             self.assertEqual(ready["voice"], "replicated")
             self.assertEqual(ready["demo"]["parentId"], recipient["recipientId"])
             ws.send_json({"type": "text", "text": "Hello from a synthetic caller."})
-            audio = []; turns = 0
+            audio = []; turns = 0; subtitles = []
             while turns < 2:
                 event = ws.receive_json()
+                if "outputTranscription" in event:
+                    self.assertIn("content", event)
+                    self.assertTrue(event["outputTranscription"]["playbackAligned"])
+                    subtitles.append(event["outputTranscription"]["text"])
                 if "content" in event:
                     audio.append(base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"]))
                 if event.get("turnComplete"): turns += 1
             self.assertEqual(audio, [b"CUSTOM", b"CUSTOM"])
+            self.assertEqual(subtitles, ["Hello, I am Hugback AI.", "A second sentence."])
         self.assertEqual(coordinator.begin.await_args.args[0], recipient["recipientId"])
+
+    def test_broker_starts_first_phrase_before_live_turn_end_and_resets_after_interrupt(self):
+        profile = self.create_profile()
+        self.store.select("synthetic-voice-owner", profile["id"], True)
+        store = DemoStore(settings.LOCAL_DEMO_DB_PATH)
+        family = store.create("synthetic-voice-owner", CreateFamily(
+            syntheticOnly=True, simulateChildConsent=True, simulateParentConsent=True, enableMemory=False,
+        ))
+        recipient = family["recipients"][0]
+        recipient = store.select_voice("synthetic-voice-owner", SelectRecipientVoice(
+            syntheticOnly=True, recipientId=recipient["recipientId"], revision=recipient["revision"],
+            mode="child", profileId=profile["id"],
+        ))["recipients"][0]
+        prefix = "It is really good to hear from you,"
+        requests = []
+
+        class Live:
+            def __init__(self):
+                self.queue = asyncio.Queue()
+            async def send_client_content(self, **kwargs):
+                command = kwargs["turns"].parts[0].text
+                if command == "interrupt":
+                    content = types.LiveServerContent(interrupted=True)
+                elif command == "finish":
+                    content = types.LiveServerContent(
+                        output_transcription=types.Transcription(text=" a synthetic sentence."), turn_complete=True,
+                    )
+                else:
+                    # No end-of-turn/sentence: the client deliberately waits for
+                    # the first custom PCM before allowing the turn to finish.
+                    content = types.LiveServerContent(
+                        output_transcription=types.Transcription(text=prefix + " and this is"),
+                    )
+                await self.queue.put(types.LiveServerMessage(server_content=content))
+            async def receive(self):
+                yield await self.queue.get()
+
+        @asynccontextmanager
+        async def connect(**kwargs):
+            yield Live()
+        async def synthesize(*args, **kwargs):
+            requests.append(kwargs["text"])
+            yield SynthesizedAudio(pcm=b"CUSTOM", sample_rate=24000)
+
+        with (
+            patch("app.main.create_genai_client", return_value=SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))),
+            patch("app.main.get_demo_coordinator", return_value=SimpleNamespace(begin=AsyncMock(side_effect=RuntimeError("memory off")))),
+            patch("app.voice.playback.stream_replicated_speech", synthesize),
+            patch("app.main.get_session_store", side_effect=AssertionError("No cloud writes")),
+            self.client.websocket_connect("/ws", headers={"Origin": ORIGIN}) as ws,
+        ):
+            ws.send_json({"type": "authenticate", "userId": "synthetic-voice-owner", "demoParent": True,
+                          "demoRecipientId": recipient["recipientId"], "demoRecipientRevision": recipient["revision"],
+                          "voiceProfileId": profile["id"]})
+            self.assertEqual(ws.receive_json()["voice"], "replicated")
+            for iteration in range(3):
+                ws.send_json({"type": "text", "text": "start"})
+                event = ws.receive_json()
+                self.assertEqual(event["outputTranscription"], {"text": prefix, "playbackAligned": True})
+                self.assertEqual(base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"]), b"CUSTOM")
+                self.assertNotIn("turnComplete", event)
+                if iteration == 1:
+                    ws.send_json({"type": "text", "text": "interrupt"})
+                    self.assertTrue(ws.receive_json()["interrupted"])
+                else:
+                    ws.send_json({"type": "text", "text": "finish"})
+                    self.assertEqual(ws.receive_json()["outputTranscription"]["text"], "and this is a synthetic sentence.")
+                    self.assertTrue(ws.receive_json()["turnComplete"])
+            self.assertEqual(requests, [prefix, "and this is a synthetic sentence.", prefix,
+                                        prefix, "and this is a synthetic sentence."])
 
 
 class PlaybackTests(unittest.IsolatedAsyncioTestCase):
@@ -227,7 +331,7 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
                 started.set()
                 try: await asyncio.Event().wait()
                 finally: cancelled.set()
-            yield SynthesizedAudio(pcm=kwargs["text"].encode(), sample_rate=24000)
+            yield SynthesizedAudio(pcm=(kwargs["text"] + " ").encode(), sample_rate=24000)
         with patch("app.voice.playback.stream_replicated_speech", stream):
             playback = ReplicatedPlayback(None, SimpleNamespace(send_text=send), voice_key="voicekey_test", model="synthetic")
             try:
@@ -237,7 +341,8 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
                 await asyncio.wait_for(completed.wait(), 1)
                 self.assertTrue(cancelled.is_set())
                 self.assertEqual(len(events), 2)
-                self.assertEqual(base64.b64decode(events[0]["content"]["parts"][0]["inlineData"]["data"]), b"new")
+                self.assertEqual(base64.b64decode(events[0]["content"]["parts"][0]["inlineData"]["data"]), b"new ")
+                self.assertEqual(events[0]["outputTranscription"]["text"], "new")
             finally: await playback.close()
             self.assertTrue(playback.task.done())
 
@@ -252,6 +357,7 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(playback.task, 1)
             event = json.loads(websocket.send_text.await_args.args[0])
             self.assertEqual(event["code"], "replicated_tts_failed")
+            self.assertNotIn("outputTranscription", event)
             self.assertNotIn("secret", json.dumps(event))
             with self.assertRaises(RuntimeError): playback.enqueue("no fallback")
             await playback.close()
@@ -295,8 +401,39 @@ class PlaybackTests(unittest.IsolatedAsyncioTestCase):
             try:
                 playback.enqueue("hello", final=True)
                 await asyncio.wait_for(finished.wait(), 1)
-                self.assertEqual(order, ["audio", "checkpoint", "audio", "complete"])
+                await asyncio.sleep(0)  # Checkpoint is deliberately off the PCM path.
+                self.assertEqual(order.count("checkpoint"), 1)
+                self.assertGreater(order.index("checkpoint"), order.index("audio"))
+                self.assertEqual([item for item in order if item != "checkpoint"], ["audio", "audio", "complete"])
+                self.assertEqual(events[0]["outputTranscription"], {"text": "hello", "playbackAligned": True})
+                self.assertNotIn("outputTranscription", events[1])
+                self.assertNotIn("outputTranscription", events[2])
             finally: await playback.close()
+
+    async def test_slow_tts_never_sends_caption_before_first_audio_chunk(self):
+        started, release, finished = asyncio.Event(), asyncio.Event(), asyncio.Event()
+        events = []
+        async def send(value):
+            event = json.loads(value); events.append(event)
+            if event.get("turnComplete"): finished.set()
+        async def stream(*args, **kwargs):
+            started.set()
+            await release.wait()
+            yield SynthesizedAudio(pcm=b"\0\0" * 128, sample_rate=24000)
+        with patch("app.voice.playback.stream_replicated_speech", stream):
+            playback = ReplicatedPlayback(None, SimpleNamespace(send_text=send),
+                                          voice_key="voicekey_test", model="synthetic")
+            try:
+                playback.enqueue("Synthetic delayed phrase.", final=True)
+                await asyncio.wait_for(started.wait(), 1)
+                self.assertEqual(events, [])
+                release.set()
+                await asyncio.wait_for(finished.wait(), 1)
+                self.assertEqual(len(events), 2)
+                self.assertIn("content", events[0])
+                self.assertEqual(events[0]["outputTranscription"]["text"], "Synthetic delayed phrase.")
+            finally:
+                await playback.close()
 
     async def test_close_racing_with_interruption_does_not_swallow_shutdown(self):
         started, released = asyncio.Event(), asyncio.Event()

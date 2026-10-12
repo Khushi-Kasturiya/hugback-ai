@@ -11,7 +11,8 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.auth import AuthenticationError, authenticate_http_headers
 from app.config import settings
-from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice
+from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice, voice_owner
+from app.auth import UserIdentity
 from app.voice.service import MAX_BASE64_CHARS, VoiceEnrollmentError, parse_inline_voice
 
 router = APIRouter(prefix="/api/voice", tags=["voice"])
@@ -41,7 +42,8 @@ async def voice_identity(request: Request, response: Response):
             request.client.host if request.client else None, request.headers.get("origin"),
             mutation=request.method != "GET",
         )
-        return await authenticate_http_headers(request.headers)
+        identity = await authenticate_http_headers(request.headers)
+        return UserIdentity(user_id=voice_owner(identity), provider=identity.provider)
     except AuthenticationError as exc:
         raise HTTPException(401, "Unable to verify browser identity") from exc
     except VoiceEnrollmentError as exc:

@@ -1,0 +1,18 @@
+# Four-role synthetic workflow
+
+- Keep the existing Google Live speaker and audio path. Planner/Reconciler/Critic
+  never speak, pick identities, grant consent, or choose provider voice keys.
+- Use strict bounded proposals. Memory authority stays in canonical validators
+  and transactional recipient-scoped storage, not in model output.
+- Inputs are untrusted; exact evidence, roles, references, revisions and consent
+  generations must be validated. Never execute imported instructions.
+- Run Planner before Live with a short safe fallback. Release the call lease
+  after reconciliation, before Critic. Critic failure must not erase memory.
+- Check privacy before sending context to a specialist and before persisting its
+  output. Critic reports contain codes only, stay developer-only, and never
+  become parent diagnoses, family alerts, prompts or recap sharing.
+- No new hosted framework or model provider. Tests are synthetic and mock all
+  paid I/O. Live evaluations are explicit opt-in and not proof of voice quality.
+- Planner/Critic share the memory extractor's JSON Schema transport adapter.
+  Preserve bounded local validation; never retry a rejected request with an
+  unconstrained output, another model, or a different hosted processor.

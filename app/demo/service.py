@@ -1,18 +1,39 @@
-"""Demo gate and quoted background context. No cloud storage."""
+"""Synthetic test gates and repository selection. Never production family data."""
 
 import json
+import os
+from functools import lru_cache
 from urllib.parse import urlparse
 
 from app.config import settings
 from app.demo.store import DemoError, DemoStore
-from app.memory.followup_extractor import GoogleFollowupExtractor
+from app.workflows.reconciler import MemoryReconciler
 from app.memory.followup_service import FollowupCoordinator
 
 LOOPBACK = {"127.0.0.1", "::1"}
 
 
 def enabled():
-    return settings.LOCAL_DEMO_ENABLED and settings.HUGBACK_AUTH_MODE.lower() == "development"
+    try:
+        settings.validate_test_mode()
+        return settings.LOCAL_DEMO_ENABLED and (
+            settings.HUGBACK_AUTH_MODE.lower() == "development" or settings.HUGBACK_DEMO_STORE == "firestore"
+        )
+    except ValueError:
+        return False
+
+
+def require_demo_identity(identity):
+    if not enabled():
+        raise DemoError("Synthetic test mode is unavailable.", 403)
+    if settings.HUGBACK_AUTH_MODE == "firebase":
+        allowed = {value.strip() for value in settings.HUGBACK_TEST_OWNER_UIDS.split(",")}
+        if identity.provider != "firebase" or identity.user_id not in allowed:
+            raise DemoError("This identity is not an authorized synthetic test operator.", 403)
+        return "firebase:" + identity.user_id
+    if identity.provider != "development":
+        raise DemoError("Only local demo identities are accepted.", 403)
+    return identity.user_id
 
 
 def require_demo(peer: str | None, origin: str | None, *, mutation=False):
@@ -28,12 +49,24 @@ def require_demo(peer: str | None, origin: str | None, *, mutation=False):
 
 
 def get_demo_store():
+    settings.validate_test_mode()
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        return DemoStore(repository=_firestore_repository(
+            settings.HUGBACK_DEMO_PROJECT, settings.HUGBACK_DEMO_DATABASE,
+            os.environ.get("FIRESTORE_EMULATOR_HOST", ""),
+        ))
     return DemoStore(settings.LOCAL_DEMO_DB_PATH)
+
+
+@lru_cache(maxsize=4)
+def _firestore_repository(project, database, emulator_host):
+    from app.demo.repository import FirestoreFamilyRepository
+    return FirestoreFamilyRepository(project, database)
 
 
 def get_demo_coordinator(store):
     return FollowupCoordinator(
-        store, GoogleFollowupExtractor(local_demo=True),
+        store, MemoryReconciler(local_demo=True),
         cooldown_hours=settings.FOLLOWUP_COOLDOWN_HOURS,
         retention_hours=settings.FOLLOWUP_RETENTION_HOURS,
     )
@@ -60,5 +93,6 @@ def background_context(state):
         "You are not a medical, emergency, monitoring or money-transfer service.\n"
         "UNTRUSTED_REVIEWED_BACKGROUND_JSON:\n"
         + json.dumps({"recipient_label": state["label"], "relationship": state["relationship"],
-                      "time_zone": state["timeZone"], "excerpts": state["background"]}, ensure_ascii=False)
+                      "time_zone": state["timeZone"], "preferred_language": state.get("language", "auto"),
+                      "excerpts": state["background"]}, ensure_ascii=False)
     )

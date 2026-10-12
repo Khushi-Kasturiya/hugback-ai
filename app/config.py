@@ -1,9 +1,10 @@
 """Configuration settings for Hugback AI backend."""
 
 import os
+import re
 from pathlib import Path
 from typing import Literal
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,11 +26,15 @@ class Settings(BaseSettings):
     # Live API models (support bidiGenerateContent):
     #   gemini-3.8-live, gemini-2.5-flash-native-audio-preview-12-2025
     # Non-live models like gemini-2.0-flash-exp do NOT support bidiGenerateContent
-    HUGBACK_MODEL: str = "gemini-3.8-live"
-    HUGBACK_VOICE_NAME: str = "Aoede"
+    HUGBACK_MODEL: str = Field(default="gemini-3.8-live", validation_alias=AliasChoices("HUGBACK_MODEL", "ELARA_MODEL"))
+    HUGBACK_VOICE_NAME: str = Field(default="Aoede", validation_alias=AliasChoices("HUGBACK_VOICE_NAME", "ELARA_VOICE_NAME"))
     # Replicated voices are synthesized through the supported TTS endpoint;
     # the Voices endpoint itself must choose its creation model automatically.
     HUGBACK_TTS_MODEL: str = "gemini-3.8-flash-lite-tts"
+    # Small first phrase, then normal sentence batching. 0 lookahead restores
+    # serial synthesis; 1 overlaps one already-generated phrase, not new content.
+    HUGBACK_TTS_FIRST_PHRASE_CHARS: int = Field(default=96, ge=48, le=280)
+    HUGBACK_TTS_LOOKAHEAD: int = Field(default=1, ge=0, le=1)
     # Explicit portal TTS capability; never inferred from old browser recordings
     # or enabled solely by the local call simulator.
     HUGBACK_REPLICATED_TTS_ENABLED: bool = False
@@ -48,7 +53,8 @@ class Settings(BaseSettings):
     # Identity. Use "firebase" in deployed environments. Development mode
     # accepts only a constrained, browser-generated ID and must never be used
     # as an authorization boundary in production.
-    HUGBACK_AUTH_MODE: str = "development"
+    HUGBACK_AUTH_MODE: Literal["development", "firebase"] = Field(
+        default="development", validation_alias=AliasChoices("HUGBACK_AUTH_MODE", "ELARA_AUTH_MODE"))
     FIREBASE_PROJECT_ID: str | None = None
 
     # Long-term memory and durable session storage.
@@ -67,6 +73,15 @@ class Settings(BaseSettings):
     # Synthetic, loopback-only hackathon simulator. Never a production store.
     LOCAL_DEMO_ENABLED: bool = False
     LOCAL_DEMO_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-demo" / "hugback.sqlite3"
+    # Explicit synthetic test storage; never redirects production collections.
+    HUGBACK_DEMO_STORE: Literal["sqlite", "firestore"] = "sqlite"
+    FIRESTORE_EMULATOR_HOST: str | None = None
+    HUGBACK_DEMO_PROJECT: str = ""
+    HUGBACK_DEMO_DATABASE: str = "hugback-synthetic"
+    HUGBACK_CLOUD_TEST_ENABLED: bool = False
+    HUGBACK_TEST_OWNER_UIDS: str = ""
+    # Planner + Critic only for acknowledged synthetic calls, not real-family analysis.
+    HUGBACK_WORKFLOW_ENABLED: bool = False
 
     # Internal Forms/Drive intake storage only; no browser route or consent grant.
     # Requires pre-existing resources. Enabling Firestore alone does not upload.
@@ -104,6 +119,38 @@ class Settings(BaseSettings):
     def firebase_project(self) -> str:
         return self.FIREBASE_PROJECT_ID or self.GOOGLE_CLOUD_PROJECT
 
+    def validate_test_mode(self) -> None:
+        """No I/O. Run on startup and at every synthetic test entry point."""
+        if self.HUGBACK_WORKFLOW_ENABLED and not self.LOCAL_DEMO_ENABLED:
+            raise ValueError("The four-role workflow currently requires the synthetic simulator")
+        from urllib.parse import urlparse
+        emulator = self.FIRESTORE_EMULATOR_HOST or os.environ.get("FIRESTORE_EMULATOR_HOST", "")
+        if emulator:
+            parsed = urlparse("//" + emulator)
+            if (parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or not parsed.port
+                    or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment):
+                raise ValueError("The Firestore emulator must be a loopback host:port, without a URL path")
+            if self.HUGBACK_DEMO_STORE != "firestore":
+                raise ValueError("Unset FIRESTORE_EMULATOR_HOST outside explicit Firestore test mode")
+        if self.HUGBACK_DEMO_STORE != "firestore":
+            return
+        if not self.LOCAL_DEMO_ENABLED or not self.FIRESTORE_ENABLED:
+            raise ValueError("Firestore test storage requires LOCAL_DEMO_ENABLED and FIRESTORE_ENABLED")
+        if (not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", self.HUGBACK_DEMO_PROJECT)
+                or not re.fullmatch(r"[a-z][a-z0-9-]{2,61}[a-z0-9]", self.HUGBACK_DEMO_DATABASE)):
+            raise ValueError("Select an explicit test project and a dedicated named test database")
+        if any((self.MEMORY_ENABLED, self.FOLLOWUPS_ENABLED, self.CLOUD_INTAKE_ENABLED, self.PORTAL_SHARING_ENABLED)):
+            raise ValueError("Synthetic Firestore mode cannot enable production/legacy data paths")
+        if emulator:
+            if not self.HUGBACK_DEMO_PROJECT.startswith("demo-") or self.HUGBACK_AUTH_MODE != "development":
+                raise ValueError("Emulator tests require a demo-* project and development auth")
+        elif not (
+            self.HUGBACK_CLOUD_TEST_ENABLED and self.HUGBACK_AUTH_MODE == "firebase"
+            and self.FIREBASE_PROJECT_ID == self.HUGBACK_DEMO_PROJECT
+            and self.HUGBACK_TEST_OWNER_UIDS.strip()
+        ):
+            raise ValueError("Live test storage requires explicit cloud opt-in, matching Firebase project and an owner allowlist")
+
 
 settings = Settings()
 
@@ -116,3 +163,8 @@ if settings.GOOGLE_GENAI_USE_VERTEXAI:
     os.environ["GOOGLE_CLOUD_LOCATION"] = settings.GOOGLE_CLOUD_LOCATION
 if settings.GOOGLE_APPLICATION_CREDENTIALS:
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
+
+# Do not install an arbitrary endpoint from configuration. Validate test mode first.
+if settings.FIRESTORE_EMULATOR_HOST:
+    settings.validate_test_mode()
+    os.environ["FIRESTORE_EMULATOR_HOST"] = settings.FIRESTORE_EMULATOR_HOST

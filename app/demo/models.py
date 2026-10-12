@@ -20,6 +20,7 @@ class CreateRecipient(DemoInput):
     enableMemory: bool = False
     enableWellbeingSharing: bool = False
     timeZone: str = Field(default="Asia/Kolkata", max_length=80)
+    language: Literal["auto", "en", "hi", "hi-en"] = "auto"
 
     @field_validator("label")
     @classmethod

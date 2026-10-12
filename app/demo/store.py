@@ -2,11 +2,7 @@
 
 import asyncio
 import hashlib
-import json
-import os
-import sqlite3
 import uuid
-from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -16,13 +12,14 @@ from app.demo.models import (
     SetWellbeingSharing,
 )
 from app.memory.followups import FollowupState, expire, record_consent
+from app.memory.failures import MEMORY_ERROR_CODES
 from app.wellbeing.models import WellbeingSignalDraft, display_text
 
 MAX_RECIPIENTS = 8
 
 
 class DemoError(ValueError):
-    def __init__(self, message: str, status=409):
+    def __init__(self, message, status=409):
         super().__init__(message)
         self.status = status
 
@@ -32,69 +29,25 @@ def now():
 
 
 class DemoStore:
-    def __init__(self, path: Path):
-        self.path = Path(path)
+    def __init__(self, path=None, *, repository=None):
+        from app.demo.repository import SQLiteFamilyRepository
+        self.path = Path(path) if path is not None else None
+        self.repository = repository or SQLiteFamilyRepository(self.path)
 
-    @contextmanager
-    def connection(self):
-        self.path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        conn = sqlite3.connect(self.path, timeout=5)
-        os.chmod(self.path, 0o600)
-        try:
-            # Retain the old parent column as a migration anchor, not a selector.
-            conn.execute("CREATE TABLE IF NOT EXISTS families "
-                         "(owner TEXT PRIMARY KEY, parent TEXT UNIQUE NOT NULL, state TEXT NOT NULL)")
-            conn.execute("BEGIN IMMEDIATE")
-            conn.execute("DELETE FROM families WHERE json_extract(state, '$.expiresAt') <= ?", (now().isoformat(),))
-            # Transactional, idempotent v1 migration. Never guess whether old mixed
-            # history belonged to Mother/Father or duplicate it into new recipients.
-            for owner, raw in conn.execute("SELECT owner, state FROM families WHERE json_extract(state, '$.schemaVersion') IS NULL").fetchall():
-                state = json.loads(raw)
-                recipient = {key: state[key] for key in (
-                    "timeZone", "revision", "background", "calls", "activeCall", "memory",
-                )}
-                recipient.update(recipientId=state["parentId"], label="Existing parent", relationship="other",
-                                 legacy=True, voice={"mode": "standard", "profileId": None})
-                migrated = {key: state[key] for key in ("familyId", "childId", "expiresAt")}
-                migrated.update(schemaVersion=2, recipients=[recipient])
-                conn.execute("UPDATE families SET state=? WHERE owner=?", (json.dumps(migrated), owner))
-            conn.commit()
-            conn.execute("BEGIN IMMEDIATE")
-            yield conn
-            conn.commit()
-        except BaseException:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
+    def _run(self, mutate, *, uid=None, parent=None, create=False):
+        def checked(state):
+            if state:
+                if state.get("schemaVersion") != 2:
+                    raise DemoError("Unsupported demo data version; no call was started.")
+                for recipient in state["recipients"]:
+                    recipient.setdefault("wellbeingSharing", {"enabled": False, "generation": 0, "consentedAt": None})
+                    recipient.setdefault("wellbeingSignals", [])
+            return mutate(state)
+        return self.repository.transact(self.owner(uid) if uid is not None else None, parent, checked, create=create)
 
     @staticmethod
     def owner(uid):
         return hashlib.sha256(f"local-demo:{uid}".encode()).hexdigest()
-
-    def _row(self, conn, uid=None, parent=None):
-        if uid is not None:
-            row = conn.execute("SELECT owner, state FROM families WHERE owner=?", (self.owner(uid),)).fetchone()
-        else:
-            # Internal finalizers receive only a server-resolved, immutable recipient
-            # ID. Public callers must ALWAYS take the owner + membership path below.
-            row = conn.execute("""SELECT owner, state FROM families WHERE EXISTS (
-                SELECT 1 FROM json_each(state, '$.recipients')
-                WHERE json_extract(value, '$.recipientId') = ?
-            )""", (parent,)).fetchone()
-        if not row:
-            raise DemoError("Create a synthetic demo family in Child setup first.", 404)
-        state = json.loads(row[1])
-        if state.get("schemaVersion") != 2:
-            raise DemoError("Unsupported demo data version; no call was started.")
-        # Additive v2 defaults preserve existing local demo families without
-        # silently granting sharing consent.
-        for recipient in state["recipients"]:
-            recipient.setdefault("wellbeingSharing", {
-                "enabled": False, "generation": 0, "consentedAt": None,
-            })
-            recipient.setdefault("wellbeingSignals", [])
-        return row[0], state
 
     @staticmethod
     def _recipient(state, recipient_id):
@@ -102,10 +55,6 @@ class DemoStore:
             if recipient["recipientId"] == recipient_id:
                 return recipient
         raise DemoError("Choose a recipient belonging to this demo family.", 404)
-
-    @staticmethod
-    def _save(conn, owner, state):
-        conn.execute("UPDATE families SET state=? WHERE owner=?", (json.dumps(state), owner))
 
     @staticmethod
     def _check_idle(recipient):
@@ -130,6 +79,7 @@ class DemoStore:
         return {key: recipient[key] for key in (
             "recipientId", "label", "relationship", "timeZone", "revision", "background", "calls", "voice",
         )} | {
+            "language": recipient.get("language", "auto"),
             "legacy": recipient.get("legacy", False),
             "memoryEnabled": memory.consent and not memory.privacy_hold,
             "memoryCount": len(memory.concerns) if memory.consent and not memory.privacy_hold else 0,
@@ -149,6 +99,7 @@ class DemoStore:
     def public(self, state):
         return {key: state[key] for key in ("familyId", "childId", "expiresAt", "schemaVersion")} | {
             "syntheticOnly": True,
+            "storageMode": settings.HUGBACK_DEMO_STORE,
             "recipients": [self.public_recipient(recipient) for recipient in state["recipients"]],
         }
 
@@ -160,6 +111,7 @@ class DemoStore:
                            time_zone=request.timeZone, now=now())
         return {
             "recipientId": f"demo-parent-{uuid.uuid4().hex}", "label": request.label,
+            "language": request.language,
             "relationship": request.relationship, "timeZone": request.timeZone,
             "revision": 0, "background": [], "calls": [], "activeCall": None,
             "memory": memory.model_dump(mode="json"), "voice": {"mode": "standard", "profileId": None},
@@ -172,82 +124,85 @@ class DemoStore:
         }
 
     def create(self, uid: str, request: CreateFamily):
-        with self.connection() as conn:
-            existing = conn.execute("SELECT state FROM families WHERE owner=?", (self.owner(uid),)).fetchone()
-            if existing:
-                return self.public(json.loads(existing[0]))
-            recipient = self.new_recipient(request)
-            state = {
-                "schemaVersion": 2, "familyId": f"demo-family-{uuid.uuid4().hex}",
-                "childId": f"demo-child-{uuid.uuid4().hex}",
-                "expiresAt": (now() + timedelta(days=7)).isoformat(), "recipients": [recipient],
-            }
-            conn.execute("INSERT INTO families VALUES (?,?,?)",
-                         (self.owner(uid), recipient["recipientId"], json.dumps(state)))
+        def action(state):
+            if not state:
+                state.update({
+                    "schemaVersion": 2, "familyId": f"demo-family-{uuid.uuid4().hex}",
+                    "childId": f"demo-child-{uuid.uuid4().hex}",
+                    "expiresAt": (now() + timedelta(days=7)).isoformat(),
+                    "recipients": [self.new_recipient(request)],
+                })
             return self.public(state)
+        return self._run(action, uid=uid, create=True)
 
     def add_recipient(self, uid, request: CreateRecipient):
-        with self.connection() as conn:
-            owner, state = self._row(conn, uid=uid)
+        def action(state):
             if len(state["recipients"]) >= MAX_RECIPIENTS:
                 raise DemoError("Keep at most eight recipients in a local demo family.")
             if any(r["label"].casefold() == request.label.casefold() for r in state["recipients"]):
                 raise DemoError("A recipient with this label already exists. Refresh the family.")
             state["recipients"].append(self.new_recipient(request))
-            self._save(conn, owner, state)
             return self.public(state)
+        return self._run(action, uid=uid)
+
 
     def get(self, uid):
-        with self.connection() as conn:
-            owner, state = self._row(conn, uid=uid)
+        def action(state):
             for recipient in state["recipients"]:
                 if not recipient.get("activeCall") or recipient["activeCall"]["leaseUntil"] <= now().isoformat():
                     self._check_idle(recipient)
                 memory = FollowupState.model_validate(recipient["memory"])
                 expire(memory, now())
                 recipient["memory"] = memory.model_dump(mode="json")
-            self._save(conn, owner, state)
+                recipient["wellbeingSignals"] = [
+                    signal for signal in recipient["wellbeingSignals"] if signal["expiresAt"] > now().isoformat()
+                ]
             return self.public(state)
+        return self._run(action, uid=uid)
 
-    def _editable(self, conn, uid, recipient_id, revision):
-        owner, state = self._row(conn, uid=uid)
+
+    def _editable(self, state, recipient_id, revision):
         recipient = self._recipient(state, recipient_id)
         self._check_idle(recipient)
         if recipient["revision"] != revision:
             raise DemoError("This recipient's setup changed in another tab. Refresh before continuing.")
-        return owner, state, recipient
+        return recipient
 
     def review(self, uid, request: ReviewBackground):
-        with self.connection() as conn:
-            owner, state, recipient = self._editable(conn, uid, request.recipientId, request.revision)
+        def action(state):
+            recipient = self._editable(state, request.recipientId, request.revision)
             recipient["background"] = [item.model_dump() | {
                 "role": "child" if item.sender == request.childSender else "parent",
                 "source": request.source, "reviewedAt": now().isoformat(),
             } for item in request.excerpts]
             recipient["revision"] += 1
-            self._save(conn, owner, state)
             return self.public(state)
+        return self._run(action, uid=uid)
+
 
     def clear(self, uid, recipient_id, revision):
-        with self.connection() as conn:
-            owner, state, recipient = self._editable(conn, uid, recipient_id, revision)
+        def action(state):
+            recipient = self._editable(state, recipient_id, revision)
             recipient["background"] = []
+            recipient["qualityReports"] = []
             recipient["revision"] += 1
-            self._save(conn, owner, state)
             return self.public(state)
+        return self._run(action, uid=uid)
+
 
     def select_voice(self, uid, request: SelectRecipientVoice):
-        with self.connection() as conn:
-            owner, state, recipient = self._editable(conn, uid, request.recipientId, request.revision)
+        def action(state):
+            recipient = self._editable(state, request.recipientId, request.revision)
             recipient["voice"] = {"mode": request.mode, "profileId": request.profileId}
             recipient["revision"] += 1
-            self._save(conn, owner, state)
             return self.public(state)
+        return self._run(action, uid=uid)
+
 
     def set_wellbeing_sharing(self, uid, request: SetWellbeingSharing):
-        with self.connection() as conn:
-            owner, state, recipient = self._editable(
-                conn, uid, request.recipientId, request.revision,
+        def action(state):
+            recipient = self._editable(
+                state, request.recipientId, request.revision,
             )
             sharing = recipient["wellbeingSharing"]
             if sharing["enabled"] == request.enabled:
@@ -260,14 +215,15 @@ class DemoStore:
             # A new sharing decision never revives or carries forward old output.
             recipient["wellbeingSignals"] = []
             recipient["revision"] += 1
-            self._save(conn, owner, state)
             return self.public(state)
+        return self._run(action, uid=uid)
+
 
     def start_call(self, uid, session_id, recipient_id, revision, voice_profile_id=None):
         if not isinstance(recipient_id, str) or type(revision) is not int or revision < 0:
             raise DemoError("Explicit recipient selection and current setup revision are required.", 400)
-        with self.connection() as conn:
-            owner, state, recipient = self._editable(conn, uid, recipient_id, revision)
+        def action(state):
+            recipient = self._editable(state, recipient_id, revision)
             selected_voice = recipient["voice"]
             if voice_profile_id != selected_voice["profileId"]:
                 raise DemoError("This recipient's voice selection changed. Refresh before calling.")
@@ -277,13 +233,16 @@ class DemoStore:
             recipient["calls"] = (recipient["calls"] + [{
                 "sessionId": session_id, "startedAt": now().isoformat(), "status": "connecting",
             }])[-20:]
-            self._save(conn, owner, state)
             # Preserve the broker/coordinator's internal parent-scoped contract.
             return {**recipient, "parentId": recipient_id, "familyId": state["familyId"], "childId": state["childId"]}
+        return self._run(action, uid=uid)
 
-    def call_status(self, parent, session_id, status, *, release=False):
-        with self.connection() as conn:
-            owner, state = self._row(conn, parent=parent)
+
+    def call_status(self, parent, session_id, status, *, release=False, quality_pending=False,
+                    memory_error=None):
+        if memory_error is not None and memory_error not in MEMORY_ERROR_CODES:
+            raise DemoError("Invalid memory failure category")
+        def action(state):
             recipient = self._recipient(state, parent)
             active = recipient.get("activeCall")
             if not active or active["sessionId"] != session_id:
@@ -293,20 +252,26 @@ class DemoStore:
             for call in recipient["calls"]:
                 if call["sessionId"] == session_id:
                     call["status"] = status
+                    if status == "memory_failed":
+                        call["memoryErrorCode"] = memory_error or "processing_failed"
+                    else:
+                        call.pop("memoryErrorCode", None)
                     if release:
                         call["endedAt"] = now().isoformat()
+                        if quality_pending:
+                            call.setdefault("workflow", {})["critic"] = "pending"
             if release:
                 recipient["activeCall"] = None
-            self._save(conn, owner, state)
             return True
+        return self._run(action, parent=parent)
+
 
     def record_wellbeing_signal(
         self, parent, session_id, expected_generation, draft: WellbeingSignalDraft,
         *, model: str, retention_hours=72,
     ):
         """Commit one bounded signal after rechecking recipient, call and consent."""
-        with self.connection() as conn:
-            owner, state = self._row(conn, parent=parent)
+        def action(state):
             recipient = self._recipient(state, parent)
             sharing = recipient["wellbeingSharing"]
             active = recipient.get("activeCall")
@@ -334,38 +299,85 @@ class DemoStore:
                 "modelVersion": model[:100],
                 "syntheticOnly": True,
             }]
-            self._save(conn, owner, state)
             return True
+        return self._run(action, parent=parent)
+
 
     def revoke_wellbeing_sharing(self, parent, expected_generation):
         """Honor an in-call don't-share request without altering memory consent."""
-        with self.connection() as conn:
-            owner, state = self._row(conn, parent=parent)
+        def action(state):
             recipient = self._recipient(state, parent)
             sharing = recipient["wellbeingSharing"]
             if sharing["generation"] != expected_generation:
                 return False
             sharing.update(enabled=False, generation=sharing["generation"] + 1, consentedAt=None)
             recipient["wellbeingSignals"] = []
-            self._save(conn, owner, state)
+            recipient["qualityReports"] = []
+            recipient["revision"] += 1  # Invalidate in-flight reviews after don't-share intent.
             return True
+        return self._run(action, parent=parent)
+
 
     def forget_background(self, parent):
-        with self.connection() as conn:
-            owner, state = self._row(conn, parent=parent)
+        def action(state):
             recipient = self._recipient(state, parent)
             recipient["background"] = []
+            recipient["qualityReports"] = []
             recipient["revision"] += 1
-            self._save(conn, owner, state)
+
+        return self._run(action, parent=parent)
+
 
     async def transact(self, parent, mutate):
-        def run():
-            with self.connection() as conn:
-                owner, state = self._row(conn, parent=parent)
-                recipient = self._recipient(state, parent)
-                memory = FollowupState.model_validate(recipient["memory"])
-                result = mutate(memory)
-                recipient["memory"] = memory.model_dump(mode="json")
-                self._save(conn, owner, state)
-                return result
-        return await asyncio.to_thread(run)
+        def action(state):
+            recipient = self._recipient(state, parent)
+            memory = FollowupState.model_validate(recipient["memory"])
+            generation = memory.generation
+            result = mutate(memory)
+            if memory.generation != generation:
+                recipient["qualityReports"] = []
+            recipient["memory"] = memory.model_dump(mode="json")
+            return result
+        return await asyncio.to_thread(self._run, action, parent=parent)
+
+    def workflow_checkpoint(self, parent, session, stages, *, report=None, revision=None, generation=None):
+        """Bounded status is public. Content-free critic findings stay internal."""
+        allowed = {"planner", "reconciler", "critic"}
+        statuses = {"ready", "fallback", "processed", "skipped", "failed", "completed",
+                    "privacy_skipped", "privacy_hold", "revoked", "pending", "already_processed"}
+        if not set(stages) <= allowed or any(value not in statuses for value in stages.values()):
+            raise DemoError("Invalid workflow checkpoint")
+        def action(state):
+            recipient = self._recipient(state, parent)
+            call = next((c for c in recipient["calls"] if c["sessionId"] == session), None)
+            if call is None:
+                return False
+            if report is not None and (
+                recipient["revision"] != revision
+                or recipient["memory"]["generation"] != generation
+            ):
+                call.setdefault("workflow", {})["critic"] = "privacy_skipped"
+                return False
+            call.setdefault("workflow", {}).update(stages)
+            if report is not None:
+                reports = [r for r in recipient.get("qualityReports", []) if r["sessionId"] != session]
+                recipient["qualityReports"] = (reports + [{
+                    "sessionId": session, "version": "critic-v1",
+                    "model": settings.FOLLOWUP_EXTRACTION_MODEL[:100],
+                    "observedAt": now().isoformat(), "uncertain": report.uncertain,
+                    "findings": [{"code": f.code, "severity": f.severity, "sourceTurn": f.source_turn}
+                                 for f in report.findings],
+                }])[-20:]
+            return True
+        return self._run(action, parent=parent)
+
+    def inspect_quality(self, uid, recipient_id):
+        """Trusted operator CLI only; deliberately no browser route."""
+        return self._run(lambda state: self._recipient(state, recipient_id).get("qualityReports", []), uid=uid)
+
+    async def quality_eligible(self, parent, revision, generation):
+        def check(state):
+            recipient = self._recipient(state, parent)
+            return (recipient["revision"] == revision and recipient["memory"]["generation"] == generation
+                    and not recipient["memory"].get("privacy_hold"))
+        return await asyncio.to_thread(self._run, check, parent=parent)

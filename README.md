@@ -1,5 +1,30 @@
 # Hugback backend
 
+## Four-role workflow + end-to-end evals (12 October 2026)
+
+The synthetic simulator now connects **Planner → existing Live conversation →
+Memory Reconciler → Quality Critic**. Canonical recipient-scoped policy remains
+the memory authority; the Critic reviews assistant behaviour and never publishes
+child recaps. New specialist processing is opt-in with
+`HUGBACK_WORKFLOW_ENABLED=TRUE` plus the browser acknowledgement.
+
+Family storage is explicitly selectable: existing SQLite, loopback Firestore
+emulator, or an isolated named test Firestore database with matching Firebase
+authentication, explicit cloud opt-in and a server-side operator UID allowlist.
+This supersedes historical SQLite-only test wording below, **not** the no-app
+product direction or production consent/enrollment boundaries.
+
+**Read [the complete end-to-end runbook](docs/END_TO_END_TESTING.md)** for exact
+environment profiles, where each item is saved, same-browser Mother/Father
+testing, offline/paid eval commands, privacy and failure cases, and activation
+gates. Firestore does not move browser previews or the local voice vault to cloud.
+No resource/billing changes, private uploads or paid checks are performed by the
+implementation. Post-call work is not yet crash-durable.
+
+```sh
+.venv/bin/python -m evals.run --suite offline --output /tmp/hugback-offline-eval.json
+```
+
 ## Retained original chat storage (v4.5, 11 October 2026)
 
 The new **internal no-app intake sink** stores exact original WhatsApp exports
@@ -83,9 +108,16 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    `voiceProfileId`, never raw `voiceKey`. Gemini Live handles conversation and
    transcription; its preset audio is discarded, and only Google streaming TTS
    audio using that profile reaches playback. The key is NOT a Live voice ID.
-   One bounded worker spans turns, cancels interrupted speech, closes SSE/client
-   resources, and checkpoints actual emitted TTS for follow-ups. Failures stop
+   One ordered emitter with bounded one-phrase synthesis lookahead spans turns,
+   cancels interrupted speech, closes SSE/client resources, and checkpoints
+   emitted TTS off the audio path. Failures stop
    the call rather than mix preset/custom voices. Hugback remains disclosed AI.
+
+   The first phrase can start at an earlier clause/word boundary. Lookahead
+   may spend synthesis on interrupted audio; set `HUGBACK_TTS_LOOKAHEAD=0` for
+   serial requests. Existing voice keys are reused, not recreated per reply.
+   See [latency settings, diagnostics and offline checks](docs/END_TO_END_TESTING.md#replicated-voice-reducing-application-latency).
+   Native Live latency parity and actual provider speed remain unmeasured.
 
 **Storage:** source audio is transient browser/backend memory, not saved by this
 flow. A client-managed key and metadata persist in private mode-0600 SQLite at

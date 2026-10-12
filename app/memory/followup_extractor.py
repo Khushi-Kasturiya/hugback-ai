@@ -6,6 +6,7 @@ from google import genai
 from google.genai import types
 
 from app.config import settings
+from app.google_structured import json_response_config
 from app.memory.followups import CallPlan, ObservationBatch
 from app.memory.models import TranscriptTurn
 
@@ -33,8 +34,9 @@ class GoogleFollowupExtractor:
         self.local_demo = local_demo
 
     async def extract(self, turns: list[TranscriptTurn], plan: CallPlan) -> ObservationBatch:
+        from app.demo.service import enabled as demo_enabled
         allowed = (
-            settings.LOCAL_DEMO_ENABLED and settings.HUGBACK_AUTH_MODE.lower() == "development"
+            demo_enabled()
             if self.local_demo else settings.FOLLOWUPS_ENABLED
         )
         if not allowed or not plan.consent:
@@ -61,11 +63,7 @@ class GoogleFollowupExtractor:
             response = await client.aio.models.generate_content(
                 model=settings.FOLLOWUP_EXTRACTION_MODEL,
                 contents=payload,
-                config=types.GenerateContentConfig(
-                    system_instruction=INSTRUCTION, response_mime_type="application/json",
-                    response_schema=ObservationBatch, temperature=0,
-                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
-                ),
+                config=json_response_config(INSTRUCTION, ObservationBatch),
             )
             if not response.text or len(response.text) > 24_000:
                 raise ValueError("Missing or oversized follow-up extraction")

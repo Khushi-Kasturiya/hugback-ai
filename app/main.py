@@ -8,7 +8,9 @@ import asyncio
 import base64
 import json
 import logging
+import time
 import uuid
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
 from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
@@ -36,9 +38,13 @@ from app.memory.followups import context_card
 from app.memory.followup_service import contains_privacy_request, get_followup_coordinator
 from app.memory.store import get_session_store
 from app.memory.transcript import TranscriptCollector, merge_transcription
+from app.memory.failures import memory_error_code
 from app.portal.routes import router as portal_router
 from app.demo.routes import router as demo_router
-from app.demo.service import background_context, get_demo_coordinator, get_demo_store, require_demo
+from app.demo.service import background_context, get_demo_coordinator, get_demo_store, require_demo, require_demo_identity
+from app.workflows.planner import prepare_call, plan_context
+from app.workflows.critic import finish_quality_review
+from app.workflows.contracts import ToolOutcome
 from app.demo.store import DemoError
 from app.wellbeing.service import (
     SIGNAL_CONTEXT,
@@ -54,7 +60,7 @@ from app.voice.service import (
 )
 
 from app.voice.routes import router as voice_router
-from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice
+from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice, voice_owner
 from app.voice.playback import ReplicatedPlayback
 
 # Configure logging
@@ -68,10 +74,17 @@ logger = logging.getLogger("hugback.broker")
 _demo_finalizers: set[asyncio.Task] = set()
 
 # Initialize FastAPI
+@asynccontextmanager
+async def lifespan(app):
+    settings.validate_test_mode()
+    yield
+
+
 app = FastAPI(
     title="Hugback Multimodal Live Audio Broker",
     version="0.1.0",
     description="Bidirectional low-latency audio broker connecting to Gemini Multimodal Live API",
+    lifespan=lifespan,
 )
 
 # CORS Middleware for local frontend development
@@ -106,7 +119,8 @@ async def healthz():
         DisabledMemoryService("canonical follow-up mode")
         if settings.FOLLOWUPS_ENABLED else get_memory_service()
     )
-    session_store = get_session_store()
+    from app.memory.store import DisabledSessionStore
+    session_store = DisabledSessionStore("synthetic test uses its own repository") if settings.LOCAL_DEMO_ENABLED else get_session_store()
     return {
         "status": "healthy",
         "auth_mode": auth_mode,
@@ -125,12 +139,17 @@ async def healthz():
         "firestore_error": getattr(session_store, "reason", None),
         "memory_processing": settings.MEMORY_PROCESSING_MODE,
         "followups_configured": settings.FOLLOWUPS_ENABLED,
+        "demo_storage": settings.HUGBACK_DEMO_STORE,
+        "workflow_enabled": settings.HUGBACK_WORKFLOW_ENABLED,
+        "demo_storage_verified": False,  # Configuration is not a successful database probe.
     }
 
 
 @app.post("/internal/memory/process")
 async def memory_process_endpoint(payload: ProcessMemoryRequest, request: Request):
     """Cloud Tasks target for retryable, post-call memory consolidation."""
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        raise HTTPException(403, "Legacy memory processing is disabled in synthetic cloud tests")
     if not await asyncio.to_thread(task_request_is_authorized, request.headers):
         raise HTTPException(status_code=403, detail="Unauthorized task request")
     try:
@@ -143,6 +162,8 @@ async def memory_process_endpoint(payload: ProcessMemoryRequest, request: Reques
 @app.get("/api/memories")
 async def inspect_memories(request: Request):
     """Return exactly what the authenticated user is currently remembered as."""
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        raise HTTPException(403, "Production memory APIs are disabled in synthetic cloud tests")
     try:
         identity = await authenticate_http_headers(request.headers)
     except AuthenticationError as exc:
@@ -160,6 +181,8 @@ async def inspect_memories(request: Request):
 @app.delete("/api/memories")
 async def delete_memories(request: Request):
     """Delete Memory Bank facts/profiles and persisted transcripts for one user."""
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        raise HTTPException(403, "Production memory APIs are disabled in synthetic cloud tests")
     try:
         identity = await authenticate_http_headers(request.headers)
     except AuthenticationError as exc:
@@ -201,6 +224,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     call_ready = False
     signal_collector = SignalCollector(enabled=False)
     signal_generation = 0
+    conversation_plan = None
+    workflow_active = False
+    tool_outcomes = []
 
     logger.info(f"Incoming WebSocket connection from {client_ip} [session: {session_id}]")
     await websocket.accept()
@@ -211,6 +237,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         identity = await authenticate_message(authentication_message)
         if ("demoRecipientId" in authentication_message or "demoRecipientRevision" in authentication_message) and authentication_message.get("demoParent") is not True:
             raise DemoError("Recipient selection is supported only in the local parent simulator.", 400)
+        if settings.HUGBACK_DEMO_STORE == "firestore" and authentication_message.get("demoParent") is not True:
+            raise DemoError("Cloud test mode accepts only explicitly selected synthetic recipients.", 403)
         inline_voice = parse_call_voice(authentication_message)
         if "voiceKey" in authentication_message:
             raise VoiceEnrollmentError("Use an owner-scoped portal voice profile, not a provider key.")
@@ -222,7 +250,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 websocket.headers.get("origin"),
             )
             voice_key = await asyncio.to_thread(
-                get_voice_store().resolve, identity.user_id,
+                get_voice_store().resolve, voice_owner(identity),
                 authentication_message["voiceProfileId"],
             )
         elif (
@@ -242,11 +270,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 websocket.client.host if websocket.client else None,
                 websocket.headers.get("origin"), mutation=True,
             )
-            if identity.provider != "development" or inline_voice:
+            demo_owner = require_demo_identity(identity)
+            if inline_voice:
                 raise DemoError("Demo calls require local identity and preset or portal-enrolled TTS voice.", 403)
+            workflow_active = settings.HUGBACK_WORKFLOW_ENABLED
+            if workflow_active and authentication_message.get("simulateWorkflowConsent") is not True:
+                raise DemoError("Acknowledge synthetic Planner and Critic processing before calling.", 403)
             demo_store = get_demo_store()
             demo_state = await asyncio.to_thread(
-                demo_store.start_call, user_id, session_id,
+                demo_store.start_call, demo_owner, session_id,
                 authentication_message.get("demoRecipientId"),
                 authentication_message.get("demoRecipientRevision"),
                 authentication_message.get("voiceProfileId"),
@@ -306,6 +338,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         else:
             memory_service = get_memory_service()
         memory_context = await memory_service.initial_context(user_id)
+        if workflow_active:
+            conversation_plan, planner_status = await prepare_call(demo_state, followup_plan)
+            await asyncio.to_thread(demo_store.workflow_checkpoint, user_id, session_id,
+                                    {"planner": planner_status})
         client = create_genai_client()
         live_config = create_live_config(
             memory_context=render_memory_context(memory_context),
@@ -317,6 +353,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             background_context=background_context(demo_state) if demo_state else "",
             wellbeing_signal_context=SIGNAL_CONTEXT if signal_collector.enabled else "",
             enable_wellbeing_signal_tool=signal_collector.enabled,
+            conversation_plan_context=plan_context(conversation_plan),
         )
     except Exception as e:
         if demo_state:
@@ -391,6 +428,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             sent_audio = False
             replicated_turn_text = ""
             tts_pending_text = ""
+            tts_first_phrase = True
+            tts_text_started_at = None
             async def checkpoint_audio():
                 if followups and followup_plan:
                     try:
@@ -400,19 +439,27 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             playback = ReplicatedPlayback(
                 client, websocket, voice_key=voice_key, model=settings.HUGBACK_TTS_MODEL,
-                on_audio=checkpoint_audio,
+                on_audio=checkpoint_audio, lookahead=settings.HUGBACK_TTS_LOOKAHEAD,
             ) if voice_key else None
 
             def cancel_replicated_speech():
-                nonlocal tts_pending_text, replicated_turn_text
+                nonlocal tts_pending_text, replicated_turn_text, tts_first_phrase, tts_text_started_at
                 tts_pending_text = ""
                 replicated_turn_text = ""
+                tts_first_phrase = True
+                tts_text_started_at = None
                 if playback:
                     playback.interrupt()
 
             def queue_replicated_speech(text, *, final=False):
+                nonlocal tts_first_phrase
                 if playback:
                     playback.enqueue(text, final=final)
+                    if text:
+                        if tts_first_phrase and tts_text_started_at is not None:
+                            logger.info("Replicated TTS first_phrase_buffer_ms=%d",
+                                        round((time.monotonic() - tts_text_started_at) * 1000))
+                        tts_first_phrase = False
 
             async def upstream_task() -> None:
                 """Reads microphone PCM audio and controls from browser and sends to Gemini."""
@@ -495,7 +542,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             async def downstream_task() -> None:
                 """Receives audio and events from Gemini and streams them back to the browser."""
-                nonlocal sent_audio, replicated_turn_text, tts_pending_text
+                nonlocal sent_audio, replicated_turn_text, tts_pending_text, tts_first_phrase, tts_text_started_at
                 try:
                     # The SDK's receive() iterator represents one complete
                     # model turn and intentionally stops at turn_complete.
@@ -576,6 +623,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 exc,
                                             )
                                             result = {"memories": []}
+                                    if workflow_active and call.name in ("claim_followup", "control_followup") and len(tool_outcomes) < 65:
+                                        tool_outcomes.append(ToolOutcome(
+                                            name=call.name, succeeded=bool(result.get("allowed") or result.get("changed")),
+                                        ))
                                     function_responses.append(
                                         types.FunctionResponse(
                                             id=call.id,
@@ -642,7 +693,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 except Exception:
                                                     logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
 
-                                        if part.text:
+                                        if part.text and not voice_key:
                                             await websocket.send_text(
                                                 json.dumps({"outputTranscription": {"text": part.text}})
                                             )
@@ -658,22 +709,26 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                         server_content.output_transcription.text,
                                     )
                                     if voice_key and replicated_turn_text.startswith(previous_text):
+                                        if tts_text_started_at is None:
+                                            tts_text_started_at = time.monotonic()
                                         tts_pending_text += replicated_turn_text[len(previous_text):]
                                         ready, tts_pending_text = split_ready_speech(
-                                            tts_pending_text
+                                            tts_pending_text,
+                                            first_phrase_chars=settings.HUGBACK_TTS_FIRST_PHRASE_CHARS if tts_first_phrase else None,
                                         )
                                         for segment in ready:
                                             queue_replicated_speech(segment)
                                     collector.add_model(
                                         server_content.output_transcription.text
                                     )
-                                    await websocket.send_text(
-                                        json.dumps({
-                                            "outputTranscription": {
-                                                "text": server_content.output_transcription.text
-                                            }
-                                        })
-                                    )
+                                    if not voice_key:
+                                        await websocket.send_text(
+                                            json.dumps({
+                                                "outputTranscription": {
+                                                    "text": server_content.output_transcription.text
+                                                }
+                                            })
+                                        )
 
                                 # 4. Turn completion signal
                                 if server_content.turn_complete:
@@ -682,6 +737,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                         ready, tts_pending_text = split_ready_speech(
                                             tts_pending_text,
                                             final=True,
+                                            first_phrase_chars=settings.HUGBACK_TTS_FIRST_PHRASE_CHARS if tts_first_phrase else None,
                                         )
                                         if ready:
                                             for segment in ready[:-1]:
@@ -694,6 +750,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                             # complete sentences are already queued.
                                             queue_replicated_speech("", final=True)
                                         replicated_turn_text = ""
+                                        tts_first_phrase = True
+                                        tts_text_started_at = None
                                     else:
                                         replicated_turn_text = ""
                                         await websocket.send_text(json.dumps({"turnComplete": True}))
@@ -776,6 +834,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 if demo_state:
                     async def finish_demo():
                         outcome = "failed" if not call_ready else "completed"
+                        memory_error = None
+                        async def memory_checkpoint(stage):
+                            # Observability is best-effort, not the memory commit.
+                            if not workflow_active:
+                                return
+                            try:
+                                await asyncio.to_thread(demo_store.workflow_checkpoint, user_id, session_id,
+                                                        {"reconciler": stage})
+                            except Exception:
+                                logger.warning("Memory workflow status unavailable session=%s", session_id)
                         try:
                             await asyncio.to_thread(demo_store.call_status, user_id, session_id, "processing")
                             if contains_privacy_request(turns):
@@ -796,15 +864,24 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     result = await asyncio.wait_for(
                                         followups.finish(user_id, followup_plan, turns), timeout=25,
                                     )
+                                    await memory_checkpoint(result)
                                     if result in ("privacy_hold", "revoked"):
                                         outcome = result
                                         # Safe over-removal after unhandled privacy intent.
                                         await asyncio.to_thread(demo_store.forget_background, user_id)
-                                except Exception:
+                                except Exception as exc:
                                     outcome = "memory_failed"
-                                    logger.warning("Local demo memory was not saved session=%s", session_id)
-                            elif any(turn.role == "user" for turn in turns):
+                                    memory_error = memory_error_code(exc)
+                                    await memory_checkpoint("failed")
+                                    logger.warning("Demo memory update failed session=%s code=%s", session_id, memory_error)
+                            elif (any(turn.role == "user" for turn in turns)
+                                  and demo_state["memory"]["consent"]
+                                  and not demo_state["memory"].get("privacy_hold")):
                                 outcome = "memory_failed"
+                                memory_error = "context_unavailable"
+                                await memory_checkpoint("failed")
+                            else:
+                                await memory_checkpoint("skipped")
                             signal = signal_collector.publishable(turns)
                             if signal is not None:
                                 try:
@@ -819,17 +896,28 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     logger.warning("Local demo wellbeing signal was not saved session=%s", session_id)
                         except asyncio.CancelledError:
                             outcome = "memory_failed"
+                            memory_error = "processing_interrupted"
                             raise
                         except Exception:
                             outcome = "memory_failed"
-                            logger.warning("Local demo memory was not saved session=%s", session_id)
+                            memory_error = "storage_unavailable"
+                            logger.warning("Demo memory finalization failed session=%s code=%s", session_id, memory_error)
                         finally:
                             try:
                                 await asyncio.to_thread(
                                     demo_store.call_status, user_id, session_id, outcome, release=True,
+                                    quality_pending=workflow_active and call_ready,
+                                    memory_error=memory_error,
                                 )
                             except Exception:
                                 logger.warning("Local demo finalization unavailable session=%s", session_id)
+                        if workflow_active and call_ready:
+                            # Release the call lease first. Critic cannot delay next-call memory.
+                            critic_task = asyncio.create_task(finish_quality_review(
+                                demo_store, user_id, session_id, demo_state, turns, tool_outcomes, outcome,
+                            ))
+                            _demo_finalizers.add(critic_task)
+                            critic_task.add_done_callback(_demo_finalizers.discard)
                     finalizer = asyncio.create_task(finish_demo())
                     _demo_finalizers.add(finalizer)
                     finalizer.add_done_callback(_demo_finalizers.discard)

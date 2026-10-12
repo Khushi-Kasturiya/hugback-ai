@@ -16,5 +16,10 @@
   activate explicitly reviewed fictional excerpts. Its simulated permissions
   never grant real consent, change this mailbox reader, or access cloud records.
   Recap sharing is excluded from steps 1–5 of the demo.
+- Approved 12 October: the synthetic simulator can also use a dedicated named
+  Firestore test database with explicit gates and an operator Firebase UID
+  allowlist. Keep loopback checks. In this mode disable the production mailbox
+  reader; anonymous identity is test ownership, not verified family enrollment.
+  Critic output is not a summary and must never appear in this portal.
 - Do not provision resources, enable billing, send emails, make calls or upload
   private data during implementation/tests. Use synthetic fixtures.

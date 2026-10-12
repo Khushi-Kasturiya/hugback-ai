@@ -8,7 +8,7 @@ from app.demo.models import (
     ClearBackground, CreateFamily, CreateRecipient, ReviewBackground,
     SelectRecipientVoice, SetWellbeingSharing,
 )
-from app.demo.service import get_demo_store, require_demo
+from app.demo.service import get_demo_store, require_demo, require_demo_identity
 from app.demo.store import DemoError
 from app.voice.profiles import enrollment_available, get_voice_store
 from app.voice.service import VoiceEnrollmentError
@@ -21,9 +21,7 @@ async def demo_identity(request: Request):
         require_demo(request.client.host if request.client else None,
                      request.headers.get("origin"), mutation=request.method != "GET")
         identity = await authenticate_http_headers(request.headers)
-        if identity.provider != "development":
-            raise DemoError("Only local demo identities are accepted.", 403)
-        return identity.user_id
+        return require_demo_identity(identity)
     except DemoError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     except AuthenticationError as exc:
@@ -33,11 +31,11 @@ async def demo_identity(request: Request):
 async def execute(operation, *args):
     try:
         result = await asyncio.to_thread(operation, *args)
-        return JSONResponse(result, headers={"Cache-Control": "no-store", "Vary": "X-Hugback-Development-User"})
+        return JSONResponse(result, headers={"Cache-Control": "no-store", "Vary": "Authorization, X-Hugback-Development-User"})
     except DemoError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     except Exception as exc:
-        raise HTTPException(503, "Local demo storage is unavailable; no cloud fallback was used.") from exc
+        raise HTTPException(503, "Synthetic test storage is unavailable. No alternate store was used.") from exc
 
 
 @router.get("/family")

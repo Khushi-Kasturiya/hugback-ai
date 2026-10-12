@@ -20,9 +20,19 @@
   silently fall back to legacy persistence when the canonical store fails.
 - No real family fixtures, audio, screenshots, transcript logs or provider-error
   bodies. Tests must use synthetic content and mock all cloud I/O.
-- `app/demo` reuses this lifecycle through isolated local SQLite for synthetic
+- `app/demo` reuses this lifecycle through isolated SQLite or named test Firestore for synthetic
   role-play only. Its consent source is explicitly simulated, never a production
-  grant. Google extraction in demo mode requires the local flag/development
-  mode and simulated memory consent; do not loosen the production path.
+  grant. Google extraction in demo mode requires the simulator's validated
+  SQLite/emulator/allowlisted-Firebase mode and simulated memory consent.
+  The Memory Reconciler wraps this extractor; it does not add a second memory
+  authority or loosen the production path.
 - Feature flags are not permission to create cloud resources, incur charges, or
   upload private data. Keep provider/enrollment/deployment gates explicit.
+- Post-call diagnostics may persist only allowlisted error categories, never
+  provider responses or private utterances. Status-checkpoint failure is not
+  memory-commit failure; distinguish intentionally disabled memory from failure.
+- Structured proposals use the shared JSON Schema request adapter, not a strict
+  Pydantic model in Google's legacy OpenAPI `response_schema`. Keep all local
+  Pydantic and provenance validation even when a wire constraint is omitted.
+  SDK serialization tests must inspect the real HTTP body with mock transport;
+  mock success alone is not evidence of provider schema compatibility.

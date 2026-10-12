@@ -12,5 +12,6 @@ else
     PYTHON_EXEC="python"
 fi
 
-echo "Starting Hugback Multimodal Live Backend on port 8000..."
-exec "$PYTHON_EXEC" -m uvicorn app.main:app --host 0.0.0.0 --port 8000
+echo "Starting Hugback backend using HOST and PORT from Settings..."
+# app.main's entry point honors .env; do not override loopback configuration.
+exec "$PYTHON_EXEC" -m app.main

@@ -17,9 +17,11 @@ def now():
 
 
 def enrollment_available():
+    from app.demo.service import enabled
     return (
         settings.HUGBACK_REPLICATED_TTS_ENABLED
-        and settings.HUGBACK_AUTH_MODE.lower() == "development"
+        and (settings.HUGBACK_AUTH_MODE.lower() == "development" or
+             (settings.HUGBACK_DEMO_STORE == "firestore" and enabled()))
         and settings.HUGBACK_LIVE_VOICE_MODE == "preset"
         and bool(settings.GEMINI_API_KEY)
     )
@@ -28,7 +30,11 @@ def enrollment_available():
 def require_local_voice(peer, origin, *, mutation=True):
     # Deletes/reads must remain possible after the enrollment feature is disabled.
     parsed = urlparse(origin or "")
-    if settings.HUGBACK_AUTH_MODE.lower() != "development" or peer not in {"127.0.0.1", "::1"}:
+    from app.demo.service import enabled
+    allowed_mode = settings.HUGBACK_AUTH_MODE.lower() == "development" or (
+        settings.HUGBACK_DEMO_STORE == "firestore" and enabled()
+    )
+    if not allowed_mode or peer not in {"127.0.0.1", "::1"}:
         raise VoiceEnrollmentError("Voice setup is currently a localhost development feature.")
     if origin is not None or mutation:
         if (
@@ -37,6 +43,17 @@ def require_local_voice(peer, origin, *, mutation=True):
             or parsed.hostname not in {"localhost", "127.0.0.1", "::1"}
         ):
             raise VoiceEnrollmentError("Use the configured local frontend origin for voice setup.")
+
+
+def voice_owner(identity):
+    if identity.provider == "development":
+        return identity.user_id
+    from app.demo.service import require_demo_identity
+    from app.demo.store import DemoError
+    try:
+        return require_demo_identity(identity)
+    except DemoError as exc:
+        raise VoiceEnrollmentError("Only allowlisted local test owners may use this voice vault.") from exc
 
 
 class VoiceProfileStore:

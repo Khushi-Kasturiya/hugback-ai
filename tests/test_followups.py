@@ -320,7 +320,8 @@ class ExtractorAndConfigTests(unittest.IsolatedAsyncioTestCase):
         payload = json.loads(request["contents"])
         self.assertEqual(payload["time_zone"], "Asia/Kolkata")
         self.assertEqual(payload["turns"][0]["timestamp"], "2026-10-11T10:00:00Z")
-        self.assertEqual(request["config"].response_schema, ObservationBatch)
+        self.assertIsNone(request["config"].response_schema)
+        self.assertFalse(request["config"].response_json_schema["additionalProperties"])
         self.assertEqual(result.observations[0].topic, "fever")
         self.assertFalse(factory.call_args.kwargs["vertexai"])
         client.aio.aclose.assert_awaited_once()
@@ -375,7 +376,11 @@ class ExtractorAndConfigTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(requests), 1)
         generation = requests[0]["generationConfig"]
         self.assertEqual(generation["responseMimeType"], "application/json")
-        self.assertIn("responseSchema", generation)
+        self.assertNotIn("responseSchema", generation)
+        schema = generation["responseJsonSchema"]
+        self.assertFalse(schema["additionalProperties"])
+        self.assertEqual(schema["properties"]["observations"]["maxItems"], 20)
+        self.assertEqual(schema["$defs"]["Observation"]["properties"]["subject"]["enum"], ["self"])
         self.assertEqual(result.observations[0].topic, "fever")
 
     async def test_disabled_feature_does_not_construct_firestore_or_extractor(self):

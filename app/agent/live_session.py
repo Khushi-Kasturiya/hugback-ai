@@ -45,6 +45,7 @@ def create_live_config(
     background_context: str = "",
     wellbeing_signal_context: str = "",
     enable_wellbeing_signal_tool: bool = False,
+    conversation_plan_context: str = "",
 ) -> types.LiveConnectConfig:
     """Construct LiveConnectConfig for native bidirectional audio conversation."""
     validate_call_voice_selection(voice_sample_audio, consent_audio, voice_id)
@@ -57,6 +58,8 @@ def create_live_config(
         system_instruction = f"{system_instruction}\n\n{background_context}"
     if wellbeing_signal_context:
         system_instruction = f"{system_instruction}\n\n{wellbeing_signal_context}"
+    if conversation_plan_context:
+        system_instruction = f"{system_instruction}\n\n{conversation_plan_context}"
 
     tools = None
     if enable_memory_tool:
