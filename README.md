@@ -4,10 +4,32 @@ Current product is **no-app**: child setup through Forms/Drive, parent calls on 
 ordinary phone. Existing `/childportal` and `/` are internal local prototype/test
 surfaces, not a product dashboard rollout. No hosting or deployment is authorized.
 
+## Four-role workflow and Firestore test mode (12 October 2026)
+
+The existing simulator now supports the backend's opt-in **Planner → Live →
+Memory Reconciler → Quality Critic** flow. It shows configured storage mode,
+recipient language and bounded workflow progress, resets pending consent between
+recipients, and asks for fictional Google-processing acknowledgement before a
+workflow call. Critic findings are private developer data, not portal recaps.
+
+Use the backend's `docs/END_TO_END_TESTING.md` as the full runbook. Three modes
+are supported: local SQLite, loopback Firestore emulator, or an explicitly enabled
+isolated test Firestore database. Live test storage requires matching Firebase
+anonymous auth and a backend operator UID allowlist; inspect the portal's
+developer identity details to bootstrap that allowlist. No sign-in screen is
+added. Restart the frontend after changing `.env.local`; `.env.example` documents
+the public API/WS endpoint and optional Firebase key.
+
+This supersedes earlier SQLite-only test instructions below. It does not migrate
+existing data or authorize a product dashboard, real-family imports, shared
+recaps or cloud deployment. Browser previews/identity and the private backend
+voice-key vault remain local even when synthetic family state uses Firestore.
+
 ## Same-browser family simulator (schema v2)
 
 Enable `LOCAL_DEMO_ENABLED=TRUE` on the local backend with development auth and
-preset Live mode; leave frontend Firebase unset. No new flags are required.
+preset Live mode; leave frontend Firebase unset for SQLite/emulator testing.
+Set `HUGBACK_WORKFLOW_ENABLED=TRUE` on the backend for additional specialists.
 
 1. In **Family setup**, create a fictional family with its first recipient. Use
    **Add recipient** for Mother/Father/others (up to eight). Simulate each person's
@@ -35,8 +57,9 @@ concerns, cooldowns, recovery and privacy actions remain recipient-specific.
 
 Storage: browser identity in localStorage; parsed previews in IndexedDB scoped
 by owner + recipient; reviewed excerpts, call metadata and concerns in local
-backend SQLite. Five previews per recipient, forty total; seven-day local
-retention. No Firebase cloud storage is enabled. Keep the same browser/origin.
+backend SQLite by default, or the explicitly selected test Firestore repository.
+Five previews per recipient, forty total; seven-day local preview retention.
+No cloud mode is enabled merely by loading the page. Keep the same browser/origin.
 
 Old single-parent data is preserved as **Existing parent**, never guessed to be
 Mother/Father or copied to them. Its old unassigned previews remain accessible
@@ -67,7 +90,10 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    enrollment retry. `PERMISSION_DENIED` is not automatically diagnosed as a
    billing problem. Google acceptance is not proof of likeness/identity.
 4. Enrollment returns metadata, never a provider key. Choose **Enable child
-   voice**, then select a recipient in **Family setup** and **Assign child voice**.
+   voice**, select a recipient in **Family setup**, then use **Assign this voice
+   to [recipient]** in Voice setup (or **Assign child voice** in Family setup).
+   Voice setup shows its recipient-specific preview link only after assignment;
+   if nobody is selected it sends you back to Family setup, not an unscoped call.
    Repeat for each intended recipient; enabling alone does not assign it. Both
    Mother and Father can use the same profile without sharing context or memory.
    Expiry, disablement, removal or replacement blocks stale assignments; reassign
@@ -79,9 +105,17 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    `voiceProfileId`, never raw `voiceKey`. Gemini Live handles conversation and
    transcription; its preset audio is discarded, and only Google streaming TTS
    audio using that profile reaches playback. The key is NOT a Live voice ID.
-   One bounded worker spans turns, cancels interrupted speech, closes SSE/client
-   resources, and checkpoints actual emitted TTS for follow-ups. Failures stop
+   One ordered emitter with bounded one-phrase synthesis lookahead spans turns,
+   cancels interrupted speech, closes SSE/client resources, and checkpoints
+   emitted TTS off the audio path. Failures stop
    the call rather than mix preset/custom voices. Hugback remains disclosed AI.
+
+   The backend now releases a shorter first phrase and can synthesize one queued
+   phrase ahead; browser render cues still control subtitle visibility.
+   `HUGBACK_TTS_LOOKAHEAD=0` on the backend disables overlap (which can spend
+   synthesis on interrupted audio). No re-enrollment or frontend setting is
+   required. This removes application waits, not the additional Google synthesis
+   stage; real latency and voice quality still need authorized listening tests.
 
 **Storage:** source audio is transient browser/backend memory, not saved by this
 flow. A client-managed key and metadata persist in private mode-0600 SQLite at
@@ -105,6 +139,29 @@ paid entitlement and real latency/quality validation remain explicit gates.
 Offline checks: `python -m unittest discover -s tests -q` (backend virtualenv),
 `npm test`, `npm run typecheck`, isolated frontend production build. Fixtures are
 synthetic and all provider I/O is mocked. Never use real family material in tests.
+
+### Replicated voice subtitle timing
+
+Gemini Live can draft a response before Google TTS finishes synthesizing the
+selected voice. The backend therefore suppresses the early replicated-voice
+draft and attaches each spoken phrase's text to its first PCM chunk with
+`outputTranscription.playbackAligned=true`. The browser queues the cue with that
+audio and reveals it only when the worklet renders that chunk. Later phrases
+wait for their own place in the playback queue; user transcription stays immediate.
+Standard Live voice transcription is unchanged.
+
+The speaking indicator follows render start/drain, not a three-second timer or
+server `turnComplete`. Interruptions/end/error/recipient changes discard pending
+cues. Empty buffers render silence; overflow fails rather than dropping audio
+and misaligning subtitles. Refresh the frontend and restart/reload the backend
+before testing this paired protocol update in a new call.
+
+This is **phrase-level**, not word-level alignment. A phrase may still be cut
+short by interruption. Rendering does not prove physical output or hearing:
+[AudioWorklet processes rendering blocks](https://developer.mozilla.org/en-US/docs/Web/API/AudioWorkletProcessor/process),
+and the browser/device adds output latency. No delivery acknowledgement is sent
+to memory logic. This fixes early text display, not Google TTS synthesis latency,
+and does not add paid requests, hosted services or transcript persistence.
 
 ## Identity: no sign-in screen
 

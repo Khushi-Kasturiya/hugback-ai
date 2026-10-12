@@ -125,3 +125,16 @@ test("cancel during family lookup prevents late audio setup", async () => {
   api.endCall(); resolveFamily(family); await pending;
   assert.deepEqual(calls, { voice: 0, audio: 0 });
 });
+
+test('workflow processing requires explicit role-play acknowledgement before audio', async () => {
+  const { api, calls } = hook(async () => ({ voice: { mode: 'preset' }, localDemoEnabled: true, workflowEnabled: true }),
+    null, { demoParent: true, recipientId: 'mother' });
+  await api.startCall();
+  assert.deepEqual(calls, { voice: 0, audio: 0 });
+});
+test('acknowledged synthetic workflow can reach audio preparation', async () => {
+  const { api, calls } = hook(async () => ({ voice: { mode: 'preset' }, localDemoEnabled: true, workflowEnabled: true }),
+    null, { demoParent: true, recipientId: 'mother', workflowAcknowledged: true });
+  await api.startCall();
+  assert.equal(calls.audio, 1);
+});

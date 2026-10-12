@@ -11,9 +11,9 @@ const father = { ...mother, recipientId: 'father', label: 'Father', revision: 1 
 const family = { recipients: [mother, father], expiresAt: '2099-01-01T00:00:00Z' };
 function component(file, name, initialProps) {
   let index = 0, tree, props = initialProps;
-  const states = [], requests = [];
+  const states = [], requests = [], effects = []; let effectIndex = 0, pendingEffects = [];
   const modules = {
-    react: { useEffect() {}, useState: (initial) => {
+    react: { useEffect(fn, deps) { const i = effectIndex++; if (!effects[i] || deps.some((v, j) => v !== effects[i][j])) { effects[i] = deps; pendingEffects.push(fn); } }, useState: (initial) => {
       const i = index++; if (states.length <= i) states.push(initial);
       return [states[i], value => { states[i] = typeof value === 'function' ? value(states[i]) : value; }];
     } },
@@ -26,7 +26,7 @@ function component(file, name, initialProps) {
   }).outputText;
   const exports = {};
   vm.runInNewContext(compiled, { exports, require: name => { if (!modules[name]) throw new Error(name); return modules[name]; }, Date });
-  function render(next = props) { props = next; index = 0; tree = exports[name](props); }
+  function render(next = props) { props = next; index = 0; effectIndex = 0; pendingEffects = []; tree = exports[name](props); pendingEffects.forEach(fn => fn()); }
   function nodes(node) {
     if (Array.isArray(node)) return node.flatMap(nodes);
     if (!node || typeof node !== 'object') return [];
@@ -90,4 +90,14 @@ test('review sends excerpts only to the selected recipient and their revision', 
   assert.equal(ui.requests[0].body.recipientId, 'mother');
   assert.equal(ui.requests[0].body.revision, 4);
   assert.equal(ui.requests[0].body.excerpts[0].text, 'A fictional garden.');
+});
+
+test('signal consent cannot carry over when the selected recipient changes', () => {
+  const props = { ...baseProps, selectedId: 'mother' };
+  const ui = component(setupFile, 'DemoFamilySetup', props);
+  const consent = ui.nodes().find(n => n.type === 'input' && n.props.type === 'checkbox');
+  consent.props.onChange({ target: { checked: true } }); ui.render();
+  assert.equal(ui.button('Enable call signals').props.disabled, false);
+  ui.render({ ...props, selectedId: 'father' }); ui.render();
+  assert.equal(ui.button('Enable call signals').props.disabled, true);
 });

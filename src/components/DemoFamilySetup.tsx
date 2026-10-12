@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { DemoFamily, DemoRecipient, demoRequest, parentCallUrl } from "@/lib/demo-api";
 import type { PortalStatus } from "@/lib/portal-api";
 
@@ -21,6 +21,8 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
   const [signalConsent, setSignalConsent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [language, setLanguage] = useState<NonNullable<DemoRecipient["language"]>>("auto");
+  useEffect(() => { setSignalConsent(false); setError(""); }, [selectedId]);
   const selected = family?.recipients.find((item) => item.recipientId === selectedId);
   const currentVoice = voice?.profile;
   const childVoiceAvailable = !!(voice?.replicatedTtsEnabled && currentVoice?.enabled && !currentVoice.expired && Date.parse(currentVoice.expiresAt) > Date.now());
@@ -33,12 +35,12 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
       const result = await demoRequest(family ? "/recipients" : "/family", "POST", {
         syntheticOnly: true, simulateChildConsent: true, simulateParentConsent: true,
         enableMemory: memory, timeZone: "Asia/Kolkata", label: label.trim(), relationship,
-        enableWellbeingSharing: wellbeingSharing,
+        enableWellbeingSharing: wellbeingSharing, language,
       });
       onChange(result);
       const created = result.recipients.find((r) => r.label === label.trim());
       if (created) onSelect(created.recipientId);
-      setAdding(false); setSynthetic(false); setChild(false); setParent(false);
+      setAdding(false); setSynthetic(false); setChild(false); setParent(false); setWellbeingSharing(false);
     } catch (err) { setError(err instanceof Error ? err.message : "Recipient setup failed."); }
     finally { setBusy(false); }
   }
@@ -68,7 +70,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
   return <section>
     <div className="flex flex-wrap items-start justify-between gap-3">
       <p className="max-w-2xl text-sm leading-6 text-stone-600">Choose the person whose bridge you want to prepare. Their family language, calls and signals always stay separate from everyone else’s.</p>
-      {family && <button className="portal-secondary" disabled={busy || family.recipients.length >= 8} onClick={() => { setAdding(!adding); setSynthetic(false); setChild(false); setParent(false); setError(""); }}>{adding ? "Cancel" : "+ Add recipient"}</button>}
+      {family && <button className="portal-secondary" disabled={busy || family.recipients.length >= 8} onClick={() => { setAdding(!adding); setSynthetic(false); setChild(false); setParent(false); setWellbeingSharing(false); setSignalConsent(false); setError(""); }}>{adding ? "Cancel" : "+ Add recipient"}</button>}
     </div>
     {family && <>
       <div className="mt-5 flex flex-wrap gap-3" role="group" aria-label="Family recipients">
@@ -95,7 +97,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
         </div>
         {selected.busy ? <p role="status" className="mt-3 text-xs text-amber-800">Wait for this recipient’s call and memory update before changing their setup.</p> : !assignedVoiceUnavailable && <Link className="portal-primary mt-4 inline-flex" href={parentCallUrl(selected.recipientId)}>Test a call as {selected.label} →</Link>}
       </div> : <p role="status" className="mt-4 text-sm font-semibold text-emerald-900">Select a recipient above. Nothing is selected automatically.</p>}
-      <details className="mt-4 text-xs leading-5 text-stone-500"><summary className="cursor-pointer font-semibold">Demo storage details</summary><p className="mt-2">Separate histories remain in local SQLite until {new Date(family.expiresAt).toLocaleDateString()}. Up to eight recipients. This local simulator does not verify who is speaking.</p></details>
+      <details className="mt-4 text-xs leading-5 text-stone-500"><summary className="cursor-pointer font-semibold">Test storage details</summary><p className="mt-2">Synthetic histories use {family.storageMode === "firestore" ? "the isolated Firestore test database" : "local SQLite"} and are usable until {new Date(family.expiresAt).toLocaleDateString()}. Up to eight recipients. This simulator does not verify who is speaking. Voice keys remain in the separate local vault.</p></details>
     </>}
     {(!family || adding) && !loading && !loadError && <div className="mt-5 space-y-3 rounded-2xl border border-[#DDE2F0] bg-[#F7F8FC] p-5 text-sm">
       <h3 className="font-bold">{family ? "Add a recipient with their own history" : "Create a family and its first recipient"}</h3>
@@ -108,7 +110,10 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
       <label className="flex items-start gap-2"><input type="checkbox" disabled={busy} checked={synthetic} onChange={(e) => setSynthetic(e.target.checked)} className="mt-1" />I will use fictional chats and role-play only, not real family data.</label>
       <label className="flex items-start gap-2"><input type="checkbox" disabled={busy} checked={child} onChange={(e) => setChild(e.target.checked)} className="mt-1" />Simulate the child agreeing to setup for this recipient.</label>
       <label className="flex items-start gap-2"><input type="checkbox" disabled={busy} checked={parent} onChange={(e) => setParent(e.target.checked)} className="mt-1" />Simulate this recipient agreeing to their own demo setup.</label>
-      <label className="flex items-start gap-2"><input type="checkbox" disabled={busy} checked={memory} onChange={(e) => setMemory(e.target.checked)} className="mt-1" />Simulate this recipient consenting to cross-call wellbeing memory. Google processes their demo transcript after calls; only bounded concerns are saved locally.</label>
+      <label className="flex items-start gap-2"><input type="checkbox" disabled={busy} checked={memory} onChange={(e) => setMemory(e.target.checked)} className="mt-1" />Simulate this recipient consenting to cross-call wellbeing memory. Google processes their demo transcript after calls; only bounded concerns are saved in the selected test database.</label>
+      <label className="block">Conversation language <select disabled={busy} value={language} onChange={(e) => setLanguage(e.target.value as NonNullable<DemoRecipient["language"]>)} className="ml-2 rounded border p-2">
+        <option value="auto">Follow the speaker</option><option value="en">English</option><option value="hi">Hindi</option><option value="hi-en">Hindi / English</option>
+      </select></label>
       <label className="flex items-start gap-2"><input type="checkbox" disabled={busy} checked={wellbeingSharing} onChange={(e) => setWellbeingSharing(e.target.checked)} className="mt-1" />Simulate this recipient consenting to share a short AI-estimated conversation signal with the child. No audio or transcript is stored.</label>
       <button className="portal-primary" disabled={busy || !synthetic || !child || !parent || !label.trim()} onClick={() => void create()}>{busy ? "Saving…" : family ? "Add recipient" : "Create local demo family"}</button>
     </div>}

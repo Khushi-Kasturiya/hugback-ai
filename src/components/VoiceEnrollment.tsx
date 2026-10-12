@@ -8,11 +8,14 @@ import { prepareVoiceWav } from "@/lib/voice-wav";
 import { deleteLocalVoiceProfile, hasLocalVoiceProfile } from "@/lib/voice-profile";
 import { PortalStatus, portalGet } from "@/lib/portal-api";
 import { audioBase64, voiceRequest } from "@/lib/voice-api";
+import { DemoFamily, DemoRecipient, demoRequest, parentCallUrl } from "@/lib/demo-api";
 
-export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
+export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient, onAssigned }: {
   disabled?: boolean;
   voice?: PortalStatus["voice"];
   onUpdated?: () => Promise<void>;
+  recipient?: DemoRecipient;
+  onAssigned?: (family: DemoFamily) => void;
 }) {
   const [capability, setCapability] = useState(voice);
   const [reference, setReference] = useState<File | null>(null);
@@ -25,9 +28,10 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
   const [activeRecorder, setActiveRecorder] = useState<"reference" | "consent" | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const profile = capability?.profile;
-  const expired = !!profile && (profile.expired || Date.parse(profile.expiresAt) <= Date.now());
+  const expired = !!profile && (profile.expired || !Number.isFinite(Date.parse(profile.expiresAt)) || Date.parse(profile.expiresAt) <= Date.now());
   const available = capability?.replicatedTtsEnabled === true;
   const locked = disabled || busy;
+  const assigned = !!profile && recipient?.voice.mode === "child" && recipient.voice.profileId === profile.id;
 
   useEffect(() => { setCapability(voice); }, [voice]);
   useEffect(() => {
@@ -39,12 +43,11 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
     try {
       const status = await portalGet<PortalStatus>("/status");
       setCapability(status.voice);
-      if (status.identityMode === "development") {
-        const result = await voiceRequest("/profile", "GET");
-        setCapability({ ...status.voice, profile: result.profile });
-        setUncertain(!!result.enrolling);
-        setMessage(result.enrolling ? "Google voice setup is still processing. Refresh again shortly." : "Voice status refreshed.");
-      }
+      const result = await voiceRequest("/profile", "GET");
+      setCapability({ ...status.voice, profile: result.profile });
+      setUncertain(!!result.enrolling);
+      setMessage(result.enrolling ? "Google voice setup is still processing. Refresh again shortly." : "Voice status refreshed.");
+      void onUpdated?.();
     } catch (error) {
       setUncertain(true);
       setMessage(error instanceof Error ? error.message : "Could not refresh voice status.");
@@ -86,6 +89,22 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
       setMessage(enabled ? "Child voice enabled. Assign it separately to each recipient in Family setup." : "Child voice disabled. Recipients still assigned this voice cannot call until you select standard voice for them.");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Voice selection failed.");
+    } finally { setBusy(false); }
+  }
+
+  async function assign() {
+    if (!recipient || !onAssigned || !profile?.enabled || expired || !available ||
+        locked || uncertain || recipient.busy || assigned) return;
+    setBusy(true);
+    try {
+      const family = await demoRequest("/recipient-voice", "PUT", {
+        syntheticOnly: true, recipientId: recipient.recipientId, revision: recipient.revision,
+        mode: "child", profileId: profile.id,
+      });
+      onAssigned(family);
+      setMessage(`This voice is now assigned to ${recipient.label}. Other recipients were not changed.`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Voice assignment could not be confirmed. Refresh Family setup before calling.");
     } finally { setBusy(false); }
   }
 
@@ -134,7 +153,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
       <div className="mt-3 rounded-xl bg-violet-50 p-4 text-sm leading-6 text-stone-700"><strong>Read this for recording 2:</strong><br />“I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.”</div>
       <label className="mt-4 flex items-start gap-3 text-sm leading-6 text-stone-700">
         <input className="mt-1.5 h-4 w-4 shrink-0 accent-violet-600" type="checkbox" checked={acknowledged} disabled={locked || !available} onChange={(event) => setAcknowledged(event.target.checked)} />
-        <span>I am 18 or older, this is my voice, and I agree to send these recordings to Google to create the voice.</span>
+        <span>I am 18 or older, this is my voice, and I agree to send these recordings to Google to create the voice. Google may charge for voice creation and speech.</span>
       </label>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button type="button" disabled={locked || !available || !reference || !consent || !acknowledged || uncertain || !!activeRecorder} onClick={enroll} className="flex items-center gap-2 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
@@ -151,7 +170,17 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated }: {
           <button type="button" disabled={locked || uncertain || !profile.enabled} onClick={() => select(false)} className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-40">Disable child voice</button>
           <button type="button" disabled={locked || uncertain} onClick={remove} className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-40"><Trash2 className="h-4 w-4" />Remove voice</button>
         </div>
-        {profile.enabled && !expired && available && <Link href="/call" className="mt-4 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Choose a recipient and preview the parent call →</Link>}
+        <div className="mt-4 border-t border-emerald-200 pt-4">
+          <p className="font-bold text-stone-800">3 · Assign this voice to a recipient</p>
+          <p className="mt-1 text-sm leading-6 text-stone-600">Creating or enabling a replacement does not change a recipient’s voice. Each person keeps their current assignment until you explicitly change it.</p>
+          {!recipient ? <a href="#family-dashboard" className="mt-3 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Choose a recipient in Family setup, then assign this voice →</a> : <>
+            <p className="mt-2 text-sm text-stone-700">{recipient.label}: {assigned ? "this child voice is assigned" : recipient.voice.mode === "standard" ? "still using standard Hugback voice" : "assigned to a different / replaced voice"}.</p>
+            {!assigned && <button type="button" disabled={locked || uncertain || !available || expired || !profile.enabled || recipient.busy || !onAssigned} onClick={assign} className="mt-3 rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Assign this voice to {recipient.label}</button>}
+            {assigned && profile.enabled && !expired && available && !locked && !uncertain && !recipient.busy &&
+              <Link href={parentCallUrl(recipient.recipientId)} className="mt-3 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Preview {recipient.label}’s call with this voice →</Link>}
+            {recipient.busy && <p className="mt-2 text-xs text-stone-600">Wait for this recipient’s current call and memory processing to finish.</p>}
+          </>}
+        </div>
       </div>}
       {message && <p className="mt-4 rounded-xl bg-stone-100 p-3 text-sm leading-6 text-stone-800" role="status" aria-live="polite">{message}</p>}
       <details className="mt-5 border-t border-stone-100 pt-4 text-xs leading-5 text-stone-500">

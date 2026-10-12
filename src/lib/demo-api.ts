@@ -39,7 +39,10 @@ export interface DemoRecipient {
   busy: boolean;
   wellbeingSharingEnabled: boolean;
   wellbeingSignals: WellbeingSignal[];
-  calls: { sessionId: string; startedAt: string; endedAt?: string; status: string }[];
+  language?: "auto" | "en" | "hi" | "hi-en";
+  calls: { sessionId: string; startedAt: string; endedAt?: string; status: string;
+    memoryErrorCode?: string;
+    workflow?: Partial<Record<"planner" | "reconciler" | "critic", string>> }[];
 }
 export interface DemoFamily {
   familyId: string;
@@ -48,6 +51,7 @@ export interface DemoFamily {
   schemaVersion: 2;
   expiresAt: string;
   recipients: DemoRecipient[];
+  storageMode?: "sqlite" | "firestore";
 }
 
 export class DemoApiError extends Error {
@@ -64,7 +68,7 @@ export async function demoRequest(path: "/family" | "/background" | "/background
       cache: "no-store", signal: AbortSignal.timeout(8000),
     });
   } catch {
-    throw new DemoApiError("Local demo backend is unavailable. Nothing was sent to cloud storage.", 0);
+    throw new DemoApiError("Test backend is unavailable. The request outcome is unknown; refresh before retrying a change.", 0);
   }
   if (!response.ok) {
     const error = await response.json().catch(() => ({}));
@@ -76,6 +80,33 @@ export async function demoRequest(path: "/family" | "/background" | "/background
     throw new DemoApiError("The backend needs the multi-recipient update. Call setup is blocked.", 0);
   }
   return result;
+}
+
+export function needsDemoRefresh(family?: DemoFamily, now = Date.now()): boolean {
+  return !!family?.recipients.some((recipient) => {
+    const call = recipient.calls?.slice(-1)[0];
+    return recipient.busy || (call?.workflow?.critic === "pending" &&
+      now - Date.parse(call.endedAt || call.startedAt) < 60_000);
+  });
+}
+
+/** Fixed copy only: never render an arbitrary provider error or private output. */
+export function memoryFailureMessage(code?: string): string {
+  const messages: Record<string, string> = {
+    provider_access: "Google rejected access to the memory model. Check the backend key/project permissions.",
+    model_unavailable: "The configured memory model or endpoint was not found. Check FOLLOWUP_EXTRACTION_MODEL.",
+    rate_limited: "Google rate-limited the memory request. Check quota; no automatic paid retry was made.",
+    provider_unavailable: "Google could not complete memory processing. No automatic paid retry was made.",
+    provider_request_rejected: "Google rejected the memory request. Check the structured-output/model configuration.",
+    timeout: "The memory update timed out. A working live voice connection does not confirm post-call extraction.",
+    network_unavailable: "The backend could not reach Google for the memory update.",
+    invalid_output: "The memory model returned output that failed validation. It was not accepted as memory.",
+    context_unavailable: "The recipient’s memory context could not be loaded when the call started.",
+    storage_unavailable: "Memory storage or finalization was unavailable.",
+    processing_interrupted: "Memory processing was interrupted before completion.",
+    processing_failed: "Memory processing failed without a more specific category. Check the safe backend diagnostics; no automatic replay was made.",
+  };
+  return (code && messages[code]) || "No detailed failure reason was recorded for this call. Future calls now record a safe error category; the old transcript is not retained for replay.";
 }
 
 export function parentCallUrl(recipientId?: string): string {

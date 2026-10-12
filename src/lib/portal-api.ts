@@ -8,9 +8,11 @@ export interface PortalStatus {
     replicatedTtsEnabled?: boolean;
     profile?: VoiceProfile | null;
   };
-  sharingStatus: "development_only" | "not_configured" | "awaiting_parent_link" | "ready";
+  sharingStatus: "development_only" | "not_configured" | "awaiting_parent_link" | "ready" | "synthetic_test_only";
   importsStatus: "local_preview_only";
   localDemoEnabled?: boolean;
+  demoStorage?: "sqlite" | "firestore";
+  workflowEnabled?: boolean;
 }
 
 export interface SharedSummary {

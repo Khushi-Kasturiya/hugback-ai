@@ -39,3 +39,18 @@
   data or a production consent grant. Owner-scoped selected profiles may supply
   parent browser-demo TTS; discard Live preset audio, never silently fall back,
   and do not activate PSTN/cloud enrollment. Tests must mock all paid I/O.
+
+- Approved 12 October: existing simulator screens may test isolated named
+  Firestore storage with allowlisted Firebase identities. Display the actual
+  configured mode and processing stages; cloud support is not deployment or
+  production authorization. Keep previews/identity local and label that clearly.
+  Planner/Critic processing of fictional calls requires acknowledgement. Reset
+  recipient-specific consent on switching. Never expose private Critic findings.
+- Voice creation/enabling must not imply recipient assignment. Voice setup may
+  offer a scoped preview only after the selected recipient pins the current
+  enabled profile. No recipient means return to assignment, not an unscoped call.
+  Render only fixed memory error-category copy, never arbitrary provider errors.
+- Replicated subtitles follow phrase-start cues from the audio render queue, not
+  WebSocket arrival, estimated word timers or Live draft text. Clear pending cues
+  on interruption, failure, call end and recipient switch. Server turnComplete
+  is generation completion, not playback drain or proof of hearing.

@@ -1,0 +1,150 @@
+const { test } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+const ts = require("typescript");
+const { audioHarness } = require("./audio-harness.cjs");
+const compiled = ts.transpileModule(fs.readFileSync("src/hooks/useLiveAudio.ts", "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
+}).outputText;
+
+async function callHarness() {
+  const audio = audioHarness(), states = [], transcriptions = [];
+  let socket, recorderCallback, stopped = false;
+  const effects = [];
+  class Socket {
+    static OPEN = 1;
+    constructor() {
+      socket = this;
+      this.readyState = 1;
+      this.listeners = {};
+      queueMicrotask(() => this.dispatch("open", {}));
+    }
+    addEventListener(type, fn) { (this.listeners[type] ||= new Set()).add(fn); }
+    removeEventListener(type, fn) { this.listeners[type]?.delete(fn); }
+    dispatch(type, event) {
+      this[`on${type}`]?.(event);
+      for (const fn of this.listeners[type] || []) fn(event);
+    }
+    emit(data) { this.dispatch("message", { data: JSON.stringify(data) }); }
+    send(data) {
+      if (typeof data === "string" && JSON.parse(data).type === "authenticate") {
+        queueMicrotask(() => this.emit({ type: "ready", voice: "replicated", sessionId: "synthetic" }));
+      }
+    }
+    close() { this.readyState = 3; this.dispatch("close", {}); }
+  }
+  const modules = {
+    react: {
+      useState(initial) {
+        const index = states.length; states.push(initial);
+        return [initial, (value) => { states[index] = typeof value === "function" ? value(states[index]) : value; }];
+      },
+      useRef: (current) => ({ current }), useCallback: (callback) => callback,
+      useEffect: (fn) => { effects.push(fn); },
+    },
+    "@/lib/audio-player": audio.api,
+    "@/lib/audio-recorder": { startAudioRecorder: async (callback) => {
+      recorderCallback = callback; return { stop() { stopped = true; } };
+    } },
+    "@/lib/identity": { getAuthenticationMessage: async () => ({ type: "authenticate" }) },
+    "@/lib/voice-profile": { getInlineVoicePayload: async () => { throw new Error("No uploads"); } },
+    "@/lib/portal-api": { portalGet: async () => ({ voice: { mode: "preset" } }) },
+    "@/lib/voice-api": { selectedVoicePayload: () => ({ voiceProfileId: "synthetic" }) },
+    "@/lib/demo-api": {},
+  };
+  const exports = {};
+  vm.runInNewContext(compiled, {
+    exports, require: (name) => { if (!modules[name]) throw new Error(name); return modules[name]; },
+    process: { env: {} }, WebSocket: Socket, Int16Array,
+    window: { location: { protocol: "http:", hostname: "127.0.0.1" }, setTimeout, clearTimeout },
+    console: { log() {}, warn() {}, error() {} }, performance, setTimeout, clearTimeout,
+  });
+  const api = exports.useLiveAudio({ onTranscriptionUpdate: (...args) => transcriptions.push(args) });
+  await api.startCall();
+  return {
+    audio, api, states, transcriptions, effects,
+    emit: (data) => socket.emit(data),
+    get stopped() { return stopped; },
+    speak: () => recorderCallback(new Int16Array(128).fill(2000).buffer),
+    render(frames) { audio.render(frames); audio.deliverEvents(); },
+  };
+}
+
+function phrase(text, frames = 256) {
+  return { outputTranscription: { text, playbackAligned: true }, content: { parts: [
+    { inlineData: { mimeType: "audio/pcm;rate=24000", data: Buffer.from(new Int16Array(frames).buffer).toString("base64") } },
+  ] } };
+}
+
+test("replicated transcript waits for playback, user transcript stays immediate, complete waits for drain", async () => {
+  const h = await callHarness();
+  try {
+    h.emit({ inputTranscription: { text: "How are you?" } });
+    h.emit(phrase("First synthetic phrase."));
+    h.emit(phrase("Second synthetic phrase."));
+    h.emit({ turnComplete: true });
+    assert.equal(h.states[2], "How are you?");
+    assert.equal(h.states[3], "");
+    assert.deepEqual(h.transcriptions, [["user", "How are you?"]]);
+    h.render(128);
+    assert.equal(h.states[0], "speaking");
+    assert.equal(h.states[3], "First synthetic phrase.");
+    h.emit({ turnComplete: true });
+    assert.equal(h.states[0], "speaking");
+    h.render(128);
+    assert.equal(h.states[3], "First synthetic phrase.");
+    h.render(128);
+    assert.equal(h.states[3], "First synthetic phrase. Second synthetic phrase.");
+    h.render(128);
+    assert.equal(h.states[0], "listening");
+    assert.equal(h.transcriptions.length, 3);
+  } finally { h.api.endCall(); }
+});
+
+test("server interruption wins over bundled stale audio/text and queued phrases", async () => {
+  const h = await callHarness();
+  try {
+    h.emit(phrase("Not yet spoken."));
+    h.emit({ ...phrase("Bundled stale phrase."), interrupted: true });
+    h.render();
+    assert.equal(h.states[3], "");
+    h.emit(phrase("New phrase.", 128)); h.render();
+    assert.equal(h.states[3], "New phrase.");
+  } finally { h.api.endCall(); }
+});
+
+test("local barge-in before render discards pending captions", async () => {
+  const h = await callHarness();
+  try {
+    h.emit(phrase("Pending phrase."));
+    h.speak(); h.render();
+    assert.equal(h.states[3], "");
+  } finally { h.api.endCall(); }
+});
+
+test("call end, error and recipient switch prevent late subtitles", async () => {
+  for (const action of ["end", "error", "switch"]) {
+    const h = await callHarness();
+    h.emit(phrase("Old recipient phrase."));
+    h.audio.render(); // A late render-thread event is also invalidated.
+    if (action === "end") h.api.endCall();
+    if (action === "error") h.emit({ type: "error", message: "Synthetic failure" });
+    if (action === "switch") h.effects[0]();
+    h.audio.deliverEvents();
+    assert.equal(h.states[3], "");
+    assert.equal(h.stopped, true);
+    h.api.endCall();
+  }
+});
+
+test("standard voice text remains immediate; a missing aligned audio chunk never shows unspoken text", async () => {
+  const h = await callHarness();
+  try {
+    h.emit({ outputTranscription: { text: "Standard synthetic response." } });
+    assert.equal(h.states[3], "Standard synthetic response.");
+    h.emit({ outputTranscription: { text: "Missing audio.", playbackAligned: true } });
+    h.render();
+    assert.equal(h.states[3], "Standard synthetic response.");
+  } finally { h.api.endCall(); }
+});

@@ -4,7 +4,7 @@ import React, { Suspense, useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useLiveAudio } from "@/hooks/useLiveAudio";
-import { parentCallUrl } from "@/lib/demo-api";
+import { memoryFailureMessage, parentCallUrl } from "@/lib/demo-api";
 import { useDemoFamily } from "@/hooks/useDemoFamily";
 import { ArrowLeft, Check, ChevronDown, Heart, LockKeyhole, Mic, Phone, PhoneOff, ShieldCheck, Sparkles, Volume2, AlertCircle } from "lucide-react";
 import Link from "next/link";
@@ -43,7 +43,7 @@ function CallTest() {
     startCall,
     endCall,
     callInfo,
-  } = useLiveAudio({ demoParent: demoParent === true, recipientId });
+  } = useLiveAudio({ demoParent: demoParent === true, recipientId, workflowAcknowledged: demoAcknowledged });
   const canStart = !demoParent ||
     (demoAcknowledged && !!recipient && !recipient.busy && !demo.error);
   const startSelectedCall = () => { if (canStart) void startCall(); };
@@ -105,7 +105,7 @@ function CallTest() {
         <aside className="order-2 flex flex-col lg:order-1 lg:pt-10">
           <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#56619C]">Distant, but still close</p>
           <h1 className="mt-4 max-w-lg font-serif text-4xl leading-[1.06] tracking-[-0.035em] text-[#252D49] sm:text-5xl lg:text-[3.6rem]">A familiar hello, waiting at home.</h1>
-          <p className="mt-5 max-w-lg text-sm leading-7 text-stone-600 sm:text-base">This is the simple, calm screen your parent sees. One tap opens a warm conversation carried in your voice—with HugBack always introduced clearly as AI.</p>
+          <p className="mt-5 max-w-lg text-sm leading-7 text-stone-600 sm:text-base">This is the local parent-role test screen, not a parent product or verified identity. One tap opens a warm conversation carried in your voice—with HugBack always introduced clearly as AI.</p>
 
           <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <div className="rounded-2xl border border-white bg-white/70 p-4 shadow-[0_12px_40px_rgba(86,97,156,0.07)] backdrop-blur">
@@ -138,16 +138,18 @@ function CallTest() {
 
             {recipientId && demo.family && !recipient && <p role="alert" className="mt-3 text-sm text-rose-700">That recipient is not in this demo family. Choose an available person.</p>}
             {recipient && <div className="mt-4 rounded-xl bg-[#F7F7FC] p-4 text-xs leading-5 text-stone-600">
-              <p className="flex items-center gap-2 font-bold text-[#465181]"><Check className="h-3.5 w-3.5" /> {recipient.label} · {recipient.voice.mode === "child" ? "Child voice ready" : "Standard HugBack voice"}</p>
+              <p className="flex items-center gap-2 font-bold text-[#465181]"><Check className="h-3.5 w-3.5" /> {recipient.label} · {recipient.voice.mode === "child" ? "Child voice assigned" : "Standard HugBack voice"}</p>
+              {recipient.voice.mode === "standard" && !isCallActive && <p className="mt-2 text-amber-900">This call will use the standard AI voice, not your recording. To use your replacement voice, enable it and assign it to {recipient.label} in <Link href="/childportal#family-dashboard" className="font-bold underline">Child portal</Link> first.</p>}
               <p className="mt-1">{recipient.background.length} reviewed excerpts · {recipient.memoryCount} retained wellbeing records</p>
               {recipient.busy && !isCallActive && <p role="status" className="mt-2 font-semibold text-amber-800">Finishing the previous call and saving memory…</p>}
-              {recipient.calls.at(-1)?.status === "memory_failed" && <p role="alert" className="mt-2 text-rose-700">The last memory update failed; do not assume it was remembered.</p>}
+              {recipient.calls.at(-1)?.workflow && <p className="mt-2">Workflow: {Object.entries(recipient.calls.at(-1)?.workflow || {}).map(([role, state]) => `${role}: ${state}`).join(" · ")}</p>}
+              {recipient.calls.at(-1)?.status === "memory_failed" && <div role="alert" className="mt-2 text-rose-700"><p>The last memory update failed; do not assume it was remembered.</p><p className="mt-1">{memoryFailureMessage(recipient.calls.at(-1)?.memoryErrorCode)}</p></div>}
             </div>}
             {demo.error && <p role="alert" className="mt-4 text-sm text-rose-700">{demo.error}</p>}
 
             <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[#E5E7F2] bg-white/80 p-4 text-xs leading-5 text-stone-600">
               <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-[#56619C]" checked={demoAcknowledged} disabled={isCallActive} onChange={(e) => setDemoAcknowledged(e.target.checked)} />
-              <span><strong className="text-stone-800">I’m ready to role-play as {recipient?.label || "the selected recipient"}.</strong> I’ll use fictional details and end the call before switching people. Microphone audio, reviewed context and enabled memory are processed by Google. HugBack is AI, not my child.</span>
+              <span><strong className="text-stone-800">I’m ready to role-play as {recipient?.label || "the selected recipient"}.</strong> I’ll use fictional details and end the call before switching people. Microphone audio, reviewed context and enabled memory are processed by Google. I also allow the enabled Planner and Quality Critic to process this fictional call; their quality findings are internal, not family recaps. HugBack is AI, not my child.</span>
             </label>
             {callInfo && callInfo.parentId === recipient?.recipientId && <details className="mt-3 text-[11px] leading-5 text-stone-500"><summary className="cursor-pointer font-semibold">Call details</summary><p className="mt-2 break-all">Session {callInfo.sessionId} · Memory {callInfo.memoryStatus} · Voice {callInfo.voice}</p></details>}
           </section>}

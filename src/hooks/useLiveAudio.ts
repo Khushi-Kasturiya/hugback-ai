@@ -9,7 +9,7 @@ import { portalGet, PortalStatus } from "@/lib/portal-api";
 import { selectedVoicePayload } from "@/lib/voice-api";
 import { demoRequest, recipientCallPayload } from "@/lib/demo-api";
 
-const CONNECTION_TIMEOUT_MS = 15_000;
+const CONNECTION_TIMEOUT_MS = 20_000;
 const SPEECH_THRESHOLD = 0.05;
 const END_OF_SPEECH_SILENCE_MS = 700;
 
@@ -38,6 +38,7 @@ interface UseLiveAudioOptions {
   wsUrl?: string;
   demoParent?: boolean;
   recipientId?: string;
+  workflowAcknowledged?: boolean;
   onTranscriptionUpdate?: (role: "user" | "hugback", text: string) => void;
 }
 
@@ -45,6 +46,7 @@ export function useLiveAudio({
   wsUrl = defaultWebSocketUrl(),
   demoParent = false,
   recipientId,
+  workflowAcknowledged = false,
   onTranscriptionUpdate,
 }: UseLiveAudioOptions = {}) {
   const [status, setStatus] = useState<CallStatus>("disconnected");
@@ -59,7 +61,6 @@ export function useLiveAudio({
   const recorderRef = useRef<RecorderHandle | null>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
   const isAgentSpeakingRef = useRef<boolean>(false);
-  const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intentionalCloseRef = useRef<boolean>(false);
   const callAttemptRef = useRef(0);
   const userSpeechActiveRef = useRef<boolean>(false);
@@ -86,11 +87,6 @@ export function useLiveAudio({
     if (playerRef.current) {
       playerRef.current.stop();
       playerRef.current = null;
-    }
-
-    if (speakingTimeoutRef.current) {
-      clearTimeout(speakingTimeoutRef.current);
-      speakingTimeoutRef.current = null;
     }
 
     isAgentSpeakingRef.current = false;
@@ -140,6 +136,9 @@ export function useLiveAudio({
         throw new Error("Parent demo calls require local demo mode and preset or portal-enrolled TTS voice.");
       }
       if (demoParent && !recipientId) throw new Error("Choose the recipient for this demo call first.");
+      if (demoParent && portalStatus.workflowEnabled && !workflowAcknowledged) {
+        throw new Error("Acknowledge synthetic Planner and Critic processing before calling.");
+      }
       const selectedVoice = demoParent
         ? recipientCallPayload(await demoRequest("/family"), recipientId, portalStatus.voice)
         : selectedVoicePayload(portalStatus.voice);
@@ -156,13 +155,27 @@ export function useLiveAudio({
         ...identityMessage,
         ...(voicePayload || {}),
         ...selectedVoice,
+        ...(demoParent && portalStatus.workflowEnabled && workflowAcknowledged ? { simulateWorkflowConsent: true } : {}),
       };
       setCallInfo(undefined);
       setUserTranscript("");
       setHugbackTranscript("");
 
       // 1. Initialize Player first
-      const player = await startAudioPlayer();
+      const player = await startAudioPlayer({
+        onPlaybackChange: (playing) => {
+          if (!isCurrentAttempt()) return;
+          isAgentSpeakingRef.current = playing;
+          setHugbackVolume(playing ? 0.8 : 0);
+          setStatus(playing ? "speaking" : "listening");
+        },
+        onError: () => {
+          if (!isCurrentAttempt()) return;
+          setErrorMessage("Audio playback failed. Please start a new call.");
+          setStatus("error");
+          releaseCallResources(true);
+        },
+      });
       if (!isCurrentAttempt()) { player.stop(); return; }
       playerRef.current = player;
 
@@ -195,7 +208,33 @@ export function useLiveAudio({
             return;
           }
 
-          // Handle incoming Gemini Audio
+          // Your own transcription remains immediate, independent of TTS.
+          if (adkEvent.inputTranscription?.text) {
+            const text = adkEvent.inputTranscription.text;
+            setUserTranscript((prev) => (prev ? `${prev} ${text}` : text));
+            onTranscriptionUpdate?.("user", text);
+          }
+
+          // Interruption wins over audio/text bundled in the same event.
+          if (adkEvent.interrupted) {
+            playerRef.current?.flush();
+            isAgentSpeakingRef.current = false;
+            setHugbackVolume(0);
+            setStatus("listening");
+            return;
+          }
+
+          const outputText = adkEvent.outputTranscription?.text;
+          const playbackAligned = adkEvent.outputTranscription?.playbackAligned === true;
+          const publishTranscript = () => {
+            if (!outputText || !isCurrentAttempt() || wsRef.current !== ws) return;
+            setHugbackTranscript((prev) => (prev ? `${prev} ${outputText}` : outputText));
+            onTranscriptionUpdate?.("hugback", outputText);
+          };
+          let onAudioStart = playbackAligned && outputText ? publishTranscript : undefined;
+
+          // A replicated phrase travels with its first PCM chunk, but stays
+          // hidden until that chunk reaches the player's render thread.
           if (adkEvent.content && adkEvent.content.parts) {
             for (const part of adkEvent.content.parts) {
               if (
@@ -205,60 +244,30 @@ export function useLiveAudio({
                 playerRef.current
               ) {
                 const audioBuffer = base64ToArrayBuffer(part.inlineData.data);
-                playerRef.current.playPcm(audioBuffer);
-
-                isAgentSpeakingRef.current = true;
-                setStatus("speaking");
-                setHugbackVolume(0.8);
-
-                if (speakingTimeoutRef.current) {
-                  clearTimeout(speakingTimeoutRef.current);
+                if (audioBuffer.byteLength) {
+                  playerRef.current.playPcm(audioBuffer, onAudioStart);
+                  onAudioStart = undefined;
                 }
-                speakingTimeoutRef.current = setTimeout(() => {
-                  isAgentSpeakingRef.current = false;
-                  setHugbackVolume(0);
-                  setStatus("listening");
-                }, 3000);
               }
             }
           }
 
-          // Handle user speech transcription
-          if (adkEvent.inputTranscription && adkEvent.inputTranscription.text) {
-            const text = adkEvent.inputTranscription.text;
-            setUserTranscript((prev) => (prev ? `${prev} ${text}` : text));
-            onTranscriptionUpdate?.("user", text);
-          }
-
-          // Handle agent speech transcription
-          if (adkEvent.outputTranscription && adkEvent.outputTranscription.text) {
-            const text = adkEvent.outputTranscription.text;
-            setHugbackTranscript((prev) => (prev ? `${prev} ${text}` : text));
-            onTranscriptionUpdate?.("hugback", text);
-          }
+          // Preset Live transcription has no replicated-TTS delay.
+          if (outputText && !playbackAligned) publishTranscript();
 
           // Handle turn completion
-          if (adkEvent.turnComplete) {
-            if (speakingTimeoutRef.current) {
-              clearTimeout(speakingTimeoutRef.current);
-            }
+          if (adkEvent.turnComplete && !playerRef.current?.isBusy()) {
             isAgentSpeakingRef.current = false;
             setHugbackVolume(0);
             setStatus("listening");
           }
 
-          // Handle Gemini server-side interruption event
-          if (adkEvent.interrupted) {
-            console.log("[Hugback] Server interruption signal received. Flushing audio.");
-            if (playerRef.current) {
-              playerRef.current.flush();
-            }
-            isAgentSpeakingRef.current = false;
-            setHugbackVolume(0);
-            setStatus("listening");
-          }
         } catch (err) {
-          console.error("[Hugback] Error processing WebSocket message:", err);
+          // Do not leave queued subtitles/audio alive after a malformed packet.
+          console.warn("[Hugback] Invalid playback event; stopping call.");
+          setErrorMessage("The audio response could not be played. Please start a new call.");
+          setStatus("error");
+          releaseCallResources(true);
         }
       };
 
@@ -368,7 +377,7 @@ export function useLiveAudio({
           // Edge VAD Barge-in Check:
           // If the user speaks firmly (volume > threshold) while Hugback is actively speaking,
           // instantly flush client playback and signal turn_complete to reclaim floor!
-          if (normalizedVol > 0.35 && isAgentSpeakingRef.current) {
+          if (normalizedVol > 0.35 && (isAgentSpeakingRef.current || playerRef.current?.isBusy())) {
             console.log("[Hugback] Edge VAD barge-in triggered by user voice!");
             if (playerRef.current) {
               playerRef.current.flush();
@@ -385,7 +394,7 @@ export function useLiveAudio({
       if (!isCurrentAttempt()) { recorder.stop(); return; }
       recorderRef.current = recorder;
 
-      setStatus("listening");
+      if (!isAgentSpeakingRef.current) setStatus("listening");
     } catch (err: unknown) {
       if (callAttemptRef.current !== attempt) return;
       console.error("[Hugback] Failed to start call:", err);
@@ -396,7 +405,7 @@ export function useLiveAudio({
         setStatus("error");
       }
     }
-  }, [status, wsUrl, demoParent, recipientId, onTranscriptionUpdate, releaseCallResources]);
+  }, [status, wsUrl, demoParent, recipientId, workflowAcknowledged, onTranscriptionUpdate, releaseCallResources]);
 
   // Clean up on unmount
   useEffect(() => {
