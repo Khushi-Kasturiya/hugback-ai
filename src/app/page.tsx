@@ -103,7 +103,7 @@ function CallTest() {
 
       <div className="relative z-10 mx-auto grid w-full max-w-7xl gap-6 px-5 pb-10 pt-3 sm:px-8 lg:grid-cols-[minmax(0,0.78fr)_minmax(520px,1.22fr)] lg:gap-8 lg:px-12 lg:pb-14 lg:pt-8">
         <aside className="order-2 flex flex-col lg:order-1 lg:pt-10">
-          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#56619C]">Distant, but still close</p>
+          <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#56619C]">Close to home, no matter where you roam</p>
           <h1 className="mt-4 max-w-lg font-serif text-4xl leading-[1.06] tracking-[-0.035em] text-[#252D49] sm:text-5xl lg:text-[3.6rem]">A familiar hello, waiting at home.</h1>
           <p className="mt-5 max-w-lg text-sm leading-7 text-stone-600 sm:text-base">This is the local parent-role test screen, not a parent product or verified identity. One tap opens a warm conversation carried in your voice—with HugBack always introduced clearly as AI.</p>
 

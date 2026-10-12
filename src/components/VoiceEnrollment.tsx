@@ -130,30 +130,19 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
   }
 
   return (
-    <section className="w-full rounded-[1.75rem] border border-white bg-white/85 p-5 shadow-xl shadow-emerald-900/5 backdrop-blur sm:p-6">
-      <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="flex gap-3">
-          <div className="h-fit rounded-xl bg-violet-100 p-2.5 text-violet-700"><AudioLines className="h-5 w-5" /></div>
-          <div><h3 className="font-serif text-2xl text-[#252D49]">Carry your voice home</h3>
-            <p className="mt-1 text-sm text-stone-600">Record your natural voice and a separate consent statement, then choose who may hear it.</p></div>
-        </div>
-        <span className={`rounded-full px-3 py-1 text-xs font-bold ${profile?.enabled && !expired && available ? "bg-emerald-100 text-emerald-800" : "bg-stone-100 text-stone-600"}`}>
-          {expired && profile?.enabled ? "Voice expired · assigned calls blocked" : profile?.enabled ? (available ? "Child voice enabled" : "Custom voice unavailable") : "Child voice not enabled"}
-        </span>
-      </div>
-
+    <section>
       {!available && <p className="mt-4 rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-950">
         {capability ? "Voice creation is not available right now." : "Checking voice availability…"}
       </p>}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2" key={recorderVersion}>
-        <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "consent"} label="1 · Voice sample" minimumSeconds={10} help="Speak naturally for a few seconds." onRecorded={(file) => { setReference(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "reference" : null)} />
-        <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "reference"} label="2 · Permission" minimumSeconds={2} help="Read the statement below." onRecorded={(file) => { setConsent(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "consent" : null)} />
+        <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "consent"} label="1 · Voice sample" minimumSeconds={10} help="Speak naturally for a few seconds. (20-30 seconds)" onRecorded={(file) => { setReference(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "reference" : null)} />
+        <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "reference"} label="2 · Consent" minimumSeconds={2} help="Read the statement below." onRecorded={(file) => { setConsent(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "consent" : null)} />
       </div>
       <div className="mt-3 rounded-xl bg-violet-50 p-4 text-sm leading-6 text-stone-700"><strong>Read this for recording 2:</strong><br />“I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.”</div>
       <label className="mt-4 flex items-start gap-3 text-sm leading-6 text-stone-700">
         <input className="mt-1.5 h-4 w-4 shrink-0 accent-violet-600" type="checkbox" checked={acknowledged} disabled={locked || !available} onChange={(event) => setAcknowledged(event.target.checked)} />
-        <span>I am 18 or older, this is my voice, and I agree to send these recordings to Google to create the voice. Google may charge for voice creation and speech.</span>
+        <span>I am 18 or older, this is my voice, and I agree to send these recordings to Google to create the voice.</span>
       </label>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button type="button" disabled={locked || !available || !reference || !consent || !acknowledged || uncertain || !!activeRecorder} onClick={enroll} className="flex items-center gap-2 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
@@ -162,22 +151,22 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
         {uncertain && <button type="button" disabled={locked} onClick={refresh} className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-stone-600 hover:bg-stone-100 disabled:opacity-50"><RefreshCw className="h-4 w-4" />Refresh status</button>}
       </div>
 
-      {profile && <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-        <div className="flex items-center gap-2 font-bold text-stone-900"><CheckCircle2 className="h-4 w-4 text-emerald-700" />{expired ? "Voice needs renewal" : "Voice created"}</div>
+      {profile && <div className="mt-6 rounded-xl border border-[#9BA5FC]/20 bg-[#F3EFFF]/50 p-4">
+        <div className="flex items-center gap-2 font-bold text-stone-900"><CheckCircle2 className="h-4 w-4 text-[#56619C]" />{expired ? "Voice needs renewal" : "Voice created"}</div>
         {expired && <p className="mt-2 text-sm text-stone-600">Create a new voice before using it in calls.</p>}
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" disabled={locked || uncertain || !available || expired || profile.enabled} onClick={() => select(true)} className="rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Enable child voice</button>
+          <button type="button" disabled={locked || uncertain || !available || expired || profile.enabled} onClick={() => select(true)} className="rounded-full bg-[#56619C] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Enable child voice</button>
           <button type="button" disabled={locked || uncertain || !profile.enabled} onClick={() => select(false)} className="rounded-full border border-stone-300 bg-white px-4 py-2 text-sm font-semibold disabled:opacity-40">Disable child voice</button>
           <button type="button" disabled={locked || uncertain} onClick={remove} className="flex items-center gap-2 rounded-full px-3 py-2 text-sm font-semibold text-rose-700 disabled:opacity-40"><Trash2 className="h-4 w-4" />Remove voice</button>
         </div>
-        <div className="mt-4 border-t border-emerald-200 pt-4">
+        <div className="mt-4 border-t border-[#9BA5FC]/20 pt-4">
           <p className="font-bold text-stone-800">3 · Assign this voice to a recipient</p>
           <p className="mt-1 text-sm leading-6 text-stone-600">Creating or enabling a replacement does not change a recipient’s voice. Each person keeps their current assignment until you explicitly change it.</p>
-          {!recipient ? <a href="#family-dashboard" className="mt-3 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Choose a recipient in Family setup, then assign this voice →</a> : <>
+          {!recipient ? <a href="#family-dashboard" className="mt-3 inline-block text-sm font-bold text-[#56619C] underline underline-offset-4">Choose a recipient in Family setup, then assign this voice →</a> : <>
             <p className="mt-2 text-sm text-stone-700">{recipient.label}: {assigned ? "this child voice is assigned" : recipient.voice.mode === "standard" ? "still using standard Hugback voice" : "assigned to a different / replaced voice"}.</p>
-            {!assigned && <button type="button" disabled={locked || uncertain || !available || expired || !profile.enabled || recipient.busy || !onAssigned} onClick={assign} className="mt-3 rounded-full bg-emerald-700 px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Assign this voice to {recipient.label}</button>}
+            {!assigned && <button type="button" disabled={locked || uncertain || !available || expired || !profile.enabled || recipient.busy || !onAssigned} onClick={assign} className="mt-3 rounded-full bg-[#56619C] px-4 py-2 text-sm font-bold text-white disabled:opacity-40">Assign this voice to {recipient.label}</button>}
             {assigned && profile.enabled && !expired && available && !locked && !uncertain && !recipient.busy &&
-              <Link href={parentCallUrl(recipient.recipientId)} className="mt-3 inline-block text-sm font-bold text-emerald-800 underline underline-offset-4">Preview {recipient.label}’s call with this voice →</Link>}
+              <Link href={parentCallUrl(recipient.recipientId)} className="mt-3 inline-block text-sm font-bold text-[#56619C] underline underline-offset-4">Preview {recipient.label}’s call with this voice →</Link>}
             {recipient.busy && <p className="mt-2 text-xs text-stone-600">Wait for this recipient’s current call and memory processing to finish.</p>}
           </>}
         </div>
@@ -185,8 +174,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
       {message && <p className="mt-4 rounded-xl bg-stone-100 p-3 text-sm leading-6 text-stone-800" role="status" aria-live="polite">{message}</p>}
       <details className="mt-5 border-t border-stone-100 pt-4 text-xs leading-5 text-stone-500">
         <summary className="cursor-pointer font-semibold text-stone-600">Privacy and recording details</summary>
-        <p className="mt-2">The recordings are sent to Google only after you confirm. Hugback does not save them in browser storage or Firestore. Google may charge for voice creation and speech. Hugback always identifies itself as AI.</p>
-        <a href="https://ai.google.dev/gemini-api/docs/voice-replication" target="_blank" rel="noopener noreferrer" className="mt-2 inline-block font-semibold text-violet-700 underline underline-offset-2">Google recording requirements</a>
+        <p className="mt-2">The recordings are sent to Google only after you confirm. Hugback does not save them in browser storage or Firestore. Hugback always identifies itself as AI.</p>
       </details>
       {legacy && <div className="mt-3 border-t border-stone-100 pt-3 text-xs leading-5 text-stone-500">Older recordings are still saved in this browser. They are not automatically uploaded or selected by this flow. <button type="button" disabled={locked} onClick={removeLegacy} className="font-semibold text-rose-700 underline">Delete old browser recordings</button></div>}
     </section>

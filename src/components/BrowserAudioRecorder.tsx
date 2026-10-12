@@ -139,25 +139,24 @@ export function BrowserAudioRecorder({
 
   const isRecording = phase === "recording";
   return (
-    <div className="rounded-xl border border-dashed border-stone-300 bg-stone-50/50 p-4 text-sm font-semibold text-stone-800">
+    <div className="rounded-[24px] border border-dashed border-[#9BA5FC]/35 bg-gradient-to-br from-[#FCFAFF] to-[#F2F8FF] p-5 text-sm font-semibold text-stone-800">
       <span className="mb-2 block text-xs font-bold uppercase tracking-wider text-violet-700">{label}</span>
       <p>{help}</p>
-      <p className="mt-1 text-xs font-normal text-stone-500">{minimumSeconds}–{MAX_SECONDS} seconds · microphone only</p>
 
-      <div className="mt-4 flex flex-wrap items-center gap-3">
-        {isRecording ? <button type="button" onClick={stopRecording} className="inline-flex items-center gap-2 rounded-full bg-rose-600 px-4 py-2.5 text-sm font-bold text-white hover:bg-rose-700">
-          <Square className="h-4 w-4 fill-current" /> Stop recording
-        </button> : <button type="button" disabled={disabled || phase === "requesting"} onClick={startRecording} className="inline-flex items-center gap-2 rounded-full bg-emerald-800 px-4 py-2.5 text-sm font-bold text-white hover:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-40">
-          {phase === "ready" ? <RotateCcw className="h-4 w-4" /> : <Mic className="h-4 w-4" />}
-          {phase === "requesting" ? "Requesting microphone…" : phase === "ready" ? "Record again" : "Start recording"}
+      <div className="mt-5 flex flex-wrap items-center gap-4">
+        {isRecording ? <button type="button" onClick={stopRecording} className="grid h-16 w-16 place-items-center rounded-full bg-rose-600 text-white shadow-[0_0_0_8px_rgba(225,29,72,0.12)] transition hover:scale-105 hover:bg-rose-700" aria-label="Stop recording">
+          <Square className="h-5 w-5 fill-current" />
+        </button> : <button type="button" disabled={disabled || phase === "requesting"} onClick={startRecording} className="grid h-16 w-16 place-items-center rounded-full bg-gradient-to-br from-[#56619C] via-violet-500 to-blue-400 text-white shadow-[0_12px_30px_rgba(86,97,156,0.3)] transition hover:scale-105 hover:shadow-[0_16px_36px_rgba(139,92,246,0.35)] disabled:cursor-not-allowed disabled:opacity-40" aria-label={phase === "ready" ? "Record again" : "Start recording"}>
+          {phase === "ready" ? <RotateCcw className="h-5 w-5" /> : <Mic className="h-5 w-5" />}
         </button>}
+        <span className="text-sm font-bold text-[#56619C]">{phase === "requesting" ? "Requesting microphone…" : isRecording ? "Recording… tap to stop" : phase === "ready" ? "Record again" : "Start recording"}</span>
         {(isRecording || phase === "ready") && <span className={`font-mono text-xs ${isRecording ? "text-rose-700" : "text-stone-500"}`} aria-live="polite">
           {isRecording ? "● " : ""}{String(Math.floor(seconds / 60)).padStart(2, "0")}:{String(seconds % 60).padStart(2, "0")}
         </span>}
       </div>
       {isRecording && <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-stone-200"><div className="h-full bg-gradient-to-r from-hugback-sky to-hugback-violet transition-all" style={{ width: `${Math.max(2, (seconds / MAX_SECONDS) * 100)}%` }} /></div>}
       {previewUrl && <audio className="mt-4 w-full" controls preload="metadata" src={previewUrl}>Your browser does not support audio playback.</audio>}
-      {phase === "ready" && <p className="mt-2 text-xs font-normal text-emerald-800">Recording ready. Listen once, then record again if needed.</p>}
+      {phase === "ready" && <p className="mt-2 text-xs font-normal text-[#56619C]">Recording ready. Listen once, then record again if needed.</p>}
       {error && <p className="mt-3 text-xs font-normal leading-5 text-rose-700" role="alert">{error}</p>}
     </div>
   );
