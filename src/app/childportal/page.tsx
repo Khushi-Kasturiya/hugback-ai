@@ -12,18 +12,18 @@ import {
   FileText,
   Heart,
   LockKeyhole,
-  MessageCircle,
   PhoneCall,
-  Plus,
   RefreshCw,
-  ShieldCheck,
+  Users,
 } from "lucide-react";
 import { BackgroundImports } from "@/components/BackgroundImports";
+import { DemoFamilySetup } from "@/components/DemoFamilySetup";
+import { DemoCallHistory } from "@/components/DemoCallHistory";
 import { VoiceEnrollment } from "@/components/VoiceEnrollment";
 import { useDemoFamily } from "@/hooks/useDemoFamily";
 import { parentCallUrl } from "@/lib/demo-api";
 import { getBrowserIdentity } from "@/lib/identity";
-import { PortalStatus, SharedSummary, portalGet } from "@/lib/portal-api";
+import { PortalStatus, portalGet } from "@/lib/portal-api";
 
 const sections = [
   { id: "background", step: "1", label: "Family language", icon: BookOpen },
@@ -52,8 +52,6 @@ export default function ChildPortal() {
   const [section, setSection] = useState<Section>("background");
   const [identity, setIdentity] = useState<{ owner: string; mode: "development" | "firebase" }>();
   const [status, setStatus] = useState<PortalStatus>();
-  const [summaries, setSummaries] = useState<SharedSummary[]>([]);
-  const [sharing, setSharing] = useState<PortalStatus["sharingStatus"]>();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(true);
   const [revision, setRevision] = useState(0);
@@ -61,10 +59,9 @@ export default function ChildPortal() {
   const [selectedId, setSelectedId] = useState("");
   const demo = useDemoFamily(Boolean(status?.localDemoEnabled));
 
-  const recipient = demo.family?.recipients.find((item) => item.recipientId === selectedId) || demo.family?.recipients[0];
+  const recipient = demo.family?.recipients.find((item) => item.recipientId === selectedId);
   const latestCall = recipient?.calls.at(-1);
   const latestSignal = recipient?.wellbeingSignals?.filter((signal) => Date.parse(signal.expiresAt) > now).at(-1);
-  const visibleSummaries = summaries.filter((summary) => Date.parse(summary.expiresAt) > now);
   const callUrl = parentCallUrl(recipient?.recipientId);
   const activeSection = sections.find((item) => item.id === section) || sections[0];
   const activeStepIndex = sections.findIndex((item) => item.id === section);
@@ -98,7 +95,7 @@ export default function ChildPortal() {
 
   useEffect(() => {
     let current = true;
-    setBusy(true); setError(""); setStatus(undefined); setSummaries([]); setSharing(undefined);
+    setBusy(true); setError(""); setStatus(undefined);
     void (async () => {
       try {
         const browserIdentity = await getBrowserIdentity();
@@ -107,9 +104,6 @@ export default function ChildPortal() {
         const capabilities = await portalGet<PortalStatus>("/status");
         if (!current) return;
         setStatus(capabilities);
-        const updates = await portalGet<{ status: PortalStatus["sharingStatus"]; summaries: SharedSummary[] }>("/summaries");
-        if (!current) return;
-        setSharing(updates.status); setSummaries(updates.summaries);
       } catch (loadError) {
         if (current) setError(loadError instanceof Error ? loadError.message : "Could not load this browser's portal.");
       } finally { if (current) setBusy(false); }
@@ -135,6 +129,34 @@ export default function ChildPortal() {
     </header>
 
     <div className="relative mx-auto max-w-[1240px] px-4 pb-10 sm:px-7">
+
+      <section id="family-dashboard" className="scroll-mt-24 py-8 sm:py-12">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-[11px] font-black uppercase tracking-[0.18em] text-[#56619C]">Your bridge home</p>
+            <h1 className="mt-3 font-serif text-4xl tracking-tight sm:text-5xl">Choose who you are calling.</h1>
+            <p className="mt-3 max-w-2xl text-sm leading-6 text-[#4A4B57]">Each person has their own reviewed background, call history and memory.</p>
+          </div>
+          <span className="rounded-full border border-[#9BA5FC]/20 bg-white/80 px-3 py-2 text-xs font-semibold text-[#56619C]">Test storage: {status?.demoStorage || "checking"}</span>
+        </div>
+        {identity?.mode === "firebase" && <details className="mt-4 text-xs"><summary>Test operator identity (for server allowlisting)</summary><code>{identity.owner.replace(/^firebase:/, "")}</code></details>}
+        {error && <div role="alert" className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900"><p>{error}</p><button className="font-bold underline" onClick={() => setRevision((value) => value + 1)}>Retry</button></div>}
+        <div className="mt-6 rounded-[2rem] border border-[#9BA5FC]/20 bg-white/85 p-5 shadow-[0_20px_60px_-18px_rgba(86,97,156,0.18)] sm:p-8">
+          {status?.localDemoEnabled ? <DemoFamilySetup family={demo.family} onChange={demo.update} loading={demo.loading} loadError={demo.error} refresh={demo.refresh} selectedId={selectedId} onSelect={setSelectedId} voice={status.voice} /> : <p className="text-sm text-[#4A4B57]">Family setup is unavailable on this backend.</p>}
+        </div>
+        {recipient && <div className="mt-5 grid gap-4 md:grid-cols-2">
+          <article className="rounded-[1.5rem] border border-[#C7E6FF] bg-[#EDF7FF] p-5">
+            <span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-[#315F89]"><CalendarDays className="h-4 w-4" /> Latest check-in</span>
+            <h2 className="mt-4 font-serif text-2xl">{readableCallStatus(latestCall?.status)}</h2>
+            <p className="mt-2 text-sm text-[#4A4B57]">{latestCall ? `${recipient.label} · ${formatDate(latestCall.endedAt || latestCall.startedAt)}` : `${recipient.label} has no calls yet.`}</p>
+          </article>
+          <article className="rounded-[1.5rem] border border-[#D9CDF8] bg-[#F5F1FF] p-5">
+            <span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.16em] text-[#664E9D]"><Heart className="h-4 w-4" /> Conversation signal</span>
+            <h2 className="mt-4 font-serif text-2xl">{latestSignal ? latestSignal.displayText : "No signal available"}</h2>
+            <p className="mt-2 text-xs leading-5 text-[#4A4B57]">{latestSignal ? `AI-estimated · ${formatDate(latestSignal.observedAt)} · Not medical advice` : recipient.wellbeingSharingEnabled ? "Nothing is shared when the call does not provide enough evidence." : "Call signals are off for this person."}</p>
+          </article>
+        </div>}
+      </section>
 
       <section id="setup-workspace" className="py-2 sm:py-4">
         <div className="max-w-4xl">
@@ -173,21 +195,12 @@ export default function ChildPortal() {
             <div className="flex items-start gap-4"><span className="grid h-12 w-12 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-[#E5F2FF] to-[#EEE7FF] text-[#56619C]"><ActiveIcon className="h-5 w-5" /></span><div><p className="text-[10px] font-black uppercase tracking-[0.18em] text-[#56619C]">Step {activeStepIndex + 1} of 3</p><h3 className="mt-1 font-serif text-3xl">{section === "background" ? "Family Language" : section === "voice" ? "Carry Your Voice" : "Close the loop"}</h3><p className="mt-2 max-w-2xl text-sm leading-6 text-[#4A4B57]">{section === "background" ? "Upload past chats to teach HugBack your family’s unique names and phrases." : section === "voice" ? "A short recording captures your warmth and tone so they never hear a cold robot." : "After a natural tea-time chat, a quick summary keeps you in the loop on their mood."}</p></div></div>
           </div>
 
-          {section === "background" && (
-            <BackgroundImports
-              owner={identity?.owner}
-              demoRecipient={recipient}
-              demoFamily={demo.family}
-              onDemoChange={demo.update}
-              onRecipientSelect={setSelectedId}
-            />
-          )}
+          {section === "background" && (status?.localDemoEnabled && !recipient
+            ? <div className="rounded-[1.5rem] bg-[#F2F8FF] px-6 py-12 text-center"><Users className="mx-auto h-10 w-10 text-[#56619C]" /><h4 className="mt-4 font-serif text-2xl">Choose a family member first</h4><p className="mx-auto mt-2 max-w-md text-sm text-[#4A4B57]">Select a person in Family setup above before reviewing a conversation for their calls.</p></div>
+            : <BackgroundImports key={recipient?.recipientId || "local-preview"} owner={identity?.owner} demoRecipient={status?.localDemoEnabled ? recipient : undefined} onDemoChange={demo.update} />)}
           {section === "voice" && <VoiceEnrollment voice={status?.voice} disabled={!identity} onUpdated={refreshVoice} recipient={status?.localDemoEnabled ? recipient : undefined} onAssigned={demo.update} />}
           {section === "summaries" && <div className="space-y-4">
-            <div className="rounded-[28px] border border-[#9BA5FC]/20 bg-gradient-to-br from-white to-[#F3EFFF] p-6 shadow-[0_16px_36px_rgba(86,97,156,0.1)] sm:p-7"><div className="flex flex-wrap items-center justify-between gap-3"><span className="inline-flex items-center gap-2 text-[11px] font-black uppercase tracking-[0.18em] text-[#56619C]"><CalendarDays className="h-4 w-4" /> Today</span><Heart className="h-7 w-7 fill-[#8878D7] text-[#8878D7]" /></div><p className="mt-5 font-serif text-2xl text-[#1D1E2C]">{latestSignal?.displayText || `${recipient?.label || "Mom"} sounded cheerful today.`}</p><div className="mt-5 flex flex-wrap gap-2 text-[11px] font-bold text-[#56619C]"><span className="rounded-full bg-indigo-50 px-3 py-1.5">Estimated via AI</span><span className="rounded-full bg-blue-50 px-3 py-1.5">Zero raw audio saved</span><span className="rounded-full bg-violet-50 px-3 py-1.5">No medical advice</span></div><p className="mt-4 text-xs leading-5 text-[#737386]">No transcripts, spy apps, or medical diagnoses. Just a gentle nudge.</p></div>
-            <div className="flex items-center justify-between gap-3 rounded-[24px] border border-[#9BA5FC]/15 bg-white/80 p-5"><div><h4 className="font-serif text-xl">Updates shared with you</h4><p className="mt-1 text-sm leading-6 text-[#4A4B57]">Approved recaps only—never a transcript or private memory.</p></div><button className="portal-secondary shrink-0" disabled={busy} onClick={() => setRevision((value) => value + 1)} aria-label="Refresh summaries"><RefreshCw className={`h-4 w-4 ${busy ? "animate-spin" : ""}`} /></button></div>
-            {!visibleSummaries.length && <div className="rounded-[24px] border border-[#9BA5FC]/15 bg-white/75 px-6 py-10 text-center"><MessageCircle className="mx-auto h-8 w-8 text-[#9BA5FC]" /><h4 className="mt-4 font-bold">{busy ? "Checking for updates…" : "Nothing new to share"}</h4><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#4A4B57]">{sharing === "ready" ? "An update appears only after your parent approves it." : "Sharing is private by default and requires a verified parent relationship."}</p></div>}
-            {visibleSummaries.map((summary, index) => <article key={summary.id} className="dashboard-enter rounded-[24px] border border-[#9BA5FC]/15 bg-white/85 p-5 transition hover:-translate-y-0.5 hover:shadow-md" style={{ animationDelay: `${index * 60}ms` }}><div className="flex flex-wrap items-center justify-between gap-2"><time className="text-xs text-[#737386]">{formatDate(summary.callEndedAt)}</time><span className="inline-flex items-center gap-1.5 rounded-full bg-[#EDF7FF] px-2.5 py-1 text-xs font-bold text-[#315F89]"><Check className="h-3 w-3" /> Parent approved</span></div><p className="mt-4 whitespace-pre-wrap text-sm leading-7 text-[#4A4B57]">{summary.text}</p></article>)}
+            {status?.localDemoEnabled ? <DemoCallHistory key={`${recipient?.recipientId || "none"}-${recipient?.revision || 0}`} recipient={recipient} refresh={demo.refresh} /> : <div className="rounded-[1.5rem] bg-[#F2F8FF] px-6 py-12 text-center"><h4 className="font-bold">Real call summaries are not connected yet</h4><p className="mx-auto mt-2 max-w-md text-sm leading-6 text-[#4A4B57]">Real phone enrollment, recipient-specific sharing consent and verified child access are required first.</p></div>}
           </div>}
         </section>
       </section>

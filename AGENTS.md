@@ -1,5 +1,31 @@
 # Hugback frontend
 
+- 13 October: fictional browser imports use one action after whole-chat simulated
+  child and parent permission, rather than individual message checkboxes. The
+  browser considers all parent-authored text messages and sends at most 24
+  evenly spread, dated excerpts to the selected demo recipient. Clearly state
+  that long chats are bounded and not fully recalled; never present this as
+  real-family consent, full-file upload or production intake.
+
+- 13 October: Signals back now shows only a brief AI-generated call summary for
+  future fictional calls, scoped by recipient/date. Never render raw call turns
+  or fetch the former transcript endpoint. An absent summary is unavailable,
+  not an invitation to show raw text. Summary sharing keeps the existing demo
+  consent gate; revocation removes saved summaries and any legacy test turns.
+
+- 13 October: Signals back may show synthetic topic notice status beside the
+  separately consented call transcript. Demo setup may simulate one standing
+  parent permission for brief post-call email notices; browser fields never
+  choose the actual email destination. Show unconfigured, failed and sent states
+  accurately, without implying emergency monitoring or diagnosis.
+
+- Earlier full-transcription display guidance below is superseded by the
+  summary-only rule above. No per-call
+  approval. Real call history requires verified parent enrollment and standing
+  transcript-sharing consent, not the browser role selector. The demo view must
+  never imply real call history is connected. This supersedes the older blanket
+  no-transcript and recap-exclusion bullets below for this narrow simulator flow.
+
 - Current product is no-app: Forms/Drive intake and ordinary-phone parents.
   Existing browser surfaces are local prototype tooling only. This storage
   implementation does not authorize cloud portal uploads or a dashboard rollout.
@@ -29,6 +55,11 @@
   Keep their imports, reviewed background, call metadata and memory independent.
   No automatic recipient choice, voice fallback or speaker recognition. Reset
   pending previews/consent and subtitles when switching; end calls on navigation.
+- The child supplies gender in Family setup once for the synthetic family;
+  existing families can update it there with a revisioned owner-scoped request.
+  This controls Hindi/Hinglish first-person form for the assigned child voice.
+  The standard voice uses feminine wording. Voice setup never classifies the
+  recording or asks for a gender choice, and old voice profiles remain usable.
 - Do not send private data, place calls, enable billing or deploy resources as
   part of frontend tests. Use `npm test`, `npm run typecheck`, an isolated build,
   and the browser with synthetic content.

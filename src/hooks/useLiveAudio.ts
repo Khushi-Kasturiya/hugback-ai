@@ -13,6 +13,20 @@ const CONNECTION_TIMEOUT_MS = 20_000;
 const SPEECH_THRESHOLD = 0.05;
 const END_OF_SPEECH_SILENCE_MS = 700;
 
+function mergeStreamingText(previous: string, incoming: string): string {
+  const chunk = incoming.replace(/\s+/g, " ").trim();
+  if (!previous || !chunk) return previous || chunk;
+  if (previous === chunk || previous.endsWith(chunk) || previous.startsWith(chunk)) return previous;
+  if (chunk.startsWith(previous)) return chunk;
+  let overlap = 0;
+  const limit = Math.min(previous.length, chunk.length);
+  for (let length = limit; length >= 8; length--) {
+    if (previous.endsWith(chunk.slice(0, length))) { overlap = length; break; }
+  }
+  const addition = chunk.slice(overlap);
+  return `${previous}${addition && !/^\s|^[,.;!?]/.test(addition) ? " " : ""}${addition}`.trim();
+}
+
 function defaultWebSocketUrl(): string {
   if (process.env.NEXT_PUBLIC_HUGBACK_WS_URL) {
     return process.env.NEXT_PUBLIC_HUGBACK_WS_URL;
@@ -53,6 +67,7 @@ export function useLiveAudio({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [userTranscript, setUserTranscript] = useState<string>("");
   const [hugbackTranscript, setHugbackTranscript] = useState<string>("");
+  const [transcriptEntries, setTranscriptEntries] = useState<{ role: "user" | "hugback"; text: string }[]>([]);
   const [userVolume, setUserVolume] = useState<number>(0);
   const [hugbackVolume, setHugbackVolume] = useState<number>(0);
   const [callInfo, setCallInfo] = useState<{ sessionId: string; memoryStatus: string; parentId?: string; recipientLabel?: string; voice?: string }>();
@@ -65,6 +80,7 @@ export function useLiveAudio({
   const callAttemptRef = useRef(0);
   const userSpeechActiveRef = useRef<boolean>(false);
   const silenceStartedAtRef = useRef<number | null>(null);
+  const assistantTurnCompleteRef = useRef(false);
 
   const releaseCallResources = useCallback((closeSocket: boolean) => {
     callAttemptRef.current++;
@@ -92,6 +108,7 @@ export function useLiveAudio({
     isAgentSpeakingRef.current = false;
     userSpeechActiveRef.current = false;
     silenceStartedAtRef.current = null;
+    assistantTurnCompleteRef.current = false;
     setUserVolume(0);
     setHugbackVolume(0);
   }, []);
@@ -112,6 +129,7 @@ export function useLiveAudio({
     setCallInfo(undefined);
     setUserTranscript("");
     setHugbackTranscript("");
+    setTranscriptEntries([]);
     setErrorMessage(null);
   }, [recipientId, demoParent, releaseCallResources]);
 
@@ -160,6 +178,7 @@ export function useLiveAudio({
       setCallInfo(undefined);
       setUserTranscript("");
       setHugbackTranscript("");
+      setTranscriptEntries([]);
 
       // 1. Initialize Player first
       const player = await startAudioPlayer({
@@ -211,7 +230,13 @@ export function useLiveAudio({
           // Your own transcription remains immediate, independent of TTS.
           if (adkEvent.inputTranscription?.text) {
             const text = adkEvent.inputTranscription.text;
-            setUserTranscript((prev) => (prev ? `${prev} ${text}` : text));
+            setUserTranscript((prev) => mergeStreamingText(prev, text));
+            setTranscriptEntries((previous) => {
+              const last = previous.at(-1);
+              return last?.role === "user"
+                ? [...previous.slice(0, -1), { role: "user", text: mergeStreamingText(last.text, text) }]
+                : [...previous, { role: "user", text }];
+            });
             onTranscriptionUpdate?.("user", text);
           }
 
@@ -228,7 +253,15 @@ export function useLiveAudio({
           const playbackAligned = adkEvent.outputTranscription?.playbackAligned === true;
           const publishTranscript = () => {
             if (!outputText || !isCurrentAttempt() || wsRef.current !== ws) return;
-            setHugbackTranscript((prev) => (prev ? `${prev} ${outputText}` : outputText));
+            const newTurn = assistantTurnCompleteRef.current;
+            assistantTurnCompleteRef.current = false;
+            setHugbackTranscript((prev) => newTurn ? `${prev} ${outputText}`.trim() : mergeStreamingText(prev, outputText));
+            setTranscriptEntries((previous) => {
+              const last = previous.at(-1);
+              return last?.role === "hugback" && !newTurn
+                ? [...previous.slice(0, -1), { role: "hugback", text: mergeStreamingText(last.text, outputText) }]
+                : [...previous, { role: "hugback", text: outputText }];
+            });
             onTranscriptionUpdate?.("hugback", outputText);
           };
           let onAudioStart = playbackAligned && outputText ? publishTranscript : undefined;
@@ -256,6 +289,7 @@ export function useLiveAudio({
           if (outputText && !playbackAligned) publishTranscript();
 
           // Handle turn completion
+          if (adkEvent.turnComplete) assistantTurnCompleteRef.current = true;
           if (adkEvent.turnComplete && !playerRef.current?.isBusy()) {
             isAgentSpeakingRef.current = false;
             setHugbackVolume(0);
@@ -419,6 +453,7 @@ export function useLiveAudio({
     errorMessage,
     userTranscript,
     hugbackTranscript,
+    transcriptEntries,
     userVolume,
     hugbackVolume,
     callInfo,

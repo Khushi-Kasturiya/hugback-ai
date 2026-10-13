@@ -1,7 +1,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const { join } = require("node:path");
-const { reviewedExcerpts } = require(join(process.env.HUGBACK_TEST_BUILD, "demo-api.js"));
+const { reviewedExcerpts, automaticBackgroundExcerpts } = require(join(process.env.HUGBACK_TEST_BUILD, "demo-api.js"));
 const { parseChat, SYNTHETIC_CHAT } = require(join(process.env.HUGBACK_TEST_BUILD, "chat-import.js"));
 
 test("demo review preserves exact quotes, participants, dates and source indexes", () => {
@@ -21,6 +21,43 @@ test("demo review rejects unreviewed, duplicated, oversized or unmapped input", 
   assert.throws(() => reviewedExcerpts(preview, [0], "Stranger", "Parent"));
   preview.messages[0].text = "x".repeat(501);
   assert.throws(() => reviewedExcerpts(preview, [0], "Child", "Parent"));
+});
+
+test("automatic preparation covers the full parent timeline without child messages", () => {
+  const messages = Array.from({ length: 100 }, (_, index) => ({
+    sender: index % 2 ? "Child" : "Parent",
+    timestamp: `2026-10-01T${String(Math.floor(index / 5)).padStart(2, "0")}:00:00`,
+    text: index === 98 ? "last parent detail" : `parent or child detail ${index}`,
+  }));
+  const preview = { source: "whatsapp", participants: ["Parent", "Child"], messages };
+  const result = automaticBackgroundExcerpts(preview, "Child", "Parent");
+  assert.equal(result.length, 24);
+  assert.ok(result.every((item) => item.sender === "Parent"));
+  assert.ok(result[0].sourceIndex < 10);
+  assert.ok(result.at(-1).sourceIndex > 90);
+  assert.throws(() => automaticBackgroundExcerpts(preview, "Child", "Child"));
+  assert.throws(() => automaticBackgroundExcerpts(preview, "Stranger", "Parent"));
+});
+
+test("automatic preparation keeps a personal interest between timeline samples", () => {
+  const messages = Array.from({ length: 100 }, (_, index) => ({
+    sender: "Parent", timestamp: "2026-10-01T18:00:00",
+    text: index === 37 ? "I enjoy painting blue flowers." : `Ordinary fictional update ${index}`,
+  }));
+  const result = automaticBackgroundExcerpts({ source: "whatsapp", participants: ["Parent", "Child"], messages }, "Child", "Parent");
+  assert.ok(result.some((item) => item.sourceIndex === 37));
+});
+
+test("short chats use all parent messages and bound oversized text", () => {
+  const preview = { source: "whatsapp", participants: ["Parent", "Child"], messages: [
+    { sender: "Parent", timestamp: "2026-10-01T18:00:00", text: "x".repeat(700) },
+    { sender: "Child", timestamp: "2026-10-01T18:01:00", text: "private child reply" },
+    { sender: "Parent", timestamp: "2026-10-01T18:02:00", text: "I like painting." },
+  ] };
+  const result = automaticBackgroundExcerpts(preview, "Child", "Parent");
+  assert.deepEqual(result.map((item) => item.sourceIndex), [0, 2]);
+  assert.equal(result[0].text.length, 500);
+  assert.ok(!JSON.stringify(result).includes("private child reply"));
 });
 
 const { recipientCallPayload, parentCallUrl } = require(join(process.env.HUGBACK_TEST_BUILD, "demo-api.js"));

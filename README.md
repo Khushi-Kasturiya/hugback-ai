@@ -4,6 +4,28 @@ Current product is **no-app**: child setup through Forms/Drive, parent calls on 
 ordinary phone. Existing `/childportal` and `/` are internal local prototype/test
 surfaces, not a product dashboard rollout. No hosting or deployment is authorized.
 
+## Conversation history (13 October 2026)
+
+For future **fictional** simulator calls, Family setup offers a separate
+simulated standing permission for short AI call summaries. Once enabled,
+Signals back shows the selected recipient's dated calls and available summaries,
+never new raw turns; no per-call approval is needed. Enabling it after a call
+cannot recover discarded text. Turning it off erases saved summaries and any
+legacy test text. Local SQLite or an explicitly selected isolated Firestore
+test store holds these records.
+Real phone-call history is not connected: verified parent/child enrollment,
+standing parent consent and production Firestore access are still required.
+
+The fictional simulator now also offers a separate standing permission for
+brief **automatic topic emails** after a parent-role self-report of fever or a
+close loss. Signals back shows the topic and whether the email was sent,
+suppressed, failed or unconfigured beside the call history. In local SQLite
+demo mode, the child enters the expected test inbox only in Family setup; the
+landing page has no email form. The backend stores that address with this local
+demo family. SMTP sender credentials stay in the backend's private `.env`.
+SMTP is off by default, sends no transcript and is not an emergency
+channel. See the backend test guide for private Gmail SMTP setup.
+
 ## Four-role workflow and Firestore test mode (12 October 2026)
 
 The existing simulator now supports the backend's opt-in **Planner → Live →
@@ -38,8 +60,12 @@ Set `HUGBACK_WORKFLOW_ENABLED=TRUE` on the backend for additional specialists.
    excerpts, call metadata, memory and voice selection are independent. Loading
    the page never chooses a recipient automatically.
 3. Use **Try a synthetic example** or a fictional export; map the two speakers,
-   select up to eight 500-character excerpts, and approve that exact selection.
-   **Save local preview** alone does not activate background in calls. Switching
+   then click **Prepare [recipient]'s background** after the separate fictional
+   declarations. No message-by-message selection is needed. The browser
+   considers every parent-authored text message and sends at most 24 dated,
+   evenly spread excerpts of up to 500 characters to the demo backend. This
+   bounded context is not the complete chat or an AI summary. **Save local
+   preview** alone does not activate background in calls. Switching
    recipients resets the pending preview/review so it cannot carry over by mistake.
 4. Optionally **Enable child voice** in Voice setup, then select each recipient
    and **Assign child voice**. A shared voice never shares memory. Standard voice
@@ -85,7 +111,11 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    decoded files to 2 MB and validates their complete WAV frames.
 3. Explicitly acknowledge adult own-voice, Google processing and possible billing,
    then **Upload & create voice**. No upload on file selection/mount/call start.
-   The backend sends both recordings to Google Voices with `store=False`, no
+   In **Family setup**, enter the child’s gender once; it controls HugBack’s
+   Hindi/Hinglish first-person wording when the child voice is assigned. The
+   recording is not analyzed for gender. Existing voice profiles need no new
+   recording for this setting. The backend sends both recordings to Google
+   Voices with `store=False`, no
    creation model override, one transmission, bounded timeout and no automatic
    enrollment retry. `PERMISSION_DENIED` is not automatically diagnosed as a
    billing problem. Google acceptance is not proof of likeness/identity.
@@ -208,10 +238,12 @@ flow exists yet. Do not put real family data in local demos.
 - The local synthetic family setup has a separate opt-in for bounded
   conversation signals. Medium/high-confidence, non-diagnostic call estimates
   appear in the selected recipient's portal card for up to 72 hours. They are
-  labeled AI-estimated; low-confidence/unclear results display nothing, and no
-  raw audio, transcript or model reasoning is returned to the child portal.
-- Summaries load through an authenticated, recipient-scoped API, not the private
-  memory API. Unavailable/disabled/unlinked/empty states are distinct.
+  labeled AI-estimated; low-confidence/unclear results display nothing. This
+  signal feature does not store raw audio, transcript or model reasoning.
+- The local synthetic Signals back section lists call dates and statuses, then
+  fetches a short summary only when the selected recipient's separately
+  consented test call is opened. The old approved-summary mailbox remains a
+  separate backend prototype and is no longer shown in the simulator view.
 
 ## Not activated or implemented
 
@@ -220,7 +252,7 @@ Outside the explicit synthetic demo review flow, background previews are
 intake needs dual consent, trusted parent linkage, provenance, minimization,
 extraction, durable processing and deletion. The summary API reader requires a
 trusted exact-content parent-approval producer; that producer and enrollment
-are not wired. Email notifications, recovery, phone voice enrollment and verified
+are not wired. Real-family email notifications, recovery, phone voice enrollment and verified
 custom-voice likeness are not implemented. No cloud resources were provisioned.
 
 ## Local checks

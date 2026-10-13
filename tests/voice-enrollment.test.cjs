@@ -130,11 +130,13 @@ test('create replacement -> enable -> assign Father -> preview carries the exact
   assert.equal(ui.button('Assign this voice to Father').props.disabled, true);
   await ui.button('Enable child voice').props.onClick(); ui.render();
   assert.equal(callLinks(ui).length, 0); // Enabling still must not imply assignment.
+  assert.equal(ui.nodes().some(n => n.type === 'select'), false);
   await ui.button('Assign this voice to Father').props.onClick(); ui.render();
   const assignment = ui.requests.find(r => r.path === '/recipient-voice');
   assert.equal(assignment.body.recipientId, 'synthetic-father');
   assert.equal(assignment.body.profileId, 'synthetic-profile');
   assert.equal(assignment.body.revision, 3);
+  assert.equal(Object.hasOwn(assignment.body, 'speakingForm'), false);
   assert.equal(callLinks(ui)[0].props.href, '/call?recipient=synthetic-father');
   ui.setRecipient({ ...father, recipientId: 'synthetic-mother', label: 'Mother' });
   assert.equal(callLinks(ui).length, 0); // No inherited assignment/preview for Mother.

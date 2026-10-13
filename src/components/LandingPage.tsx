@@ -238,6 +238,12 @@ export function LandingPage() {
           </div>
         </div>
       </section>
+      <section className="px-5 pb-6 sm:px-8 sm:pb-8">
+        <Reveal className="relative mx-auto max-w-7xl overflow-hidden rounded-[2.5rem] bg-[#293052] px-6 py-16 text-white sm:px-12 sm:py-20 lg:px-20">
+          <div className="landing-night-grid absolute inset-0 opacity-40" aria-hidden="true" /><div className="landing-aurora landing-aurora-footer" aria-hidden="true" />
+          <div className="relative grid gap-10 lg:grid-cols-[1fr_0.85fr] lg:items-end"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-[#72B5FE]">Distant, but still close</p><h2 className="mt-5 max-w-3xl font-serif text-5xl leading-[1.02] tracking-[-0.04em] sm:text-6xl">Never let distance silence your bond.</h2><p className="mt-6 max-w-2xl text-lg leading-8 text-white/65">Give your parents the sound they miss. Give yourself a gentler way to stay present.</p></div><Link href="/childportal" className="inline-flex min-h-14 w-fit items-center justify-center gap-2 rounded-full bg-[#72B5FE] px-7 font-bold text-[#1F253B] transition hover:-translate-y-0.5 hover:bg-[#A9D6FF]">Open family setup <ArrowRight className="h-4 w-4" /></Link></div>
+        </Reveal>
+      </section>
 
       <footer className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-10 text-sm text-[#737D9E] sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <div className="flex items-center gap-3"><Image src="/logo.png" width={727} height={343} alt="" className="h-8 w-16 object-contain" /><span className="font-bold text-[#2D344E]">HugBack AI</span><span>· Close to home, no matter where you roam.</span></div>

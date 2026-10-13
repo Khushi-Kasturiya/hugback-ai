@@ -148,3 +148,34 @@ test("standard voice text remains immediate; a missing aligned audio chunk never
     assert.equal(h.states[3], "Standard synthetic response.");
   } finally { h.api.endCall(); }
 });
+
+test("live words keep speaker order so scrolling reaches the newest turn", async () => {
+  const h = await callHarness();
+  try {
+    h.emit({ inputTranscription: { text: "Hello." } });
+    h.emit({ outputTranscription: { text: "Hello, I am HugBack." } });
+    h.emit({ inputTranscription: { text: "I painted today." } });
+    assert.deepEqual(Array.from(h.states[4], (entry) => ({ role: entry.role, text: entry.text })), [
+      { role: "user", text: "Hello." },
+      { role: "hugback", text: "Hello, I am HugBack." },
+      { role: "user", text: "I painted today." },
+    ]);
+  } finally { h.api.endCall(); }
+});
+
+test("updated and overlapping Live caption chunks do not repeat words", async () => {
+  const h = await callHarness();
+  try {
+    h.emit({ inputTranscription: { text: "I feel" } });
+    h.emit({ inputTranscription: { text: "I feel calm today." } });
+    h.emit({ outputTranscription: { text: "That sounds peaceful." } });
+    h.emit({ outputTranscription: { text: "That sounds peaceful. Tell me more." } });
+    h.emit({ outputTranscription: { text: "Tell me more. I am listening." } });
+    assert.deepEqual(Array.from(h.states[4], (entry) => entry.text), [
+      "I feel calm today.", "That sounds peaceful. Tell me more. I am listening.",
+    ]);
+    h.emit({ turnComplete: true });
+    h.emit({ outputTranscription: { text: "I am still here." } });
+    assert.equal(h.states[4].length, 3);
+  } finally { h.api.endCall(); }
+});

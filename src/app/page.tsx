@@ -28,6 +28,7 @@ function CallTest() {
   const [demoAcknowledged, setDemoAcknowledged] = useState(false);
   const demo = useDemoFamily(demoParent === true);
   const wasCallActive = useRef(false);
+  const transcriptBox = useRef<HTMLDivElement>(null);
 
   const recipient = demo.family?.recipients.find((item) => item.recipientId === recipientId);
   useEffect(() => { setDemoAcknowledged(false); }, [recipientId]);
@@ -35,8 +36,7 @@ function CallTest() {
   const {
     status,
     errorMessage,
-    userTranscript,
-    hugbackTranscript,
+    transcriptEntries,
     userVolume,
     hugbackVolume,
     isCallActive,
@@ -51,6 +51,10 @@ function CallTest() {
     if (demoParent && wasCallActive.current && !isCallActive) void demo.refresh();
     wasCallActive.current = isCallActive;
   }, [demoParent, isCallActive, demo.refresh]);
+  useEffect(() => {
+    if (!showSubtitles || !transcriptBox.current) return;
+    transcriptBox.current.scrollTop = transcriptBox.current.scrollHeight;
+  }, [showSubtitles, transcriptEntries]);
 
   // Status message text
   const getStatusDisplay = () => {
@@ -105,7 +109,7 @@ function CallTest() {
         <aside className="order-2 flex flex-col lg:order-1 lg:pt-10">
           <p className="text-[11px] font-black uppercase tracking-[0.2em] text-[#56619C]">Close to home, no matter where you roam</p>
           <h1 className="mt-4 max-w-lg font-serif text-4xl leading-[1.06] tracking-[-0.035em] text-[#252D49] sm:text-5xl lg:text-[3.6rem]">A familiar hello, waiting at home.</h1>
-          <p className="mt-5 max-w-lg text-sm leading-7 text-stone-600 sm:text-base">This is the local parent-role test screen, not a parent product or verified identity. One tap opens a warm conversation carried in your voice—with HugBack always introduced clearly as AI.</p>
+          <p className="mt-5 max-w-lg text-sm leading-7 text-stone-600 sm:text-base">This is the local parent-role test screen, not a parent product or verified identity. One tap opens a warm conversation with HugBack, always introduced clearly as AI.</p>
 
           <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
             <div className="rounded-2xl border border-white bg-white/70 p-4 shadow-[0_12px_40px_rgba(86,97,156,0.07)] backdrop-blur">
@@ -141,6 +145,9 @@ function CallTest() {
               <p className="flex items-center gap-2 font-bold text-[#465181]"><Check className="h-3.5 w-3.5" /> {recipient.label} · {recipient.voice.mode === "child" ? "Child voice assigned" : "Standard HugBack voice"}</p>
               {recipient.voice.mode === "standard" && !isCallActive && <p className="mt-2 text-amber-900">This call will use the standard AI voice, not your recording. To use your replacement voice, enable it and assign it to {recipient.label} in <Link href="/childportal#family-dashboard" className="font-bold underline">Child portal</Link> first.</p>}
               <p className="mt-1">{recipient.background.length} reviewed excerpts · {recipient.memoryCount} retained wellbeing records</p>
+              <p className="mt-2 font-semibold text-[#465181]">{recipient.transcriptSharingEnabled ? `Future fictional calls with ${recipient.label} may produce a short AI summary for Signals back. Turn-by-turn text is not shown there. This setting can be stopped in Family setup.` : "Call summaries are not being saved for Signals back."}</p>
+              {recipient.alertSharingEnabled && <p className="mt-2 font-semibold text-[#465181]">A reported fever or close loss in this fictional call may automatically create a brief email notice for the child after the call. No conversation text goes in the email.</p>}
+              {recipient.background.length === 0 && !isCallActive && <p role="status" className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-amber-950">No chat background is active for {recipient.label}. Saving a file in the browser does not add it to calls. In <Link href="/childportal#setup-workspace" className="font-bold underline">Child portal → Background</Link>, review and approve fictional excerpts for this recipient before testing context.</p>}
               {recipient.busy && !isCallActive && <p role="status" className="mt-2 font-semibold text-amber-800">Finishing the previous call and saving memory…</p>}
               {recipient.calls.at(-1)?.workflow && <p className="mt-2">Workflow: {Object.entries(recipient.calls.at(-1)?.workflow || {}).map(([role, state]) => `${role}: ${state}`).join(" · ")}</p>}
               {recipient.calls.at(-1)?.status === "memory_failed" && <div role="alert" className="mt-2 text-rose-700"><p>The last memory update failed; do not assume it was remembered.</p><p className="mt-1">{memoryFailureMessage(recipient.calls.at(-1)?.memoryErrorCode)}</p></div>}
@@ -149,7 +156,7 @@ function CallTest() {
 
             <label className="mt-4 flex cursor-pointer items-start gap-3 rounded-xl border border-[#E5E7F2] bg-white/80 p-4 text-xs leading-5 text-stone-600">
               <input type="checkbox" className="mt-0.5 h-4 w-4 shrink-0 accent-[#56619C]" checked={demoAcknowledged} disabled={isCallActive} onChange={(e) => setDemoAcknowledged(e.target.checked)} />
-              <span><strong className="text-stone-800">I’m ready to role-play as {recipient?.label || "the selected recipient"}.</strong> I’ll use fictional details and end the call before switching people. Microphone audio, reviewed context and enabled memory are processed by Google. I also allow the enabled Planner and Quality Critic to process this fictional call; their quality findings are internal, not family recaps. HugBack is AI, not my child.</span>
+              <span><strong className="text-stone-800">I’m ready to role-play as {recipient?.label || "the selected recipient"}.</strong> I’ll use fictional details and end the call before switching people. Microphone audio, reviewed context and enabled memory are processed by Google. {recipient?.toneContinuityEnabled ? "HugBack may make one tentative voice-tone check-in and keep one bounded cue for up to 72 hours; it does not recognize me by voice." : "Voice-tone continuity is off."} {recipient?.transcriptSharingEnabled ? "Google may create a short summary after this call for Signals back; raw turns are not shown there." : "No call summary will be shared in Signals back."} {recipient?.alertSharingEnabled ? "A brief topic notice may also be emailed automatically after the call." : "No automatic topic email is enabled."} I also allow the enabled Planner and Quality Critic to process this fictional call; their quality findings are internal. HugBack is AI, not my child.</span>
             </label>
             {callInfo && callInfo.parentId === recipient?.recipientId && <details className="mt-3 text-[11px] leading-5 text-stone-500"><summary className="cursor-pointer font-semibold">Call details</summary><p className="mt-2 break-all">Session {callInfo.sessionId} · Memory {callInfo.memoryStatus} · Voice {callInfo.voice}</p></details>}
           </section>}
@@ -157,7 +164,7 @@ function CallTest() {
 
         <section className="order-1 overflow-hidden rounded-[2rem] border border-white/90 bg-white/72 shadow-[0_28px_90px_rgba(54,66,118,0.15)] backdrop-blur-xl lg:order-2">
           <div className="flex items-center justify-between border-b border-[#E7E9F3] px-5 py-4 sm:px-7">
-            <div className="flex items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${isCallActive ? "animate-pulse bg-[#72B5FE]" : "bg-[#9BA5FC]"}`} /><div><p className="text-sm font-bold">Voice bridge {recipient ? `to ${recipient.label}` : "to home"}</p><p className="text-[11px] text-stone-500">Your child’s familiar voice, carried by HugBack</p></div></div>
+            <div className="flex items-center gap-3"><span className={`h-2.5 w-2.5 rounded-full ${isCallActive ? "animate-pulse bg-[#72B5FE]" : "bg-[#9BA5FC]"}`} /><div><p className="text-sm font-bold">Voice bridge {recipient ? `to ${recipient.label}` : "to home"}</p><p className="text-[11px] text-stone-500">{recipient?.voice.mode === "child" ? "Assigned child voice, spoken by HugBack AI" : "Standard HugBack AI voice"}</p></div></div>
             <button onClick={() => setShowSubtitles((prev) => !prev)} className="rounded-full border border-[#DDE2F0] bg-white px-3 py-2 text-[11px] font-bold text-[#56619C] transition hover:bg-[#F3F4FB]">{showSubtitles ? "Hide words" : "Show words"}</button>
           </div>
 
@@ -179,12 +186,16 @@ function CallTest() {
               <p className="mt-2 text-sm font-medium text-stone-500">{statusInfo.desc}</p>
             </div>
 
+            {demoParent && isCallActive && <div className="relative mt-4 w-full max-w-xs" aria-label="Microphone input level; volume only, not a mood reading">
+              <div className="flex justify-between text-xs font-medium text-stone-600"><span>Microphone input</span><span>Volume only</span></div>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-[#E2E5F1]"><div className="h-full rounded-full bg-[#7284D5] transition-[width] duration-150" style={{ width: `${Math.max(0, Math.min(100, userVolume * 100))}%` }} /></div>
+            </div>}
+
             {errorMessage && <div className="relative mt-5 flex max-w-md items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-left text-sm font-medium text-rose-800"><AlertCircle className="mt-0.5 h-4 w-4 shrink-0" /><span>{errorMessage}</span></div>}
 
-            {showSubtitles && (isCallActive || hugbackTranscript || userTranscript) && <div className="relative mt-6 max-h-40 w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-[#E2E5F1] bg-white/85 p-4 text-left shadow-sm">
-              {userTranscript && <p className="text-sm"><span className="font-bold text-[#56619C]">You: </span><span className="text-stone-700">{userTranscript}</span></p>}
-              {hugbackTranscript && <p className="text-sm"><span className="font-bold text-[#7664AD]">HugBack: </span><span className="text-stone-700">{hugbackTranscript}</span></p>}
-              {!userTranscript && !hugbackTranscript && <p className="text-center text-xs italic text-stone-400">Conversation words will appear here…</p>}
+            {showSubtitles && (isCallActive || transcriptEntries.length > 0) && <div ref={transcriptBox} aria-label="Live call words" className="relative mt-6 max-h-40 w-full max-w-lg space-y-3 overflow-y-auto rounded-2xl border border-[#E2E5F1] bg-white/85 p-4 text-left shadow-sm">
+              {transcriptEntries.map((entry, index) => <p className="text-sm" key={index}><span className={`font-bold ${entry.role === "user" ? "text-[#56619C]" : "text-[#7664AD]"}`}>{entry.role === "user" ? "You: " : "HugBack: "}</span><span className="text-stone-700">{entry.text}</span></p>)}
+              {!transcriptEntries.length && <p className="text-center text-xs italic text-stone-400">Conversation words will appear here…</p>}
             </div>}
 
             <div className="relative mt-auto w-full pt-8">

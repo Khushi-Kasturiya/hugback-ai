@@ -72,7 +72,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
       setCapability((current) => current ? { ...current, profile: result.profile } : current);
       void onUpdated?.();
       setReference(null); setConsent(null); setAcknowledged(false); setRecorderVersion((value) => value + 1);
-      setMessage("Voice created. Choose “Enable child voice” below, then assign it to each recipient in Family setup. Voice likeness is not independently verified.");
+      setMessage("Voice created. Enable this child voice below, then assign it to each recipient. Set the child’s gender in Family setup for Hindi phrasing. Voice likeness is not independently verified.");
     } catch (error) {
       setUncertain(submitted);
       setMessage(error instanceof Error ? error.message : "Voice setup failed.");
