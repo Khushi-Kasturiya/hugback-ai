@@ -16,22 +16,39 @@ export interface BackgroundImport {
 }
 
 const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const MAX_CHILD_PHOTO_BYTES = 2 * 1024 * 1024;
+const CHILD_PHOTO_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+export interface ChildPhoto {
+  familyId: string;
+  blob: Blob;
+  updatedAt: number;
+  expiresAt: number;
+  status: "local_only";
+}
 
 async function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("hugback-child-portal", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("imports", { keyPath: "id" });
+    const request = indexedDB.open("hugback-child-portal", 2);
+    request.onupgradeneeded = () => {
+      if (!request.result.objectStoreNames.contains("imports")) {
+        request.result.createObjectStore("imports", { keyPath: "id" });
+      }
+      if (!request.result.objectStoreNames.contains("childProfiles")) {
+        request.result.createObjectStore("childProfiles", { keyPath: "familyId" });
+      }
+    };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(new Error("This browser could not open local background storage."));
   });
 }
 
-async function transaction<T>(mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+async function transaction<T>(storeName: "imports" | "childProfiles", mode: IDBTransactionMode, work: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   const db = await database();
   try {
     return await new Promise((resolve, reject) => {
-      const tx = db.transaction("imports", mode);
-      const request = work(tx.objectStore("imports"));
+      const tx = db.transaction(storeName, mode);
+      const request = work(tx.objectStore(storeName));
       tx.oncomplete = () => resolve(request.result);
       tx.onerror = tx.onabort = () => reject(new Error("Local storage could not complete the change."));
     });
@@ -101,5 +118,33 @@ export async function saveImport(owner: string, input: Omit<BackgroundImport, "i
 
 export async function removeImport(owner: string, id: string): Promise<void> {
   if (!id.startsWith(`${owner}:`)) throw new Error("Import does not belong to this identity.");
-  await transaction("readwrite", (store) => store.delete(id));
+  await transaction("imports", "readwrite", (store) => store.delete(id));
+}
+
+function validFamilyId(familyId: string) {
+  return /^demo-family-[a-f0-9]{32}$/.test(familyId);
+}
+
+export async function saveChildPhoto(familyId: string, blob: Blob): Promise<void> {
+  if (!validFamilyId(familyId)) throw new Error("Choose a valid demo family before saving a photo.");
+  if (!CHILD_PHOTO_TYPES.has(blob.type)) throw new Error("Choose a JPEG, PNG or WebP photo.");
+  if (!blob.size || blob.size > MAX_CHILD_PHOTO_BYTES) throw new Error("Keep the child photo under 2 MB.");
+  await transaction("childProfiles", "readwrite", (store) => store.put({
+    familyId, blob, updatedAt: Date.now(), expiresAt: Date.now() + RETENTION_MS, status: "local_only",
+  } satisfies ChildPhoto));
+}
+
+export async function loadChildPhoto(familyId: string): Promise<Blob | null> {
+  if (!validFamilyId(familyId)) return null;
+  const record = await transaction("childProfiles", "readonly", (store) => store.get(familyId)) as ChildPhoto | undefined;
+  if (record && (!record.expiresAt || record.expiresAt <= Date.now())) {
+    await removeChildPhoto(familyId);
+    return null;
+  }
+  return record?.blob instanceof Blob ? record.blob : null;
+}
+
+export async function removeChildPhoto(familyId: string): Promise<void> {
+  if (!validFamilyId(familyId)) throw new Error("Choose a valid demo family before removing a photo.");
+  await transaction("childProfiles", "readwrite", (store) => store.delete(familyId));
 }

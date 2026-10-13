@@ -87,7 +87,7 @@ export function LandingPage() {
             <a href="#for-families" className="transition hover:text-[#56619C]">For families</a>
           </div>
           <Link href="/childportal" className="rounded-full bg-[#293052] px-5 py-3 text-sm font-bold text-white shadow-lg shadow-[#293052]/10 transition hover:-translate-y-0.5 hover:bg-[#404A7E]">
-            Create your bridge
+            Create your Family Bridge
           </Link>
         </div>
       </nav>
@@ -108,7 +108,7 @@ export function LandingPage() {
             </p>
             <div className="landing-hero-enter mt-9 flex flex-col gap-3 sm:flex-row" style={{ animationDelay: "240ms" }}>
               <Link href="/childportal" className="group inline-flex min-h-14 items-center justify-center rounded-full bg-[#56619C] px-7 font-bold text-white shadow-xl shadow-[#56619C]/20 transition hover:-translate-y-1 hover:bg-[#404A7E]">
-                Create your voice bridge <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
+                Create your Family Bridge <ArrowRight className="ml-2 h-5 w-5 transition-transform group-hover:translate-x-1" />
               </Link>
               <a href="#how-it-works" className="inline-flex min-h-14 items-center justify-center rounded-full border border-[#414A67]/15 bg-white/80 px-7 font-bold text-[#2D344E] transition hover:-translate-y-1 hover:border-[#56619C]/40">
                 <Volume2 className="mr-2 h-5 w-5 text-[#56619C]" /> See how it works
@@ -241,7 +241,7 @@ export function LandingPage() {
       <section className="px-5 pb-6 sm:px-8 sm:pb-8">
         <Reveal className="relative mx-auto max-w-7xl overflow-hidden rounded-[2.5rem] bg-[#293052] px-6 py-16 text-white sm:px-12 sm:py-20 lg:px-20">
           <div className="landing-night-grid absolute inset-0 opacity-40" aria-hidden="true" /><div className="landing-aurora landing-aurora-footer" aria-hidden="true" />
-          <div className="relative grid gap-10 lg:grid-cols-[1fr_0.85fr] lg:items-end"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-[#72B5FE]">Distant, but still close</p><h2 className="mt-5 max-w-3xl font-serif text-5xl leading-[1.02] tracking-[-0.04em] sm:text-6xl">Never let distance silence your bond.</h2><p className="mt-6 max-w-2xl text-lg leading-8 text-white/65">Give your parents the sound they miss. Give yourself a gentler way to stay present.</p></div><Link href="/childportal" className="inline-flex min-h-14 w-fit items-center justify-center gap-2 rounded-full bg-[#72B5FE] px-7 font-bold text-[#1F253B] transition hover:-translate-y-0.5 hover:bg-[#A9D6FF]">Open family setup <ArrowRight className="h-4 w-4" /></Link></div>
+          <div className="relative grid gap-10 lg:grid-cols-[1fr_0.65fr] lg:items-end"><div><p className="text-xs font-black uppercase tracking-[0.2em] text-[#72B5FE]">Close to home, no matter where you roam.</p><h2 className="mt-5 font-serif text-5xl leading-[1.02] tracking-[-0.04em] sm:text-6xl">Never let distance silence your bond.</h2><p className="mt-6 text-lg leading-8 text-white/65">Give your parents the sound they miss. Give yourself a gentler way to stay present.</p></div><Link href="/childportal" className="mx-auto inline-flex min-h-14 w-fit items-center justify-center gap-2 rounded-full bg-[#72B5FE] px-7 font-bold text-[#1F253B] transition hover:-translate-y-0.5 hover:bg-[#A9D6FF] lg:justify-self-center lg:self-center lg:translate-x-6">Create your Family Bridge<ArrowRight className="h-4 w-4" /></Link></div>
         </Reveal>
       </section>
 

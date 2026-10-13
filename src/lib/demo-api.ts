@@ -56,6 +56,7 @@ export interface DemoRecipient {
 export interface DemoFamily {
   familyId: string;
   childId: string;
+  childName?: string | null;
   childGender?: "female" | "male" | "neutral" | null;
   childGenderRevision?: number;
   syntheticOnly: true;

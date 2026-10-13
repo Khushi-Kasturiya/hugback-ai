@@ -49,9 +49,11 @@ export async function portalGet<T>(path: "/status" | "/summaries"): Promise<T> {
     throw new Error("Could not reach the local portal backend. It may be restarting. Local previews still work; retry to check server features.");
   }
   if (!response.ok) {
-    throw new Error(response.status === 401 || response.status === 403
-      ? "The backend could not verify this browser's identity. Check that frontend and backend authentication modes match."
-      : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
+    throw new Error(response.status === 401
+      ? "The backend could not verify this browser's Firebase session. Check that frontend and backend Firebase projects match."
+      : response.status === 403
+        ? "This browser is signed in anonymously but is not authorized for the Firestore test. Add the Test operator identity shown above to HUGBACK_TEST_OWNER_UIDS, then restart the backend."
+        : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
   }
   return response.json() as Promise<T>;
 }
