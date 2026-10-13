@@ -1,6 +1,12 @@
-import { redirect } from "next/navigation";
+"use client";
 
-export default function ParentCallPage({ searchParams }: { searchParams: { recipient?: string } }) {
-  const recipient = typeof searchParams.recipient === "string" ? `&recipient=${encodeURIComponent(searchParams.recipient)}` : "";
-  redirect(`/?demo=parent${recipient}`);
+import { Suspense } from "react";
+import { CallTest } from "@/components/CallTest";
+
+export default function ParentCallPage() {
+  return (
+    <Suspense fallback={<main className="min-h-screen bg-[#FFFDF9]" />}>
+      <CallTest />
+    </Suspense>
+  );
 }
