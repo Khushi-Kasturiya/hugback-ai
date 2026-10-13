@@ -34,6 +34,10 @@ class TranscriptCollectorTests(unittest.TestCase):
     def test_cumulative_chunks_are_not_duplicated(self):
         self.assertEqual(_merge("I feel", "I feel better"), "I feel better")
         self.assertEqual(_merge("I feel better", "better"), "I feel better")
+        self.assertEqual(
+            _merge("That sounds peaceful. Tell me more.", "Tell me more. I am listening."),
+            "That sounds peaceful. Tell me more. I am listening.",
+        )
 
     def test_finalize_flushes_partial_turn(self):
         collector = TranscriptCollector()

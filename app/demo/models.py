@@ -1,6 +1,7 @@
 """Bounded demo inputs; recipient selectors require server-side membership checks."""
 
 from datetime import datetime, timezone
+import re
 from typing import Literal
 from zoneinfo import ZoneInfo
 
@@ -19,8 +20,20 @@ class CreateRecipient(DemoInput):
     relationship: Literal["mother", "father", "grandmother", "grandfather", "other"] = "other"
     enableMemory: bool = False
     enableWellbeingSharing: bool = False
+    enableToneContinuity: bool = False
+    simulateToneConsent: bool = False
+    enableTranscriptSharing: bool = False
+    enableAlertSharing: bool = False
     timeZone: str = Field(default="Asia/Kolkata", max_length=80)
     language: Literal["auto", "en", "hi", "hi-en"] = "auto"
+
+    @model_validator(mode="after")
+    def alerts_need_history(self):
+        if self.enableAlertSharing and not self.enableTranscriptSharing:
+            raise ValueError("Demo email alerts require transcript sharing for Signals back")
+        if self.enableToneContinuity and not self.simulateToneConsent:
+            raise ValueError("Demo voice-tone continuity requires separate simulated consent")
+        return self
 
     @field_validator("label")
     @classmethod
@@ -42,6 +55,13 @@ class CreateRecipient(DemoInput):
 
 class CreateFamily(CreateRecipient):
     """Create the family and its first explicitly configured recipient."""
+    childGender: Literal["female", "male", "neutral"] | None = None
+
+
+class SetChildGender(DemoInput):
+    familyId: str = Field(pattern=r"^demo-family-[a-f0-9]{32}$")
+    revision: int = Field(ge=0, strict=True)
+    childGender: Literal["female", "male", "neutral"]
 
 
 class RecipientTarget(DemoInput):
@@ -72,6 +92,69 @@ class SetWellbeingSharing(RecipientTarget):
         return self
 
 
+class SetToneContinuity(RecipientTarget):
+    enabled: bool
+    simulateChildConsent: bool = False
+    simulateParentConsent: bool = False
+
+    @model_validator(mode="after")
+    def explicit_consent(self):
+        if self.enabled and not (self.simulateChildConsent and self.simulateParentConsent):
+            raise ValueError("Enabling demo voice-tone continuity requires both simulated consents")
+        return self
+
+
+class SetTranscriptSharing(RecipientTarget):
+    enabled: bool
+    simulateChildConsent: bool = False
+    simulateParentConsent: bool = False
+
+    @model_validator(mode="after")
+    def explicit_consent(self):
+        if self.enabled and not (self.simulateChildConsent and self.simulateParentConsent):
+            raise ValueError("Enabling demo transcript history requires both simulated consents")
+        return self
+
+
+class SetAlertSharing(RecipientTarget):
+    enabled: bool
+    simulateChildConsent: bool = False
+    simulateParentConsent: bool = False
+
+    @model_validator(mode="after")
+    def explicit_consent(self):
+        if self.enabled and not (self.simulateChildConsent and self.simulateParentConsent):
+            raise ValueError("Enabling demo call alerts requires both simulated consents")
+        return self
+
+
+class SetAlertDestination(DemoInput):
+    """Select or clear one local fictional-call test mailbox for this family."""
+    familyId: str = Field(pattern=r"^demo-family-[a-f0-9]{32}$")
+    email: str | None = Field(default=None, max_length=254)
+    confirmTestRecipient: bool = False
+
+    @field_validator("email")
+    @classmethod
+    def clean_email(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not re.fullmatch(r"[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?", value):
+            raise ValueError("Enter a valid test email address")
+        return value
+
+    @model_validator(mode="after")
+    def require_confirmation(self):
+        if self.email and not self.confirmTestRecipient:
+            raise ValueError("Confirm the test recipient expects this email")
+        return self
+
+
+class GenerateLegacySummary(RecipientTarget):
+    """Explicit operator request to convert an older synthetic saved call."""
+
+
 class Excerpt(BaseModel):
     model_config = ConfigDict(extra="forbid")
     sourceIndex: int = Field(ge=0, lt=2000)
@@ -94,7 +177,7 @@ class ReviewBackground(RecipientTarget):
     childSender: str = Field(min_length=1, max_length=100)
     parentSender: str = Field(min_length=1, max_length=100)
     timeZone: str = Field(min_length=1, max_length=80)
-    excerpts: list[Excerpt] = Field(min_length=1, max_length=8)
+    excerpts: list[Excerpt] = Field(min_length=1, max_length=24)
 
     @model_validator(mode="after")
     def validate_mapping(self):

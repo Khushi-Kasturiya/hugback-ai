@@ -5,11 +5,17 @@ from fastapi.responses import JSONResponse
 
 from app.auth import AuthenticationError, authenticate_http_headers
 from app.demo.models import (
-    ClearBackground, CreateFamily, CreateRecipient, ReviewBackground,
-    SelectRecipientVoice, SetWellbeingSharing,
+    ClearBackground, CreateFamily, CreateRecipient, SetChildGender, ReviewBackground,
+    SelectRecipientVoice, SetWellbeingSharing, SetToneContinuity, SetTranscriptSharing, SetAlertSharing,
+    SetAlertDestination,
+    GenerateLegacySummary,
 )
 from app.demo.service import get_demo_store, require_demo, require_demo_identity
 from app.demo.store import DemoError
+from app.demo.summary import summarize_call
+from app.memory.models import TranscriptTurn
+from app.memory.followup_service import contains_privacy_request
+from app.wellbeing.service import contains_signal_privacy_request
 from app.voice.profiles import enrollment_available, get_voice_store
 from app.voice.service import VoiceEnrollmentError
 
@@ -48,6 +54,11 @@ async def create_family(payload: CreateFamily, uid=Depends(demo_identity)):
     return await execute(get_demo_store().create, uid, payload)
 
 
+@router.put("/child-details")
+async def child_details(payload: SetChildGender, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_child_gender, uid, payload)
+
+
 @router.put("/background")
 async def review_background(payload: ReviewBackground, uid=Depends(demo_identity)):
     return await execute(get_demo_store().review, uid, payload)
@@ -79,3 +90,58 @@ async def recipient_voice(payload: SelectRecipientVoice, uid=Depends(demo_identi
 @router.put("/wellbeing-sharing")
 async def wellbeing_sharing(payload: SetWellbeingSharing, uid=Depends(demo_identity)):
     return await execute(get_demo_store().set_wellbeing_sharing, uid, payload)
+
+
+@router.put("/tone-continuity")
+async def tone_continuity(payload: SetToneContinuity, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_tone_continuity, uid, payload)
+
+
+@router.put("/transcript-sharing")
+async def transcript_sharing(payload: SetTranscriptSharing, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_transcript_sharing, uid, payload)
+
+
+@router.put("/alert-sharing")
+async def alert_sharing(payload: SetAlertSharing, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_alert_sharing, uid, payload)
+
+
+@router.put("/alert-destination")
+async def alert_destination(payload: SetAlertDestination, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_alert_destination, uid, payload)
+
+
+@router.get("/summaries/{recipient_id}/{session_id}")
+async def call_summary(recipient_id: str, session_id: str, uid=Depends(demo_identity)):
+    if not recipient_id.startswith("demo-parent-") or not session_id.startswith("session-"):
+        raise HTTPException(404, "No saved summary for this test call.")
+    return await execute(get_demo_store().get_call_summary, uid, recipient_id, session_id)
+
+
+@router.post("/summaries/{recipient_id}/{session_id}/generate")
+async def generate_legacy_summary(recipient_id: str, session_id: str,
+                                  payload: GenerateLegacySummary, uid=Depends(demo_identity)):
+    if payload.recipientId != recipient_id or not session_id.startswith("session-"):
+        raise HTTPException(404, "No older saved call can be summarized.")
+    store = get_demo_store()
+    try:
+        data = await asyncio.to_thread(
+            store.claim_legacy_summary, uid, recipient_id, payload.revision, session_id,
+        )
+    except DemoError as exc:
+        raise HTTPException(exc.status, str(exc)) from exc
+    try:
+        turns = [TranscriptTurn(role=item["role"], text=item["text"], turn_index=index)
+                 for index, item in enumerate(data["turns"])]
+        if contains_privacy_request(turns) or contains_signal_privacy_request(turns):
+            await asyncio.to_thread(store.revoke_transcript_sharing, recipient_id, data["generation"])
+            return await execute(store.get, uid)
+        if not await asyncio.to_thread(store.summary_eligible, recipient_id, session_id, data["generation"]):
+            return await execute(store.get, uid)
+        summary = await summarize_call(turns)
+    except Exception:
+        summary = None
+    await asyncio.to_thread(store.finish_legacy_summary, uid, recipient_id, session_id,
+                            data["generation"], summary)
+    return await execute(store.get, uid)

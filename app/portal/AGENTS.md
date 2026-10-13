@@ -1,5 +1,13 @@
 # Child portal boundaries
 
+- 13 October: product direction is date-filtered short call summaries after
+  verified, recipient-specific standing parent consent, without per-call approval.
+  The existing production mailbox reader is legacy and does not provide this.
+  Synthetic demo history lives in `app/demo` behind its own test identity and
+  simulated consent; it cannot be used as a verified real-parent summary API.
+  The synthetic summary route never returns raw turns. This supersedes the
+  blanket recap ban below only for this scoped design.
+
 - Current product is no-app: ordinary telephone calls and Forms/Drive intake.
   `/childportal` is existing internal prototype tooling, not product enrollment.
 - Reuse Firebase anonymous authentication; there is no email/password screen.

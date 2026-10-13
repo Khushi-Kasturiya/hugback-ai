@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from google.genai import types
 
 from app.agent.live_session import create_genai_client, create_live_config
+from app.voice.grammar import speaking_form_for_call
 from app.auth import (
     AuthenticationError,
     authenticate_http_headers,
@@ -46,10 +47,16 @@ from app.workflows.planner import prepare_call, plan_context
 from app.workflows.critic import finish_quality_review
 from app.workflows.contracts import ToolOutcome
 from app.demo.store import DemoError
+from app.demo.summary import summarize_call, summary_input
+from app.alerts.policy import asks_not_to_alert, detect_topic
+from app.alerts.email import configured as alert_email_configured, send_test_notice
 from app.wellbeing.service import (
     SIGNAL_CONTEXT,
+    TONE_SIGNAL_CONTEXT,
     SignalCollector,
     contains_signal_privacy_request,
+    contains_tone_privacy_request,
+    tone_context,
 )
 from app.voice.service import (
     VoiceConsentError,
@@ -222,8 +229,12 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     demo_state = None
     demo_store = None
     call_ready = False
+    speaking_form = "feminine"
     signal_collector = SignalCollector(enabled=False)
     signal_generation = 0
+    tone_generation = 0
+    transcript_generation = 0
+    alert_generation = 0
     conversation_plan = None
     workflow_active = False
     tool_outcomes = []
@@ -240,6 +251,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         if settings.HUGBACK_DEMO_STORE == "firestore" and authentication_message.get("demoParent") is not True:
             raise DemoError("Cloud test mode accepts only explicitly selected synthetic recipients.", 403)
         inline_voice = parse_call_voice(authentication_message)
+        if inline_voice:
+            speaking_form = "neutral"  # Experimental inline audio has no child setup detail.
         if "voiceKey" in authentication_message:
             raise VoiceEnrollmentError("Use an owner-scoped portal voice profile, not a provider key.")
         if "voiceProfileId" in authentication_message:
@@ -253,6 +266,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 get_voice_store().resolve, voice_owner(identity),
                 authentication_message["voiceProfileId"],
             )
+            speaking_form = "neutral"  # No family detail is trusted for an unscoped custom call.
         elif (
             not inline_voice and identity.provider == "development"
             and settings.HUGBACK_VOICE_DB_PATH.exists()
@@ -283,12 +297,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 authentication_message.get("demoRecipientRevision"),
                 authentication_message.get("voiceProfileId"),
             )
+            if voice_key:
+                speaking_form = speaking_form_for_call(
+                    custom_voice=True, child_gender=demo_state.get("childGender"),
+                )
             # The selector is untrusted. Membership/revision/voice are validated
             # against this browser owner's family before choosing memory scope.
             user_id = demo_state["parentId"]
             signal_generation = demo_state["wellbeingSharing"]["generation"]
+            tone_generation = demo_state["toneContinuity"]["generation"]
+            transcript_generation = demo_state["transcriptSharing"]["generation"]
+            alert_generation = demo_state["alertSharing"]["generation"]
             signal_collector = SignalCollector(
-                enabled=bool(demo_state["wellbeingSharing"]["enabled"])
+                enabled=bool(demo_state["wellbeingSharing"]["enabled"]
+                             or demo_state["toneContinuity"]["enabled"])
             )
     except DemoError as exc:
         await websocket.send_text(json.dumps({"type": "error", "message": str(exc)}))
@@ -350,10 +372,14 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             consent_audio=inline_voice.consent if inline_voice else None,
             followup_context=followup_context,
             enable_followup_tools=followups is not None and followup_plan is not None,
-            background_context=background_context(demo_state) if demo_state else "",
-            wellbeing_signal_context=SIGNAL_CONTEXT if signal_collector.enabled else "",
+            background_context=(background_context(demo_state) + tone_context(demo_state)) if demo_state else "",
+            wellbeing_signal_context=(
+                (SIGNAL_CONTEXT if demo_state["wellbeingSharing"]["enabled"] else "")
+                + (TONE_SIGNAL_CONTEXT if demo_state["toneContinuity"]["enabled"] else "")
+            ) if demo_state else "",
             enable_wellbeing_signal_tool=signal_collector.enabled,
             conversation_plan_context=plan_context(conversation_plan),
+            speaking_form=speaking_form,
         )
     except Exception as e:
         if demo_state:
@@ -835,6 +861,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     async def finish_demo():
                         outcome = "failed" if not call_ready else "completed"
                         memory_error = None
+                        alert_pending = False
+                        transcript_saved = False
                         async def memory_checkpoint(stage):
                             # Observability is best-effort, not the memory commit.
                             if not workflow_active:
@@ -859,6 +887,30 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     )
                                 except Exception:
                                     logger.warning("Local demo signal revocation was not saved session=%s", session_id)
+                            if (contains_privacy_request(turns) or contains_signal_privacy_request(turns)
+                                    or contains_tone_privacy_request(turns)):
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.revoke_tone_continuity,
+                                        user_id, tone_generation,
+                                    )
+                                except Exception:
+                                    logger.warning("Local demo tone-continuity revocation was not saved session=%s", session_id)
+                            if contains_privacy_request(turns) or contains_signal_privacy_request(turns):
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.revoke_transcript_sharing, user_id, transcript_generation,
+                                    )
+                                except Exception:
+                                    logger.warning("Local demo transcript revocation was not saved session=%s", session_id)
+                            if (contains_privacy_request(turns) or contains_signal_privacy_request(turns)
+                                    or asks_not_to_alert(turns)):
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.revoke_alert_sharing, user_id, alert_generation,
+                                    )
+                                except Exception:
+                                    logger.warning("Local demo alert revocation was not saved session=%s", session_id)
                             if followups and followup_plan:
                                 try:
                                     result = await asyncio.wait_for(
@@ -883,7 +935,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             else:
                                 await memory_checkpoint("skipped")
                             signal = signal_collector.publishable(turns)
-                            if signal is not None:
+                            if signal is not None and demo_state["wellbeingSharing"]["enabled"]:
                                 try:
                                     await asyncio.to_thread(
                                         demo_store.record_wellbeing_signal,
@@ -894,6 +946,38 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     # Signals are optional: never relabel a successful
                                     # call or memory update because this path failed.
                                     logger.warning("Local demo wellbeing signal was not saved session=%s", session_id)
+                            tone_signal = signal_collector.tone_publishable(turns)
+                            if (tone_signal is not None and demo_state["toneContinuity"]["enabled"]
+                                    and not contains_tone_privacy_request(turns)):
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.record_tone_observation,
+                                        user_id, session_id, tone_generation, tone_signal,
+                                    )
+                                except Exception:
+                                    logger.warning("Local demo tone note was not saved session=%s", session_id)
+                            if demo_state["transcriptSharing"]["enabled"]:
+                                try:
+                                    transcript_saved = await asyncio.to_thread(
+                                    demo_store.record_transcript, user_id, session_id,
+                                    transcript_generation, summary_input(turns),
+                                    )
+                                except Exception as exc:
+                                    logger.warning("Local demo summary input failed session=%s code=%s",
+                                                   session_id, type(exc).__name__)
+                            if call_ready and transcript_saved and demo_state["alertSharing"]["enabled"]:
+                                topic = detect_topic(turns)
+                                if topic and not (contains_privacy_request(turns)
+                                                  or contains_signal_privacy_request(turns)
+                                                  or asks_not_to_alert(turns)):
+                                    try:
+                                        alert_pending = await asyncio.to_thread(
+                                            demo_store.reserve_alert, user_id, session_id,
+                                            alert_generation, topic,
+                                            email_configured=alert_email_configured(),
+                                        )
+                                    except Exception:
+                                        logger.warning("Local demo call notice was not recorded session=%s", session_id)
                         except asyncio.CancelledError:
                             outcome = "memory_failed"
                             memory_error = "processing_interrupted"
@@ -918,6 +1002,52 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                             ))
                             _demo_finalizers.add(critic_task)
                             critic_task.add_done_callback(_demo_finalizers.discard)
+                        if call_ready and transcript_saved and not (
+                            contains_privacy_request(turns) or contains_signal_privacy_request(turns)
+                        ):
+                            async def save_summary():
+                                eligible = await asyncio.to_thread(
+                                    demo_store.summary_eligible, user_id, session_id, transcript_generation,
+                                )
+                                if not eligible:
+                                    return
+                                summary = await summarize_call(turns)
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.record_call_summary, user_id, session_id,
+                                        transcript_generation, summary,
+                                    )
+                                except Exception:
+                                    logger.warning("Synthetic call summary was not saved session=%s", session_id)
+                            summary_task = asyncio.create_task(save_summary())
+                            _demo_finalizers.add(summary_task)
+                            summary_task.add_done_callback(_demo_finalizers.discard)
+                        if alert_pending:
+                            async def deliver_alert():
+                                details = await asyncio.to_thread(
+                                    demo_store.claim_alert_send, user_id, session_id, alert_generation,
+                                )
+                                if not details:
+                                    return
+                                delivered = False
+                                try:
+                                    await asyncio.to_thread(
+                                        send_test_notice, details["label"], details["startedAt"], details["email"],
+                                    )
+                                    delivered = True
+                                except Exception as exc:
+                                    logger.warning("Synthetic email notice failed session=%s code=%s",
+                                                   session_id, type(exc).__name__)
+                                try:
+                                    await asyncio.to_thread(
+                                        demo_store.finish_alert_send, user_id, session_id,
+                                        alert_generation, delivered=delivered,
+                                    )
+                                except Exception:
+                                    logger.warning("Synthetic email status was not saved session=%s", session_id)
+                            alert_task = asyncio.create_task(deliver_alert())
+                            _demo_finalizers.add(alert_task)
+                            alert_task.add_done_callback(_demo_finalizers.discard)
                     finalizer = asyncio.create_task(finish_demo())
                     _demo_finalizers.add(finalizer)
                     finalizer.add_done_callback(_demo_finalizers.discard)

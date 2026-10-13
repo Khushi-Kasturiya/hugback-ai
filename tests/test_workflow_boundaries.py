@@ -231,7 +231,12 @@ class ModelEvalRunnerTests(unittest.IsolatedAsyncioTestCase):
 
         async def generate(_self, instruction, payload, schema, **kwargs):
             if schema is ConversationPlan:
-                return ConversationPlan(language=payload["language"])
+                case = next(c for c in data["planner"]
+                            if c["language"] == payload["language"]
+                            and (not c["background"] and not payload["background"]
+                                 or c["background"] and payload["background"]
+                                 and c["background"][0]["text"] == payload["background"][0]["text"]))
+                return ConversationPlan(language=payload["language"], background_refs=case["expectedRefs"])
             case = next(c for c in data["critic"] if c["assistant"] == payload["turns"][1]["text"])
             return CritiqueReport.model_validate({"findings": [{
                 "code": code, "severity": "error", "source_turn": 1, "evidence": case["assistant"],
@@ -242,7 +247,7 @@ class ModelEvalRunnerTests(unittest.IsolatedAsyncioTestCase):
             with patch("app.memory.followup_extractor.GoogleFollowupExtractor.extract", new=extract), patch(
                     "app.workflows.provider.GoogleStructuredProvider.generate", new=generate):
                 results = await model_cases(data)
-            self.assertEqual(len(results), 15)
+            self.assertEqual(len(results), len(data["memory"]) + len(data["planner"]) + len(data["critic"]))
             self.assertTrue(all(r["outcome"] == "pass" for r in results), results)
         finally:
             settings.__dict__.clear()

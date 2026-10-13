@@ -117,6 +117,27 @@ class FollowupLifecycleTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("heard", item.model_dump())
         self.assertIsNone((await self.service.begin("parent-a", "third", now=now + timedelta(minutes=5))).selected)
 
+    async def test_at_most_two_later_checkin_attempts_per_concern_episode(self):
+        await self.seed_fever()
+        first_time = T0 + timedelta(minutes=2)
+        first = await self.service.begin("parent-a", "checkin-one", now=first_time)
+        self.assertTrue((await self.service.claim("parent-a", first, now=first_time))["allowed"])
+        second_time = first_time + timedelta(days=1)
+        second = await self.service.begin("parent-a", "checkin-two", now=second_time)
+        self.assertTrue((await self.service.claim("parent-a", second, now=second_time))["allowed"])
+        self.assertEqual(self.store.states["parent-a"].concerns["fever"].checkin_attempts, 2)
+        third_time = second_time + timedelta(days=1)
+        self.assertIsNone((await self.service.begin("parent-a", "checkin-three", now=third_time)).selected)
+
+        # A fresh report about the same unresolved episode does not reset its cap.
+        self.extractor.extract.return_value = ObservationBatch(observations=[
+            observation("improved", "A little better.")
+        ])
+        await self.service.finish("parent-a", second, [
+            turn("A little better.", when=second_time)
+        ], now=second_time + timedelta(minutes=1))
+        self.assertEqual(self.store.states["parent-a"].concerns["fever"].checkin_attempts, 2)
+
     async def test_parent_already_mentions_topic_so_no_followup_is_authorized(self):
         await self.seed_fever()
         now = T0 + timedelta(days=1)

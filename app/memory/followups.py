@@ -17,6 +17,7 @@ from app.memory.models import TranscriptTurn
 Topic = Literal["fever", "sleep", "appetite", "energy", "physical_comfort"]
 Action = Literal["open", "improved", "resolved", "unknown", "suppress", "forget"]
 TOPICS = ("fever", "sleep", "appetite", "energy", "physical_comfort")
+MAX_CHECKIN_ATTEMPTS_PER_EPISODE = 2
 
 
 class Observation(BaseModel):
@@ -49,6 +50,9 @@ class Concern(BaseModel):
     last_reserved_session: str | None = None
     last_reserved_at: AwareDatetime | None = None
     last_claimed_session: str | None = None
+    # Count authorized attempts, not confirmed playback or hearing. This caps
+    # proactive check-ins even if a call is interrupted after the claim.
+    checkin_attempts: int = Field(default=0, ge=0, le=MAX_CHECKIN_ATTEMPTS_PER_EPISODE)
     last_generated_at: AwareDatetime | None = None
     last_interrupted_at: AwareDatetime | None = None
 
@@ -150,6 +154,7 @@ def reserve(
     eligible = [
         item for item in state.concerns.values()
         if item.status in ("open", "improved", "unknown")
+        and item.checkin_attempts < MAX_CHECKIN_ATTEMPTS_PER_EPISODE
         and item.topic not in state.blocked_topics
         and item.next_eligible_at <= now
         and item.source_session != session_id
@@ -184,9 +189,11 @@ def claim(state: FollowupState, plan: CallPlan, now: datetime) -> dict:
         or item.expires_at <= now or item.last_reserved_session != plan.session_id
         or item.last_reported_at != plan.selected.last_reported_at
         or item.last_claimed_session == plan.session_id
+        or item.checkin_attempts >= MAX_CHECKIN_ATTEMPTS_PER_EPISODE
     ):
         return {"allowed": False}
     item.last_claimed_session = plan.session_id
+    item.checkin_attempts += 1
     return {
         "allowed": True,
         "topic": item.topic,
@@ -270,6 +277,7 @@ def apply_observations(
             last_reserved_session=previous.last_reserved_session if previous else None,
             last_reserved_at=previous.last_reserved_at if previous else None,
             last_claimed_session=previous.last_claimed_session if previous else None,
+            checkin_attempts=0 if is_new_episode else previous.checkin_attempts,
             last_generated_at=previous.last_generated_at if previous else None,
             last_interrupted_at=previous.last_interrupted_at if previous else None,
         )

@@ -35,6 +35,8 @@ class Settings(BaseSettings):
     # serial synthesis; 1 overlaps one already-generated phrase, not new content.
     HUGBACK_TTS_FIRST_PHRASE_CHARS: int = Field(default=96, ge=48, le=280)
     HUGBACK_TTS_LOOKAHEAD: int = Field(default=1, ge=0, le=1)
+    # Give a caller's natural mid-sentence pause room before Live closes a turn.
+    HUGBACK_END_OF_SPEECH_SILENCE_MS: int = Field(default=1000, ge=700, le=1600)
     # Explicit portal TTS capability; never inferred from old browser recordings
     # or enabled solely by the local call simulator.
     HUGBACK_REPLICATED_TTS_ENABLED: bool = False
@@ -83,6 +85,12 @@ class Settings(BaseSettings):
     # Planner + Critic only for acknowledged synthetic calls, not real-family analysis.
     HUGBACK_WORKFLOW_ENABLED: bool = False
 
+    # Optional Gmail SMTP notices for local fictional calls. Family setup may
+    # select a test address in local SQLite; it is not verified child identity.
+    HUGBACK_ALERT_EMAIL_ENABLED: bool = False
+    HUGBACK_ALERT_SMTP_USERNAME: str = ""
+    HUGBACK_ALERT_SMTP_APP_PASSWORD: str = ""
+
     # Internal Forms/Drive intake storage only; no browser route or consent grant.
     # Requires pre-existing resources. Enabling Firestore alone does not upload.
     CLOUD_INTAKE_ENABLED: bool = False
@@ -121,6 +129,8 @@ class Settings(BaseSettings):
 
     def validate_test_mode(self) -> None:
         """No I/O. Run on startup and at every synthetic test entry point."""
+        if self.HUGBACK_ALERT_EMAIL_ENABLED and not self.LOCAL_DEMO_ENABLED:
+            raise ValueError("SMTP topic notices are limited to the synthetic simulator")
         if self.HUGBACK_WORKFLOW_ENABLED and not self.LOCAL_DEMO_ENABLED:
             raise ValueError("The four-role workflow currently requires the synthetic simulator")
         from urllib.parse import urlparse

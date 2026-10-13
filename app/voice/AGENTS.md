@@ -11,6 +11,9 @@
   ownership migration. Production Firebase/cloud enrollment is a separate gate.
 - Store only a temporary provider key and metadata in the private, gitignored
   SQLite vault. Never persist recordings, expose keys to the browser or log them.
+- Do not classify gender or speaking form from the voice recording. The
+  synthetic family stores the child-provided gender separately from the private
+  voice vault. Existing voice profiles remain usable without re-enrollment.
 - Resolve call profiles by authenticated browser owner before switching to the
   demo parent. Never accept arbitrary client-supplied provider keys.
 - Each demo recipient explicitly selects standard voice or a pinned child profile.

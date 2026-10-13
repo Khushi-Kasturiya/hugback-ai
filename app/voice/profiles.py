@@ -75,6 +75,10 @@ class VoiceProfileStore:
                 voice_key TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
                 enabled INTEGER NOT NULL, expiry_source TEXT NOT NULL
             )""")
+            # A short-lived prior build added a speaking_form column. Its
+            # acoustic estimate must not be used; discard any retained values.
+            if "speaking_form" in {row[1] for row in conn.execute("PRAGMA table_info(voices)")}:
+                conn.execute("UPDATE voices SET speaking_form='unavailable' WHERE speaking_form!='unavailable'")
             # Keep expired metadata/selection so expiry cannot silently select preset.
             conn.execute("UPDATE voices SET voice_key=NULL WHERE expires_at<=?", (now().isoformat(),))
             conn.commit()
@@ -111,7 +115,9 @@ class VoiceProfileStore:
         if expires <= created:
             raise VoiceEnrollmentError("Google returned an already expired voice.")
         with self.connection() as conn:
-            conn.execute("INSERT OR REPLACE INTO voices VALUES (?, ?, ?, ?, ?, ?, ?)", (
+            conn.execute("INSERT OR REPLACE INTO voices "
+                         "(owner, profile_id, voice_key, created_at, expires_at, enabled, expiry_source) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?)", (
                 owner, uuid.uuid4().hex, key, created.isoformat(), expires.isoformat(), 0, source,
             ))
         return self.get(owner)

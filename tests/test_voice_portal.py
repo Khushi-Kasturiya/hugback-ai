@@ -79,6 +79,24 @@ class PortalVoiceTests(unittest.TestCase):
         restarted = VoiceProfileStore(self.path)
         self.assertEqual(restarted.resolve("synthetic-voice-owner", profile["id"]), "voicekey_synthetic")
 
+    def test_short_lived_audio_estimate_is_cleared_and_ignored(self):
+        with sqlite3.connect(self.path) as conn:
+            conn.execute("CREATE TABLE voices (owner TEXT PRIMARY KEY, profile_id TEXT NOT NULL, "
+                         "voice_key TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, "
+                         "enabled INTEGER NOT NULL, expiry_source TEXT NOT NULL, "
+                         "speaking_form TEXT NOT NULL DEFAULT 'unavailable')")
+            conn.execute("INSERT INTO voices VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
+                "synthetic-voice-owner", "a" * 32, "voicekey_synthetic",
+                now().isoformat(), (now() + timedelta(days=1)).isoformat(),
+                1, "provider", "masculine",
+            ))
+        profile = self.store.get("synthetic-voice-owner")
+        self.assertNotIn("speakingForm", profile)
+        with sqlite3.connect(self.path) as conn:
+            self.assertEqual(conn.execute("SELECT speaking_form FROM voices").fetchone()[0], "unavailable")
+        replacement = self.store.save("synthetic-voice-owner", "voicekey_replacement")
+        self.assertNotIn("speakingForm", replacement)
+
     def test_other_owner_cannot_read_select_or_delete_profile(self):
         profile = self.create_profile()
         other = {**HEADERS, "X-Hugback-Development-User": "synthetic-other-owner"}
@@ -142,6 +160,7 @@ class PortalVoiceTests(unittest.TestCase):
         self.provider.assert_awaited_once()
         self.assertIsNone(self.store.get("synthetic-voice-owner"))
 
+
     def test_pending_upload_blocks_duplicate_mutations(self):
         with patch("app.voice.routes._enrolling", {"synthetic-voice-owner"}):
             self.assertTrue(self.client.get("/api/voice/profile", headers=HEADERS).json()["enrolling"])
@@ -164,7 +183,8 @@ class PortalVoiceTests(unittest.TestCase):
         profile = self.create_profile()
         self.store.select("synthetic-voice-owner", profile["id"], True)
         family = DemoStore(settings.LOCAL_DEMO_DB_PATH).create("synthetic-voice-owner", CreateFamily(
-            syntheticOnly=True, simulateChildConsent=True, simulateParentConsent=True, enableMemory=False,
+            syntheticOnly=True, simulateChildConsent=True, simulateParentConsent=True,
+            enableMemory=False, childGender="male",
         ))
         recipient = family["recipients"][0]
         # Real replacement handoff: enabling the new profile cannot mutate any
@@ -216,7 +236,9 @@ class PortalVoiceTests(unittest.TestCase):
                     )))
             async def receive(self): yield await self.queue.get()
         @asynccontextmanager
-        async def connect(**kwargs): yield Live()
+        async def connect(**kwargs):
+            self.assertIn("main theek lagta hoon", kwargs["config"].system_instruction.parts[0].text)
+            yield Live()
         async def synthesize(*args, **kwargs):
             self.assertEqual(kwargs["voice_key"], "voicekey_synthetic_replacement")
             self.assertNotIn("Stale", kwargs["text"])

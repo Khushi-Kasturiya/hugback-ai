@@ -122,6 +122,15 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError):
             ReviewBackground(**request)
 
+    def test_automatic_background_capacity_is_bounded_to_twenty_four(self):
+        request = review()
+        original = request["excerpts"][0]
+        request["excerpts"] = [original | {"sourceIndex": index} for index in range(24)]
+        self.assertEqual(len(ReviewBackground(**request).excerpts), 24)
+        request["excerpts"].append(original | {"sourceIndex": 24})
+        with self.assertRaises(ValidationError):
+            ReviewBackground(**request)
+
     def test_review_revision_busy_and_clear(self):
         self.create()
         self.store.review("synthetic-browser-a", self.review_request())
@@ -321,6 +330,7 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([c["allowed"] for c in claims], [False, True, False, False, False])
         for config in configs:
             self.assertIn("I like gardening.", config.system_instruction.parts[0].text)
+            self.assertIn("main theek lagti hoon", config.system_instruction.parts[0].text)
             self.assertNotIn("attacker-selected-parent", config.system_instruction.parts[0].text)
         public = self.state()
         self.assertEqual(public["memoryCount"], 0)

@@ -198,7 +198,8 @@ class WellbeingSignalTests(unittest.TestCase):
         ):
             with client.websocket_connect("/ws", headers={"Origin": "http://127.0.0.1:3000"}) as websocket:
                 websocket.send_json(envelope)
-                self.assertEqual(websocket.receive_json()["type"], "ready")
+                ready = websocket.receive_json()
+                self.assertEqual(ready["type"], "ready", ready)
                 websocket.send_json({"type": "text", "text": "I had a lovely fictional day."})
                 while not websocket.receive_json().get("turnComplete"):
                     pass

@@ -1,8 +1,139 @@
 # Hugback: four-role end-to-end test guide
 
-Implementation checkpoint: **12 October 2026**. This is the existing **synthetic
+Implementation checkpoint: **13 October 2026**. This is the existing **synthetic
 browser simulator**, not a parent app, production child dashboard, verified family
 enrollment, or PSTN deployment. Do not use real family chats or medical histories.
+
+## Future-call summaries in Signals back
+
+In Family setup, select a fictional recipient and enable **Future call
+summaries** with both simulated standing consents. Then make a new fictional call.
+After it ends, open **Signals back**, select the same recipient, filter by call
+date, and choose **View summary**. It shows one short AI-generated account of
+what the parent and HugBack discussed, not raw turns. No per-call approval is
+needed. Earlier fictional calls with saved text may show **Generate summary for
+earlier call**; this is an explicit Google model request that may incur a charge
+and erases the old saved turns after success. Other earlier calls are unavailable. A different
+recipient or browser owner cannot fetch it. Turning sharing off erases summaries
+and any legacy saved test text and blocks in-flight commits. New calls do not
+persist raw turns for this view. The active synthetic repository may be SQLite
+or explicitly selected isolated Firestore test storage; this does not activate
+real phone-call history. Model failure or insufficient transcript evidence shows
+summary unavailable, never raw text as fallback. Long or noisy transcriptions
+are reduced to bounded in-memory excerpts before the summary request; the recap
+may omit parts of a long call. Signals back now distinguishes missing speech,
+oversized input, model/content failure, and interrupted processing for new calls.
+An earlier unavailable call with no saved raw text cannot be reconstructed.
+The summarizer is a separate Google model request during a paid browser call;
+offline tests mock it.
+
+## Optional fictional-call email notices
+
+Enable **Future call summaries** for a fictional recipient, select and save the
+test child's email in Family setup, then separately enable **Automatic topic
+email**. If the role-play parent says
+"I have a fever today" or reports that a close relative passed away, the
+post-call finalizer records one topic event beside that call in Signals back.
+Only the short summary is available there under call-summary sharing consent.
+The rule reads only the role-play parent's current words; it does not diagnose,
+infer an emergency or trigger from uploaded chats or HugBack's own speech.
+Repeated email attempts for the same topic are suppressed for 24 hours.
+
+SMTP is **off by default**. For an authorized fictional-mail test, use a test
+Gmail account with 2-Step Verification and an app password, and confirm that
+you or an expecting test recipient controls the destination mailbox. In the
+private backend `.env`, set only the **sender** variables:
+`HUGBACK_ALERT_EMAIL_ENABLED=TRUE`, `HUGBACK_ALERT_SMTP_USERNAME`, and
+`HUGBACK_ALERT_SMTP_APP_PASSWORD`. Enter the child's destination in Family
+setup; it is no longer an `.env` value. Restart the backend. Never put the app
+password in frontend files, source control or chat. The email contains a generic
+notice and a link to the local portal on the test computer, not a transcript or
+health claim. The local SQLite simulator stores the selected destination with
+the family, without verifying real child identity. Failed/unconfigured
+delivery appears accurately in Signals back. Offline tests mock SMTP and send
+no email. Real family email and production delivery are not connected.
+
+### Exact local email test, from a clean recipient
+
+1. In the backend repository, use your existing private `.env` (copy
+   `.env.example` to `.env` only if it does not exist). Keep
+   `LOCAL_DEMO_ENABLED=TRUE` and `HUGBACK_DEMO_STORE=sqlite` for the local run.
+   Use a Gmail account you control as the sender and an inbox held by you or
+   an expecting test recipient as the destination. Put the sender's **app
+   password**, not its normal Gmail password, in
+   `HUGBACK_ALERT_SMTP_APP_PASSWORD`. Set the three sender variables above.
+   Never post the
+   `.env` or a terminal dump of it. Google documents app-password availability
+   and account restrictions at
+   <https://support.google.com/accounts/answer/185833>.
+2. From the backend directory, run `.venv/bin/python -m app.alerts.smoke_test`.
+   It prints only `ready` or `missing or off` for each gate, no secrets. A
+   nonzero exit means **no email was sent**. Correct `.env` and rerun until all
+   checks say `ready`. Then run
+   `.venv/bin/python -m app.alerts.smoke_test --send --to YOUR_TEST_INBOX`
+   to send **one generic probe** to an expecting inbox.
+   Check inbox and spam. This proves SMTP acceptance/delivery for that probe,
+   not that a fictional call will match the topic rule. The probe does not
+   appear in Signals back because it is not a call.
+3. Restart the backend after editing `.env`; refresh the child portal. In
+   **Family setup**, select a fresh fictional recipient. Under **Automatic
+   topic email**, enter the child's expecting test destination, check that you
+   own the inbox or its owner expects this fictional notice, and click **Save
+   test email for this family**. This is the only UI email field; the home-page
+   early-access box has been removed. The backend stores the address in the
+   private local SQLite demo family and returns only a masked hint to the UI.
+   The card should say the inbox and backend sender are ready. Then enable
+   **Future call summaries**. Under **Automatic topic email**, check the separate
+   simulated standing permission and click **Enable future topic notices**.
+   If the button says **Stop future topic emails**, that recipient already has
+   notices enabled. Confirm the card says email is configured. Enabling the
+   checkbox alone does not save the setting.
+4. Start a **new** parent-role browser call for that same recipient. After a
+   normal greeting, clearly say, “I have a fever today.” End the call. Wait a
+   few seconds, then open `/childportal` → **Signals back**, select the same
+   recipient, click **Refresh calls**, and inspect the newest dated call. Its
+   fever notice should progress from `pending`/`sending` to `sent` if Gmail
+   accepts it. Check the test inbox/spam for a **brief generic** message with
+   a local portal link; it contains no quote or diagnosis. The call summary is
+   generated separately and may be `unavailable` even when email is `sent`.
+5. For edge cases, use another new call within 24 hours with “I have a fever
+   today”: expect `suppressed` and no second email. With a fresh recipient,
+   say “My neighbour has a fever; I feel fine”: expect no fever notice. With
+   SMTP switched off and the backend restarted, a matching new call can show
+   `not_configured` and no email. Test `failed` with mocked SMTP in
+   `tests/test_alerts.py`; avoid deliberately entering a wrong password on a
+   live account. A separate close-loss self-report can test `bereavement`
+   using only fictional content.
+
+The browser-selected destination is available only in local SQLite demo mode;
+the Firestore test modes cannot store or send to a UI-chosen real mailbox. A
+different browser origin (for example `localhost` versus `127.0.0.1`) has a
+different local demo family. Clearing or changing the address invalidates
+pending notices for that family. The local SQLite file contains the address;
+do not upload it or commit it. `sent` means Gmail's SMTP server accepted the message; inbox delivery is a
+separate check. `failed` means the SMTP task raised an error; its exact exception
+type is in backend logs, without credentials or call text. `not_configured`
+means a matched call was recorded while a required backend gate was off.
+`suppressed` means an earlier pending/sending/sent notice for that recipient and
+topic was within 24 hours. No row means the call was not eligible or the
+detector found no supported self-report. This sender is process-local and has
+no durable retry; use only for the fictional simulator.
+
+On this machine, the live SMTP probe reached a company TLS gateway that
+presented an untrusted replacement certificate for `smtp.gmail.com`. The
+sender code uses `certifi` for public CA roots and **does not disable TLS
+verification**. If you see `SSLCertVerificationError`, use a network that
+reaches Gmail with a trusted certificate (for example a personal hotspot with
+the company VPN disconnected, if company policy allows it) or ask your network
+administrator for an approved trust configuration. A phone can supply its
+mobile hotspot, but the backend and probe command still run on the computer.
+Opening `127.0.0.1:3000` on the phone points to the phone itself, so it cannot
+test the local portal running on the laptop. If the laptop must stay on the
+company VPN, use a personal computer for the local simulator or ask IT to
+approve the SMTP route and certificate trust. Check that the recipient expects
+the message before retrying `--send`.
+Do not set an unverified CA file or turn off certificate checking. That failed
+probe did not authenticate or send a message.
 
 ## 1. What changed
 
@@ -15,18 +146,20 @@ Same browser identity
 Select recipient + acknowledge fictional Google processing
   → validate owner / membership / revision / voice
   → reserve recipient call + select eligible memory
-  → Conversation Planner (bounded plan, ≤3s; safe fallback)
+  → Conversation Planner (bounded plan, ≤9s; safe fallback)
   → existing Hugback Live Conversation Agent (only speaking agent)
   → Memory Reconciler (Google proposal + deterministic validation/commit)
   → release call lease
   → Quality Critic (best-effort assistant-behaviour review, ≤12s)
 ```
 
-- Planner selects at most two reviewed background references and opening/language
+- Planner selects at most one rotating parent-authored, reviewed background reference for a possible later conversational bridge; unsuitable or sensitive candidates produce no proactive background topic. Live first introduces itself as AI and asks about the present day. It may bring up the selected historical interest only after the caller has answered and the conversation is flowing. Live may answer direct questions from other reviewed excerpts but should ask one question at a time.
   guidance. It never invents free-form facts, selects identity, or grants recall.
 - Live still needs a successful `claim_followup` to ask the eligible remembered
-  wellbeing question. One claim per call, cooldown, expiry, recovery and privacy
-  rules remain authoritative. A plan does not force a question at every opening.
+  wellbeing question. One claim per call, at most two claimed attempts per concern
+  episode, cooldown, expiry, recovery and privacy rules remain authoritative.
+  A claimed attempt counts even if playback is interrupted; audio generation is
+  not proof of hearing. A plan does not force a question at every opening.
 - Reconciler reuses the existing extractor/coordinator, not a second memory
   system. It stores validated direct self-reports for the existing five wellbeing
   topics; it is **not** a general autobiographical fact extractor.
@@ -160,7 +293,8 @@ are not silently reassigned.
 | Selected, explicitly reviewed fictional excerpts | Selected family repository: SQLite or isolated test Firestore |
 | Recipient metadata, language, voice profile ID | Same family repository; provider key is never included |
 | Bounded canonical wellbeing memory, including validated short evidence | Same repository, recipient-scoped |
-| Call lifecycle/stage status | Same repository, at most 20 calls per recipient; no raw call transcript |
+| Call lifecycle/stage status | Same repository, at most 20 calls per recipient; metadata does not expose call text or summary content |
+| Optional future fictional-call summary and topic notice status | Same recipient-scoped repository only after separate standing demo sharing; summary fetched through a scoped endpoint |
 | Critic codes/severity/source turn + model/version | Private part of same repository, at most 20 reports; no exact evidence |
 | Optional separately consented wellbeing signals | Same repository, bounded/expiring; not recaps |
 | Authorized own-voice provider key | **Local**, private SQLite vault; not encrypted at rest; never browser/Firestore |
@@ -195,9 +329,7 @@ frontend, credentials, browser identity/previews, and voice vault remain local.
 2. `/childportal` → Family setup: create fictional Mother with simulated
    permissions and memory enabled. Add fictional Father separately; choose
    language preferences independently. Existing v1 data stays **Existing parent**.
-3. Select Mother. Use the built-in synthetic chat, map child/parent, review the
-   exact excerpts, acknowledge the synthetic permissions and activate that
-   selection. Merely selecting a `.txt` or saving preview does not activate it.
+3. Select Mother. Use `docs/examples/synthetic-agent-chat.txt` or another fictional chat, map child/parent, acknowledge the whole-chat synthetic permissions and press **Prepare Mother's background**. The browser prepares up to 24 parent-authored excerpts across the export; no individual selection is needed. Merely selecting a `.txt` or saving preview does not activate context.
 4. Select Father's profile and repeat with different fictional context.
    Switching recipients resets pending preview and consent. Do not put Mother’s
    preview into Father's scope.
@@ -220,8 +352,9 @@ frontend, credentials, browser identity/previews, and voice vault remain local.
     prevent replay/recreation; a conservative hold may require a new synthetic
     recipient for later tests. Do not clear real-user consent to make a demo pass.
 11. Check bounded workflow states in the call simulator. `fallback`, `skipped`,
-    `privacy_skipped` and `failed` are distinct from success. There is **no
-    automatic child recap or email alert**.
+    `privacy_skipped` and `failed` are distinct from success. There is no
+    automatic child recap. Optional fictional-call topic email requires its
+    separate sharing switch and private backend SMTP configuration.
 
 For deterministic regression testing, use the offline tests rather than waiting
 24 hours or weakening cooldowns. The tests inject time and provider results.
@@ -261,13 +394,25 @@ authorization:
 ```
 
 `models` checks the Planner, Reconciler and Critic on bundled synthetic fixtures,
-including Hindi/Hinglish memory extraction. `live` runs the actual Live transport
-using fictional text input, discards audio, checks disclosure and uses the Critic.
+including Hindi/Hinglish memory extraction. `live` runs fresh, multi-turn Live
+sessions from `evals/conversation_scenarios.json` using fictional text input and
+scored rules for disclosure, paced background, later-call topic rotation, sparse
+Mumma address, one question at a time, scope follow-ups, quiet requests,
+unsupported diagnosis/email claims and a mid-call person switch.
+Each rule is calibrated offline against known good and bad replies. The Critic
+is an additional qualitative check; it is not the only score. Use `--repeat 3`
+with paid suites when you need to see whether outcomes vary across runs.
+Live discards audio and does not write a demo call, Firestore record or email.
 It does **not** validate acoustic identity, TTS likeness, microphone timing,
 interruption quality, production voice access or multilingual safety.
 The Critic is a fallible model judge needing human calibration, not a safety
 certificate. Initial datasets are deliberately small; expand with reviewed
 synthetic cases, not private call exports.
+
+The case-by-case coverage table, report interpretation and safe procedure for
+adding a new eval are in `docs/AI_EVALS_BEGINNER_GUIDE.md`. A passing offline
+report means the mocked regression suite and the *rubrics* passed; it does not
+mean the Live model passed the conversation scenarios.
 
 Reports contain case IDs, outcomes, counts, latency, model IDs, prompt/schema/
 dataset hashes, Git commit + dirty flag. No raw transcript, keys or provider-error
@@ -298,11 +443,13 @@ For Firebase test ownership use `--owner firebase:UID`; Firestore reads require
 - Post-call reconciliation and Critic scheduling are **process-local**. Firestore
   persists committed state, not in-flight work. A crash can lose a pending
   extraction/review; a lease eventually expires, and “pending” may remain in
-  history. There is no transcript archive or durable outbox for retries yet.
+  history. Optional saved synthetic history is for display, not a retry archive;
+  there is no durable outbox for email or processing retries yet.
 - Live cloud IAM/SDK behavior, paid model results, real voice/acoustic quality,
   provider entitlements and phone enrollment remain separately unverified gates.
   This implementation provisions no resources, changes no billing, places no
-  telephone calls, uploads no private data, and enables no automatic notifications.
+  telephone calls, uploads no private data, and sends no notification by itself.
+  The fictional SMTP path remains off until an operator privately configures it.
 
 ## Troubleshooting replacement voice and memory errors
 
@@ -312,6 +459,15 @@ select the intended recipient in Family setup, enable the new profile, then use
 setup show a preview link scoped to that recipient. Replacements invalidate old
 profile IDs; neither enablement nor replacement changes everyone else's voice.
 If no recipient is selected, the next link returns to Family setup, not `/call`.
+
+In **Family setup**, the child enters their gender once when creating the
+synthetic family, or saves it later in **Child details**. Male, female and
+neutral map to the corresponding Hindi/Hinglish first-person form only for an
+assigned child voice. This is not inferred from the recording, and it does not
+change the parent recipient's label or memory. The standard voice keeps
+feminine wording. Older custom voices can be reused after Child details are
+saved; no re-enrollment or additional Google analysis is needed. English uses
+the selected audio voice; spoken quality requires a separate live test.
 
 The parent simulator's **Standard Hugback voice** label means that recipient is
 configured for the preset. It now explicitly warns that your recording will not

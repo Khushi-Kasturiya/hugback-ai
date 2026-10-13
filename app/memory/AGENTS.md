@@ -13,6 +13,9 @@
   and recording retention distinct. This pilot handles direct call reports only.
 - A reservation is not a question asked. Generated audio is not confirmed
   playback, hearing, understanding, or an answer. An interruption is not recovery.
+- Cap each concern episode at two claimed proactive check-in attempts across calls.
+  A claim is an attempt, not proof that the question was heard. Ordinary reviewed
+  interests have one-mention-per-call prompt guidance, not a durable mention count.
 - Use transactions for selection and state changes; keep all network/model work
   outside transaction callbacks. Preserve revocation generations/tombstones.
 - Never automatically revive a suppressed/deleted topic or a stale worker result.

@@ -8,14 +8,14 @@ class ConversationPlan(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     language: Language = "auto"
     opening: Literal["gentle", "neutral"] = "gentle"
-    background_refs: list[int] = Field(default_factory=list, max_length=2)
+    background_refs: list[int] = Field(default_factory=list, max_length=1)
     consider_followup: bool = False
 
 class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
     code: Literal["missing_ai_disclosure", "repeated_followup", "unsupported_memory",
                   "ignored_topic_change", "false_memory_action", "impersonation",
-                  "language_mismatch"]
+                  "language_mismatch", "out_of_scope_answer"]
     severity: Literal["warning", "error"]
     source_turn: int = Field(ge=0)
     evidence: str = Field(min_length=1, max_length=200)

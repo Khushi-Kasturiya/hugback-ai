@@ -11,7 +11,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from app.config import Settings, settings
-from app.demo.models import CreateFamily, CreateRecipient
+from app.demo.models import CreateFamily, CreateRecipient, SetTranscriptSharing
 from app.demo.repository import FirestoreFamilyRepository
 from app.demo.service import require_demo_identity
 from app.demo.store import DemoStore, DemoError
@@ -67,6 +67,26 @@ def cloud_store(db):
     return DemoStore(repository=repo)
 
 class WorkflowTests(unittest.IsolatedAsyncioTestCase):
+    async def test_isolated_firestore_test_store_keeps_consented_history_recipient_scoped(self):
+        db = FakeFirestore()
+        store = cloud_store(db)
+        family = store.create("synthetic-owner", CreateFamily(**BASE, label="Mother"))
+        recipient = family["recipients"][0]["recipientId"]
+        store.set_transcript_sharing("synthetic-owner", SetTranscriptSharing(
+            syntheticOnly=True, recipientId=recipient, revision=0, enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
+        store.start_call("synthetic-owner", "session-test", recipient, 1)
+        self.assertTrue(store.record_transcript(recipient, "session-test", 1, [
+            TranscriptTurn(role="user", turn_index=0, text="Fictional hello.")]))
+        self.assertTrue(store.record_call_summary(
+            recipient, "session-test", 1, "A fictional greeting was recorded for this call."))
+        store.call_status(recipient, "session-test", "completed", release=True)
+        restored = cloud_store(db)
+        self.assertIn("fictional greeting", restored.get_call_summary(
+            "synthetic-owner", recipient, "session-test")["summary"])
+        self.assertNotIn("transcript", restored.get("synthetic-owner")["recipients"][0]["calls"][0])
+        self.assertFalse(any("Fictional hello." in str(value) for key, value in db.data.items() if "recipients/" in key))
+
     async def test_planner_only_references_authorized_background(self):
         state = {"language": "hi-en", "background": [
             {"role": "parent", "timestamp": "2026-10-01", "text": "I like my fictional garden."}]}
@@ -78,9 +98,10 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("claim_followup", plan_context(result))
         payload = provider.generate.call_args.args[1]
         self.assertNotIn("recipientId", payload)
-        for value in [ConversationPlan(background_refs=[9]), ConversationPlan(consider_followup=True),
-                      ConversationPlan(language="hi-en", background_refs=[0, 0])]:
+        for value in [ConversationPlan(background_refs=[9]), ConversationPlan(consider_followup=True)]:
             with self.assertRaises(ValueError): validate_plan(value, planner_payload(state, None))
+        with self.assertRaises(ValueError):
+            ConversationPlan(language="hi-en", background_refs=[0, 0])
 
     async def test_planner_timeout_or_invalid_plan_uses_safe_fallback(self):
         state = {"background": []}

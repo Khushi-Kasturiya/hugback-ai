@@ -21,6 +21,14 @@ gates. Firestore does not move browser previews or the local voice vault to clou
 No resource/billing changes, private uploads or paid checks are performed by the
 implementation. Post-call work is not yet crash-durable.
 
+For a first-time, step-by-step fictional test of all four roles and their edge
+cases, use [the beginner agent test guide](docs/BEGINNER_E2E_AGENT_TESTING.md).
+For quiet and normal voice checks, use [the low-voice test guide](docs/LOW_VOICE_TESTING.md).
+The eval runner now separates offline regression and scorer calibration from
+optional paid structured-model and multi-turn Live scenarios. The Live set
+checks conversation pacing, one background detail per call, later-call rotation,
+scope persistence and quiet requests; it does not test microphone audio.
+
 ```sh
 .venv/bin/python -m evals.run --suite offline --output /tmp/hugback-offline-eval.json
 ```
@@ -74,6 +82,20 @@ production dashboard or enrollment system. The implemented slice below is local.
   phone linking, or recap sharing. End a call before another person takes over.
 
 
+## Live conversation scope and pacing
+
+HugBack's Live conversation is scoped to companionship. Requests for task
+outputs, facts, explanations, recommendations, or professional guidance receive
+a short spoken boundary across coding, politics, travel, shopping, homework and
+similar domains. Personal stories mentioning those subjects remain conversation;
+immediate safety concerns receive a supportive safety response. This is a Live
+prompt and post-call Critic check, not a deterministic pre-speech filter for
+streamed native audio. The default Live end-of-speech
+silence is 1000 ms (`HUGBACK_END_OF_SPEECH_SILENCE_MS`, accepted range 700–1600);
+raising it gives the caller more room between phrases but increases response
+latency. This prompt and turn setting need a real listening test before any
+claim about model compliance or perceived pace.
+
 ## Child portal → Google replicated TTS (11 October 2026)
 
 The operator reports that the friend's paid Tier 1 Voices/TTS flow works and
@@ -95,6 +117,7 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    creation model override, one transmission, bounded timeout and no automatic
    enrollment retry. `PERMISSION_DENIED` is not automatically diagnosed as a
    billing problem. Google acceptance is not proof of likeness/identity.
+   No separate gender or speaking-form analysis is made from the recording.
 4. Enrollment returns metadata, never a provider key. Choose **Enable child
    voice**, then select a recipient in **Family setup** and **Assign child voice**.
    Repeat for each intended recipient; enabling alone does not assign it. Both
@@ -106,6 +129,11 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    before validating the selected recipient's membership, revision and voice.
    Only then does it resolve that recipient's memory scope. The WebSocket accepts an opaque
    `voiceProfileId`, never raw `voiceKey`. Gemini Live handles conversation and
+   uses the family-level child gender entered in **Family setup** for
+   Hindi/Hinglish first-person wording. English keeps the selected audio voice.
+   Standard calls use the feminine preset and feminine wording. An existing
+   custom profile can be reused after saving child details; no new recording is
+   needed. If child gender is unset, custom-voice wording stays neutral.
    transcription; its preset audio is discarded, and only Google streaming TTS
    audio using that profile reaches playback. The key is NOT a Live voice ID.
    One ordered emitter with bounded one-phrase synthesis lookahead spans turns,
@@ -158,10 +186,12 @@ Never run the simulator for private/real family data or expose it publicly.
 1. In the internal `/childportal` simulator, create a fictional family and first
    recipient. Add Mother/Father separately, each with simulated setup consent and
    their own optional wellbeing-memory consent. Select whom you are preparing for.
-2. Parse a fictional chat locally, map both participants, select up to eight
-   excerpts of at most 500 characters each, and approve that exact selection as
-   both simulated participants. Only reviewed excerpts go to the local backend.
-   This is manual context curation, not AI fact extraction from the file.
+2. Parse a fictional chat locally, map both participants, and approve preparing
+   bounded context as both simulated participants. One click considers every
+   parent-authored message and sends up to 24 evenly spread excerpts of at most
+   500 characters each to the demo backend. There is no message-by-message
+   selection, but long exports are not retained or fully recalled in calls.
+   This is deterministic context preparation, not AI fact extraction.
 3. Use **Test a call as [recipient]**. The URL includes the recipient hint;
    acknowledge fictional role-play/Google processing before starting a call.
 4. `/ws` accepts `demoParent: true` only under the local gates, with required
@@ -181,8 +211,10 @@ override via `LOCAL_DEMO_DB_PATH`). Distinct server-generated family, child and
 parent IDs survive browser refresh and backend restart. The browser credential
 still lives in localStorage; clearing it loses access and has no recovery.
 The raw parsed preview remains in browser IndexedDB, not SQLite or Firebase.
-Backend records hold approved excerpts, at most 20 call-metadata records per recipient and
-bounded canonical wellbeing concerns, **not full transcripts, audio or recaps**.
+Backend records hold approved excerpts, at most 20 call records per recipient and
+bounded canonical wellbeing concerns. Full text is retained only for future
+fictional calls after separate standing history sharing; audio and recaps are not
+stored by that path. See `docs/CHAT_WORK_RECORD_2026-10-13.md`.
 Production Firestore/Memory Bank/Cloud Tasks are bypassed for demo calls even if
 their flags are accidentally on. Demo families expire after seven days; physical
 cleanup occurs on next DB access, not through a guaranteed background worker.
@@ -226,8 +258,20 @@ disconnect cancellation, but is **not a durable outbox** across process shutdown
 An interrupted server may lose the pending extraction; stale leases display
 `interrupted`. Do not restart during an active demo.
 
-Recap sharing, emails, real dual-consent enrollment, cloud uploads and production
-recovery remain outside this change. Existing gated summary reads are unchanged.
+Real recap sharing, real-family email, verified dual-consent enrollment, cloud
+uploads and production recovery remain outside this simulator. Optional brief
+Gmail SMTP notices for fictional calls are off by default and separately gated.
+In local SQLite mode, Family setup stores the child's expected test inbox with
+that family. The sender credentials remain only in private `.env`; a separate
+recipient address there is no longer required. Changing or clearing the Family
+setup address invalidates pending notices. No mailbox ownership verification
+or production child identity is claimed by this local demo.
+For a local sender check, run `.venv/bin/python -m app.alerts.smoke_test`
+from this repository. It prints only readiness flags and sends nothing. After
+privately configuring a sender, add `--send --to ADDRESS` for one
+generic probe to an expecting test inbox; then make a new fictional call to test topic detection and the
+Signals back status. See `docs/END_TO_END_TESTING.md` for the exact steps.
+Existing gated summary reads are unchanged.
 Tests use temporary DBs and fake Google sessions, including fever → next-call
 follow-up → cooldown and explicit resolution. No real Google call is a test
 prerequisite.

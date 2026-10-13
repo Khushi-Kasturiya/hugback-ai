@@ -46,10 +46,20 @@ def create_live_config(
     wellbeing_signal_context: str = "",
     enable_wellbeing_signal_tool: bool = False,
     conversation_plan_context: str = "",
+    speaking_form: str = "feminine",
 ) -> types.LiveConnectConfig:
     """Construct LiveConnectConfig for native bidirectional audio conversation."""
     validate_call_voice_selection(voice_sample_audio, consent_audio, voice_id)
     system_instruction = HUGBACK_SYSTEM_INSTRUCTION
+    speaking_forms = {
+        "masculine": "Use masculine first-person Hindi/Hinglish agreement for Hugback's own speech: for example, 'main theek lagta hoon', 'main gaya tha'. Do not use feminine first-person forms such as 'lagti hoon'.",
+        "feminine": "Use feminine first-person Hindi/Hinglish agreement for Hugback's own speech: for example, 'main theek lagti hoon', 'main gayi thi'. Do not use masculine first-person forms such as 'lagta hoon'.",
+        "neutral": "Avoid gender-marked first-person Hindi/Hinglish verbs and adjectives for Hugback. Prefer naturally neutral wording such as 'main yahan hoon' or 'aap se baat karke achha laga'. Do not guess the voice's gender.",
+    }
+    if speaking_form not in speaking_forms:
+        raise ValueError("Unknown Hindi speaking form")
+    system_instruction += "\n\n# Hindi speaking form\n" + speaking_forms[speaking_form]
+    system_instruction += " This setting describes Hugback's output voice, never the caller or recipient. Do not change it because of the caller's words or imported chats. In English, keep the same selected audio voice and avoid claiming you are someone's son, daughter, mother, or father."
     if memory_context:
         system_instruction = f"{system_instruction}\n\n{memory_context}"
     if followup_context:
@@ -190,7 +200,7 @@ def create_live_config(
             automatic_activity_detection=types.AutomaticActivityDetection(
                 disabled=False,
                 end_of_speech_sensitivity=types.EndSensitivity.END_SENSITIVITY_LOW,
-                silence_duration_ms=800,
+                silence_duration_ms=settings.HUGBACK_END_OF_SPEECH_SILENCE_MS,
             )
         ),
     )

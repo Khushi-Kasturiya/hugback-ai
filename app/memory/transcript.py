@@ -25,6 +25,9 @@ def _merge(existing: str, chunk: str) -> str:
         return chunk
     if existing.startswith(chunk):
         return existing
+    for length in range(min(len(existing), len(chunk)), 7, -1):
+        if existing.endswith(chunk[:length]):
+            return _clean(existing + chunk[length:])
     separator = "" if existing.endswith((" ", "-", "'")) else " "
     return _clean(f"{existing}{separator}{chunk}")
 

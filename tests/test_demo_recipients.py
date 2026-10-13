@@ -7,6 +7,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import threading
+import time
 from types import SimpleNamespace
 import unittest
 from unittest.mock import AsyncMock, patch
@@ -16,8 +17,9 @@ from google.genai import types
 from pydantic import ValidationError
 
 from app.config import settings
-from app.demo.models import CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice
+from app.demo.models import CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice, SetTranscriptSharing
 from app.demo.store import DemoStore, DemoError, now
+from app.demo.summary import summary_input
 from app.main import app
 from app.memory.followups import FollowupState, ObservationBatch, record_consent, revoke
 from app.memory.followup_service import FollowupCoordinator
@@ -38,6 +40,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
             "LOCAL_DEMO_ENABLED": True, "HUGBACK_AUTH_MODE": "development", "HUGBACK_LIVE_VOICE_MODE": "preset",
             "LOCAL_DEMO_DB_PATH": self.path, "HUGBACK_VOICE_DB_PATH": self.voices.path,
             "HUGBACK_REPLICATED_TTS_ENABLED": True, "GEMINI_API_KEY": "synthetic-placeholder",
+            "HUGBACK_WORKFLOW_ENABLED": False,
         }.items():
             item = patch.object(settings, name, value); item.start(); self.addCleanup(item.stop)
         self.family = self.store.create(OWNER, CreateFamily(**CREATE, label="Mother", relationship="mother"))
@@ -47,6 +50,24 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
 
     def recipient(self, rid):
         return next(r for r in self.store.get(OWNER)["recipients"] if r["recipientId"] == rid)
+
+    def test_child_gender_is_family_scoped_revisioned_and_used_by_future_calls(self):
+        self.assertIsNone(self.store.get(OWNER)["childGender"])
+        body = {"syntheticOnly": True, "familyId": self.family["familyId"],
+                "revision": 0, "childGender": "male"}
+        response = self.client.put("/api/demo/child-details", headers=HEADERS, json=body)
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertEqual(response.json()["childGender"], "male")
+        self.assertEqual(response.json()["childGenderRevision"], 1)
+        self.assertEqual(self.client.put("/api/demo/child-details", headers=HEADERS,
+                         json={**body, "childGender": "female"}).status_code, 409)
+        self.assertEqual(self.client.put("/api/demo/child-details", headers=HEADERS,
+                         json={**body, "familyId": "demo-family-" + "0" * 32,
+                               "revision": 1}).status_code, 404)
+        state = self.store.start_call(OWNER, "gender-test", self.mother, 0)
+        self.assertEqual(state["childGender"], "male")
+        self.store.call_status(self.mother, "gender-test", "completed", release=True)
+        self.assertEqual(self.store.get(OWNER)["recipients"][1]["voice"]["mode"], "standard")
 
     def write_background(self, rid, text):
         return self.store.review(OWNER, ReviewBackground(**review(
@@ -76,6 +97,138 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual([r["calls"][0]["sessionId"] for r in restarted], ["mother-call", "father-call"])
         self.assertEqual(self.recipient(self.father)["revision"], father["revision"])
         self.assertNotIn("memory", restarted[0])
+
+    def test_future_transcripts_require_standing_consent_and_stay_recipient_scoped(self):
+        self.assertFalse(self.recipient(self.mother)["transcriptSharingEnabled"])
+        with self.assertRaises(ValidationError):
+            SetTranscriptSharing(syntheticOnly=True, recipientId=self.mother, revision=0,
+                                 enabled=True, simulateChildConsent=True)
+        consent = SetTranscriptSharing(syntheticOnly=True, recipientId=self.mother, revision=0,
+                                       enabled=True, simulateChildConsent=True, simulateParentConsent=True)
+        self.store.set_transcript_sharing(OWNER, consent)
+        revision = self.recipient(self.mother)["revision"]
+        self.store.start_call(OWNER, "session-mother", self.mother, revision)
+        turns = [TranscriptTurn(role="user", turn_index=0, text="A fictional hello."),
+                 TranscriptTurn(role="model", turn_index=1, text="Hello from HugBack.")]
+        self.assertTrue(self.store.record_transcript(self.mother, "session-mother", 1, turns))
+        self.assertTrue(self.store.record_call_summary(
+            self.mother, "session-mother", 1,
+            "Mother gave a fictional greeting and HugBack greeted her back."))
+        self.store.call_status(self.mother, "session-mother", "completed", release=True)
+        public = self.store.get(OWNER)
+        self.assertEqual(public["recipients"][0]["calls"][0]["transcriptStatus"], "available")
+        self.assertNotIn("transcript", public["recipients"][0]["calls"][0])
+        with sqlite3.connect(self.path) as conn:
+            stored = conn.execute("SELECT state FROM families").fetchone()[0]
+        self.assertNotIn("A fictional hello.", stored)
+        summary = self.store.get_call_summary(OWNER, self.mother, "session-mother")
+        self.assertIn("fictional greeting", summary["summary"])
+        self.assertNotIn("turns", summary)
+        with self.assertRaises(DemoError): self.store.get_call_summary(OWNER, self.father, "session-mother")
+        with self.assertRaises(DemoError): self.store.get_call_summary("synthetic-other", self.mother, "session-mother")
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother, revision=revision,
+            enabled=False))
+        with self.assertRaises(DemoError): self.store.get_call_summary(OWNER, self.mother, "session-mother")
+        self.assertEqual(self.recipient(self.mother)["calls"][0]["transcriptStatus"], "revoked")
+        self.assertEqual(self.recipient(self.mother)["calls"][0]["summaryStatus"], "revoked")
+
+    def test_in_call_revocation_prevents_transcript_commit(self):
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother, revision=0, enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
+        self.store.start_call(OWNER, "session-private", self.mother, 1)
+        self.assertTrue(self.store.revoke_transcript_sharing(self.mother, 1))
+        self.assertFalse(self.store.record_transcript(self.mother, "session-private", 1, [
+            TranscriptTurn(role="user", turn_index=0, text="Keep this private.")]))
+        self.assertFalse(self.store.record_call_summary(
+            self.mother, "session-private", 1, "This private call should not be shared."))
+        self.store.call_status(self.mother, "session-private", "completed", release=True)
+        self.assertEqual(self.recipient(self.mother)["calls"][0]["transcriptStatus"], "revoked")
+
+    def test_older_saved_text_can_be_converted_once_without_raw_response(self):
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother, revision=0, enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
+        self.store.start_call(OWNER, "session-legacy", self.mother, 1)
+        def seed_old_state(state):
+            call = state["recipients"][0]["calls"][0]
+            call.update(transcriptStatus="available", transcript=[
+                {"role": "user", "text": "I painted blue flowers.", "timestamp": now().isoformat()},
+                {"role": "model", "text": "That sounds lovely.", "timestamp": now().isoformat()},
+            ])
+            call.pop("summaryStatus", None)
+        self.store._run(seed_old_state, uid=OWNER)
+        self.store.call_status(self.mother, "session-legacy", "completed", release=True)
+        self.assertTrue(self.recipient(self.mother)["calls"][0]["canGenerateLegacySummary"])
+        with (patch("app.demo.routes.summarize_call", new=AsyncMock(
+                  return_value="Mother discussed painting blue flowers with HugBack.")),
+              TestClient(app, client=("127.0.0.1", 1234)) as client):
+            response = client.post(f"/api/demo/summaries/{self.mother}/session-legacy/generate",
+                                   headers=HEADERS, json={"syntheticOnly": True,
+                                                          "recipientId": self.mother, "revision": 1})
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertNotIn("I painted blue flowers.", response.text)
+            self.assertEqual(client.get(f"/api/demo/summaries/{self.mother}/session-legacy",
+                                        headers=HEADERS).json()["summary"],
+                             "Mother discussed painting blue flowers with HugBack.")
+        with sqlite3.connect(self.path) as conn:
+            stored = conn.execute("SELECT state FROM families").fetchone()[0]
+        self.assertNotIn('"transcript":', stored)
+        self.assertFalse(self.recipient(self.mother)["calls"][0]["canGenerateLegacySummary"])
+
+    def test_older_private_call_is_erased_without_model_conversion(self):
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother, revision=0, enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
+        self.store.start_call(OWNER, "session-private-old", self.mother, 1)
+        def seed_old_state(state):
+            call = state["recipients"][0]["calls"][0]
+            call.update(transcriptStatus="available", transcript=[
+                {"role": "user", "text": "Do not share this conversation with my child.",
+                 "timestamp": now().isoformat()},
+            ])
+            call.pop("summaryStatus", None)
+        self.store._run(seed_old_state, uid=OWNER)
+        self.store.call_status(self.mother, "session-private-old", "completed", release=True)
+        with (patch("app.demo.routes.summarize_call", new=AsyncMock(
+                  side_effect=AssertionError("No provider request on privacy revocation"))),
+              TestClient(app, client=("127.0.0.1", 1234)) as client):
+            response = client.post(f"/api/demo/summaries/{self.mother}/session-private-old/generate",
+                                   headers=HEADERS, json={"syntheticOnly": True,
+                                                          "recipientId": self.mother, "revision": 1})
+            self.assertEqual(response.status_code, 200, response.text)
+        self.assertFalse(self.recipient(self.mother)["transcriptSharingEnabled"])
+        with sqlite3.connect(self.path) as conn:
+            stored = conn.execute("SELECT state FROM families").fetchone()[0]
+        self.assertNotIn("Do not share this conversation with my child.", stored)
+
+    def test_oversized_transcript_is_never_exposed_as_partial_history(self):
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother, revision=0, enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
+        self.store.start_call(OWNER, "session-long", self.mother, 1)
+        self.assertFalse(self.store.record_transcript(self.mother, "session-long", 1, [
+            TranscriptTurn(role="user", turn_index=0, text="x" * 25_001)]))
+        self.store.call_status(self.mother, "session-long", "completed", release=True)
+        self.assertEqual(self.recipient(self.mother)["calls"][0]["transcriptStatus"], "unavailable")
+        with self.assertRaises(DemoError): self.store.get_call_summary(OWNER, self.mother, "session-long")
+
+    def test_long_live_text_can_be_bounded_for_summary_without_saving_raw(self):
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother, revision=0, enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
+        self.store.start_call(OWNER, "session-bounded", self.mother, 1)
+        raw = [TranscriptTurn(role="user", turn_index=0, text="I painted today. " * 2000),
+               TranscriptTurn(role="model", turn_index=1, text="Tell me more about your painting.")]
+        self.assertTrue(self.store.record_transcript(
+            self.mother, "session-bounded", 1, summary_input(raw)))
+        self.store.call_status(self.mother, "session-bounded", "completed", release=True)
+        call = self.recipient(self.mother)["calls"][0]
+        self.assertEqual(call["transcriptStatus"], "available")
+        with sqlite3.connect(self.path) as conn:
+            stored = conn.execute("SELECT state FROM families").fetchone()[0]
+        self.assertNotIn("I painted today.", stored)
 
     async def test_mothers_fever_is_not_fathers_memory_cooldown_resolution_or_privacy_scope(self):
         extractor = SimpleNamespace(extract=AsyncMock(return_value=ObservationBatch.model_validate({
@@ -158,6 +311,10 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
     def test_shared_child_voice_assignments_remain_independent_and_owner_checked(self):
         profile = self.voices.save(OWNER, "voicekey_synthetic")
         self.voices.select(OWNER, profile["id"], True)
+        self.assertEqual(self.client.put("/api/demo/recipient-voice", headers=HEADERS, json={
+            "syntheticOnly": True, "recipientId": self.mother, "revision": 0,
+            "mode": "child", "profileId": profile["id"], "speakingForm": "feminine",
+        }).status_code, 422)
         for rid in (self.mother, self.father):
             response = self.client.put("/api/demo/recipient-voice", headers=HEADERS, json={
                 "syntheticOnly": True, "recipientId": rid, "revision": 0, "mode": "child", "profileId": profile["id"],
@@ -183,6 +340,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
                     self.assertEqual(ws.receive_json()["type"], "error")
             google.assert_not_called()
         self.assertFalse(self.recipient(self.father)["busy"])
+
 
     async def test_v1_migration_preserves_ids_memory_background_active_lease_without_guessing_identity(self):
         path = self.path.parent / "legacy.sqlite3"
@@ -222,6 +380,10 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
     def test_mock_broker_calls_route_only_selected_context_and_private_finalizers(self):
         self.write_background(self.mother, "Mother enjoys fictional orchids.")
         self.write_background(self.father, "Father enjoys fictional chess.")
+        self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
+            syntheticOnly=True, recipientId=self.mother,
+            revision=self.recipient(self.mother)["revision"], enabled=True,
+            simulateChildConsent=True, simulateParentConsent=True))
         captured, owners, finished = [], [], threading.Event()
         class Live:
             def __init__(self): self.queue = asyncio.Queue()
@@ -246,6 +408,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
         # are standard. They must remain callable without a key or TTS request.
         with (
             patch("app.main.create_genai_client", return_value=SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))),
+            patch("app.main.summarize_call", new=AsyncMock(return_value="Mother greeted HugBack and received a friendly reply.")),
             patch("app.main.get_demo_coordinator", return_value=coordinator),
             patch("app.main.get_session_store", side_effect=AssertionError("No cloud")),
             patch("app.voice.playback.stream_replicated_speech", side_effect=AssertionError("No custom TTS")),
@@ -261,6 +424,24 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
                     ws.send_json({"type": "text", "text": "Synthetic hello."})
                     while not ws.receive_json().get("turnComplete"): pass
                 self.assertTrue(finished.wait(2))
+            mother_call = self.recipient(self.mother)["calls"][0]
+            deadline = time.monotonic() + 2
+            while mother_call["transcriptStatus"] == "pending" and time.monotonic() < deadline:
+                time.sleep(0.01); mother_call = self.recipient(self.mother)["calls"][0]
+            self.assertEqual(mother_call["transcriptStatus"], "available")
+            deadline = time.monotonic() + 2
+            while mother_call.get("summaryStatus") == "pending" and time.monotonic() < deadline:
+                time.sleep(0.01); mother_call = self.recipient(self.mother)["calls"][0]
+            self.assertEqual(mother_call["summaryStatus"], "available")
+            response = client.get(f"/api/demo/summaries/{self.mother}/{mother_call['sessionId']}", headers=HEADERS)
+            self.assertEqual(response.status_code, 200, response.text)
+            self.assertIn("summary", response.json())
+            self.assertNotIn("turns", response.json())
+            self.assertEqual(client.get(f"/api/demo/transcripts/{self.mother}/{mother_call['sessionId']}",
+                                        headers=HEADERS).status_code, 404)
+            self.assertEqual(client.get(f"/api/demo/summaries/{self.father}/{mother_call['sessionId']}", headers=HEADERS).status_code, 403)
+            self.assertEqual(client.get(f"/api/demo/summaries/{self.mother}/{mother_call['sessionId']}",
+                                        headers=HEADERS | {"X-Hugback-Development-User": "someone-else"}).status_code, 404)
         self.assertEqual(owners, [self.mother, self.mother, self.father, self.father])
         self.assertIn("fictional orchids", captured[0]); self.assertNotIn("fictional chess", captured[0])
         self.assertIn("fictional chess", captured[1]); self.assertNotIn("fictional orchids", captured[1])
