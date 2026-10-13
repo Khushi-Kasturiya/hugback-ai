@@ -1,68 +1,66 @@
 /**
- * AudioWorkletProcessor for low-latency PCM audio playback.
- * Maintains a circular ring buffer and provides instant interruption flushing.
+ * Bounded PCM16 ring buffer with phrase-start cues from the render thread.
+ * A render cue is not proof of physical speaker output or of anyone hearing it.
  */
 class PCMPlayerProcessor extends AudioWorkletProcessor {
   constructor() {
     super();
 
-    // 24kHz sample rate * 60 seconds buffer
     this.bufferSize = 24000 * 60;
     this.buffer = new Float32Array(this.bufferSize);
-    this.writeIndex = 0;
-    this.readIndex = 0;
+    this.readFrame = 0;
+    this.writeFrame = 0;
+    this.markers = [];
+    this.generation = 0;
+    this.lastId = 0;
+    this.active = false;
 
-    this.port.onmessage = (event) => {
-      // 1. Barge-in / Interruption flush command
-      if (event.data && event.data.command === "endOfAudio") {
-        this.readIndex = this.writeIndex; // Instantly purge the ring buffer
+    this.port.onmessage = ({ data }) => {
+      if (data.command === "endOfAudio") {
+        this.generation = data.generation;
+        this.readFrame = this.writeFrame = 0;
+        this.markers = [];
+        this.active = false;
         return;
       }
-
-      // 2. Incoming PCM Int16 samples (ArrayBuffer)
-      if (event.data) {
-        const int16Samples = new Int16Array(event.data);
-        this._enqueue(int16Samples);
+      if (data.command !== "enqueue" || data.generation !== this.generation) return;
+      const samples = new Int16Array(data.pcm);
+      if (!samples.length) return;
+      // Fail instead of silently discarding audio and revealing the wrong cue.
+      if (this.writeFrame - this.readFrame + samples.length > this.bufferSize || this.markers.length >= 4096) {
+        this.readFrame = this.writeFrame;
+        this.markers = [];
+        this.active = false;
+        this.port.postMessage({ type: "playbackError", generation: this.generation });
+        return;
+      }
+      this.markers.push({ frame: this.writeFrame, id: data.id });
+      this.lastId = data.id;
+      this.active = true;
+      for (const sample of samples) {
+        this.buffer[this.writeFrame++ % this.bufferSize] = sample / 32768;
       }
     };
   }
 
-  _enqueue(int16Samples) {
-    for (let i = 0; i < int16Samples.length; i++) {
-      // Normalize 16-bit signed integer [-32768, 32767] to float [-1.0, 1.0]
-      const floatVal = int16Samples[i] / 32768.0;
-
-      this.buffer[this.writeIndex] = floatVal;
-      this.writeIndex = (this.writeIndex + 1) % this.bufferSize;
-
-      // Handle buffer overflow: advance read pointer
-      if (this.writeIndex === this.readIndex) {
-        this.readIndex = (this.readIndex + 1) % this.bufferSize;
-      }
-    }
-  }
-
-  process(inputs, outputs, parameters) {
+  process(inputs, outputs) {
     const output = outputs[0];
-    if (!output || output.length === 0) return true;
-
-    const framesPerBlock = output[0].length;
-
-    for (let frame = 0; frame < framesPerBlock; frame++) {
-      const sample = this.buffer[this.readIndex];
-
-      // Fill left and right channels
-      output[0][frame] = sample;
-      if (output.length > 1) {
-        output[1][frame] = sample;
+    if (!output || !output.length) return true;
+    for (let frame = 0; frame < output[0].length; frame++) {
+      let sample = 0; // Underflow/flush must be silence, not a stale ring sample.
+      if (this.readFrame < this.writeFrame) {
+        while (this.markers.length && this.markers[0].frame === this.readFrame) {
+          const marker = this.markers.shift();
+          this.port.postMessage({ type: "chunkStarted", id: marker.id, generation: this.generation });
+        }
+        sample = this.buffer[this.readFrame++ % this.bufferSize];
       }
-
-      // Advance read pointer if data is available
-      if (this.readIndex !== this.writeIndex) {
-        this.readIndex = (this.readIndex + 1) % this.bufferSize;
-      }
+      for (const channel of output) channel[frame] = sample;
     }
-
+    if (this.active && this.readFrame === this.writeFrame) {
+      this.active = false;
+      this.port.postMessage({ type: "drained", throughId: this.lastId, generation: this.generation });
+    }
     return true;
   }
 }

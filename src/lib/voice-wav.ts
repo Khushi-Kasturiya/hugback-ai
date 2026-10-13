@@ -60,6 +60,9 @@ export async function prepareVoiceWav(
   label: string,
   minimumSeconds: number,
 ): Promise<File> {
+  if (!file.size || file.size > 10 * 1024 * 1024) {
+    throw new Error(`${label} must be a nonempty audio file under 10 MB`);
+  }
   const context = new AudioContext();
   try {
     const decoded = await context.decodeAudioData(await file.arrayBuffer());

@@ -5,14 +5,31 @@ import { startAudioRecorder, RecorderHandle } from "@/lib/audio-recorder";
 import { startAudioPlayer, PlayerHandle, base64ToArrayBuffer } from "@/lib/audio-player";
 import { getAuthenticationMessage } from "@/lib/identity";
 import { getInlineVoicePayload } from "@/lib/voice-profile";
+import { portalGet, PortalStatus } from "@/lib/portal-api";
+import { selectedVoicePayload } from "@/lib/voice-api";
+import { demoRequest, recipientCallPayload } from "@/lib/demo-api";
 
-const CONNECTION_TIMEOUT_MS = 15_000;
+const CONNECTION_TIMEOUT_MS = 20_000;
 const SPEECH_THRESHOLD = 0.05;
 const END_OF_SPEECH_SILENCE_MS = 700;
 
+function mergeStreamingText(previous: string, incoming: string): string {
+  const chunk = incoming.replace(/\s+/g, " ").trim();
+  if (!previous || !chunk) return previous || chunk;
+  if (previous === chunk || previous.endsWith(chunk) || previous.startsWith(chunk)) return previous;
+  if (chunk.startsWith(previous)) return chunk;
+  let overlap = 0;
+  const limit = Math.min(previous.length, chunk.length);
+  for (let length = limit; length >= 8; length--) {
+    if (previous.endsWith(chunk.slice(0, length))) { overlap = length; break; }
+  }
+  const addition = chunk.slice(overlap);
+  return `${previous}${addition && !/^\s|^[,.;!?]/.test(addition) ? " " : ""}${addition}`.trim();
+}
+
 function defaultWebSocketUrl(): string {
-  if (process.env.NEXT_PUBLIC_ELARA_WS_URL) {
-    return process.env.NEXT_PUBLIC_ELARA_WS_URL;
+  if (process.env.NEXT_PUBLIC_HUGBACK_WS_URL) {
+    return process.env.NEXT_PUBLIC_HUGBACK_WS_URL;
   }
   if (typeof window === "undefined") {
     return "ws://localhost:8000/ws";
@@ -33,30 +50,40 @@ export type CallStatus =
 
 interface UseLiveAudioOptions {
   wsUrl?: string;
-  onTranscriptionUpdate?: (role: "user" | "elara", text: string) => void;
+  demoParent?: boolean;
+  recipientId?: string;
+  workflowAcknowledged?: boolean;
+  onTranscriptionUpdate?: (role: "user" | "hugback", text: string) => void;
 }
 
 export function useLiveAudio({
   wsUrl = defaultWebSocketUrl(),
+  demoParent = false,
+  recipientId,
+  workflowAcknowledged = false,
   onTranscriptionUpdate,
 }: UseLiveAudioOptions = {}) {
   const [status, setStatus] = useState<CallStatus>("disconnected");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [userTranscript, setUserTranscript] = useState<string>("");
-  const [elaraTranscript, setElaraTranscript] = useState<string>("");
+  const [hugbackTranscript, setHugbackTranscript] = useState<string>("");
+  const [transcriptEntries, setTranscriptEntries] = useState<{ role: "user" | "hugback"; text: string }[]>([]);
   const [userVolume, setUserVolume] = useState<number>(0);
-  const [elaraVolume, setElaraVolume] = useState<number>(0);
+  const [hugbackVolume, setHugbackVolume] = useState<number>(0);
+  const [callInfo, setCallInfo] = useState<{ sessionId: string; memoryStatus: string; parentId?: string; recipientLabel?: string; voice?: string }>();
 
   const wsRef = useRef<WebSocket | null>(null);
   const recorderRef = useRef<RecorderHandle | null>(null);
   const playerRef = useRef<PlayerHandle | null>(null);
   const isAgentSpeakingRef = useRef<boolean>(false);
-  const speakingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const intentionalCloseRef = useRef<boolean>(false);
+  const callAttemptRef = useRef(0);
   const userSpeechActiveRef = useRef<boolean>(false);
   const silenceStartedAtRef = useRef<number | null>(null);
+  const assistantTurnCompleteRef = useRef(false);
 
   const releaseCallResources = useCallback((closeSocket: boolean) => {
+    callAttemptRef.current++;
     const ws = wsRef.current;
     wsRef.current = null;
 
@@ -78,16 +105,12 @@ export function useLiveAudio({
       playerRef.current = null;
     }
 
-    if (speakingTimeoutRef.current) {
-      clearTimeout(speakingTimeoutRef.current);
-      speakingTimeoutRef.current = null;
-    }
-
     isAgentSpeakingRef.current = false;
     userSpeechActiveRef.current = false;
     silenceStartedAtRef.current = null;
+    assistantTurnCompleteRef.current = false;
     setUserVolume(0);
-    setElaraVolume(0);
+    setHugbackVolume(0);
   }, []);
 
   const endCall = useCallback(() => {
@@ -97,6 +120,19 @@ export function useLiveAudio({
     setStatus("disconnected");
   }, [releaseCallResources]);
 
+  useEffect(() => {
+    // URL/back navigation must not relabel a running call or keep the previous
+    // recipient's subtitles visible under the new identity.
+    intentionalCloseRef.current = true;
+    releaseCallResources(true);
+    setStatus("disconnected");
+    setCallInfo(undefined);
+    setUserTranscript("");
+    setHugbackTranscript("");
+    setTranscriptEntries([]);
+    setErrorMessage(null);
+  }, [recipientId, demoParent, releaseCallResources]);
+
   const startCall = useCallback(async () => {
     if (status === "connecting" || status === "connected" || status === "speaking" || status === "listening") {
       return;
@@ -105,21 +141,61 @@ export function useLiveAudio({
     setErrorMessage(null);
     setStatus("connecting");
     intentionalCloseRef.current = false;
+    const attempt = ++callAttemptRef.current;
+    const isCurrentAttempt = () => callAttemptRef.current === attempt && !intentionalCloseRef.current;
 
     try {
-      const [identityMessage, voicePayload] = await Promise.all([
+      const [identityMessage, portalStatus] = await Promise.all([
         getAuthenticationMessage(),
-        getInlineVoicePayload(),
+        portalGet<PortalStatus>("/status"),
       ]);
+      if (!isCurrentAttempt()) return;
+      if (demoParent && (!portalStatus.localDemoEnabled || portalStatus.voice.mode !== "preset")) {
+        throw new Error("Parent demo calls require local demo mode and preset or portal-enrolled TTS voice.");
+      }
+      if (demoParent && !recipientId) throw new Error("Choose the recipient for this demo call first.");
+      if (demoParent && portalStatus.workflowEnabled && !workflowAcknowledged) {
+        throw new Error("Acknowledge synthetic Planner and Critic processing before calling.");
+      }
+      const selectedVoice = demoParent
+        ? recipientCallPayload(await demoRequest("/family"), recipientId, portalStatus.voice)
+        : selectedVoicePayload(portalStatus.voice);
+      if (!isCurrentAttempt()) return;
+      // Never upload saved recordings into an ordinary preset call.
+      const voicePayload = portalStatus.voice.mode === "experimental-inline"
+        ? await getInlineVoicePayload()
+        : null;
+      if (!isCurrentAttempt()) return;
+      if (portalStatus.voice.mode === "experimental-inline" && !voicePayload) {
+        throw new Error("Experimental mode requires local voice and consent recordings. Open the child portal to prepare them.");
+      }
       const authenticationMessage = {
         ...identityMessage,
         ...(voicePayload || {}),
+        ...selectedVoice,
+        ...(demoParent && portalStatus.workflowEnabled && workflowAcknowledged ? { simulateWorkflowConsent: true } : {}),
       };
+      setCallInfo(undefined);
       setUserTranscript("");
-      setElaraTranscript("");
+      setHugbackTranscript("");
+      setTranscriptEntries([]);
 
       // 1. Initialize Player first
-      const player = await startAudioPlayer();
+      const player = await startAudioPlayer({
+        onPlaybackChange: (playing) => {
+          if (!isCurrentAttempt()) return;
+          isAgentSpeakingRef.current = playing;
+          setHugbackVolume(playing ? 0.8 : 0);
+          setStatus(playing ? "speaking" : "listening");
+        },
+        onError: () => {
+          if (!isCurrentAttempt()) return;
+          setErrorMessage("Audio playback failed. Please start a new call.");
+          setStatus("error");
+          releaseCallResources(true);
+        },
+      });
+      if (!isCurrentAttempt()) { player.stop(); return; }
       playerRef.current = player;
 
       // 2. Initialize WebSocket
@@ -127,6 +203,7 @@ export function useLiveAudio({
       wsRef.current = ws;
 
       ws.onmessage = (event) => {
+        if (!isCurrentAttempt() || wsRef.current !== ws) return;
         try {
           const adkEvent = JSON.parse(event.data);
 
@@ -137,6 +214,9 @@ export function useLiveAudio({
           }
 
           if (adkEvent.type === "ready") {
+            setCallInfo({ sessionId: adkEvent.sessionId, memoryStatus: adkEvent.memoryStatus, parentId: adkEvent.demo?.parentId,
+              recipientLabel: adkEvent.demo?.recipientLabel,
+              voice: adkEvent.voice === "replicated" ? "Custom AI voice · Google TTS" : adkEvent.voiceName || adkEvent.voice });
             return;
           }
 
@@ -147,7 +227,47 @@ export function useLiveAudio({
             return;
           }
 
-          // Handle incoming Gemini Audio
+          // Your own transcription remains immediate, independent of TTS.
+          if (adkEvent.inputTranscription?.text) {
+            const text = adkEvent.inputTranscription.text;
+            setUserTranscript((prev) => mergeStreamingText(prev, text));
+            setTranscriptEntries((previous) => {
+              const last = previous.at(-1);
+              return last?.role === "user"
+                ? [...previous.slice(0, -1), { role: "user", text: mergeStreamingText(last.text, text) }]
+                : [...previous, { role: "user", text }];
+            });
+            onTranscriptionUpdate?.("user", text);
+          }
+
+          // Interruption wins over audio/text bundled in the same event.
+          if (adkEvent.interrupted) {
+            playerRef.current?.flush();
+            isAgentSpeakingRef.current = false;
+            setHugbackVolume(0);
+            setStatus("listening");
+            return;
+          }
+
+          const outputText = adkEvent.outputTranscription?.text;
+          const playbackAligned = adkEvent.outputTranscription?.playbackAligned === true;
+          const publishTranscript = () => {
+            if (!outputText || !isCurrentAttempt() || wsRef.current !== ws) return;
+            const newTurn = assistantTurnCompleteRef.current;
+            assistantTurnCompleteRef.current = false;
+            setHugbackTranscript((prev) => newTurn ? `${prev} ${outputText}`.trim() : mergeStreamingText(prev, outputText));
+            setTranscriptEntries((previous) => {
+              const last = previous.at(-1);
+              return last?.role === "hugback" && !newTurn
+                ? [...previous.slice(0, -1), { role: "hugback", text: mergeStreamingText(last.text, outputText) }]
+                : [...previous, { role: "hugback", text: outputText }];
+            });
+            onTranscriptionUpdate?.("hugback", outputText);
+          };
+          let onAudioStart = playbackAligned && outputText ? publishTranscript : undefined;
+
+          // A replicated phrase travels with its first PCM chunk, but stays
+          // hidden until that chunk reaches the player's render thread.
           if (adkEvent.content && adkEvent.content.parts) {
             for (const part of adkEvent.content.parts) {
               if (
@@ -157,60 +277,31 @@ export function useLiveAudio({
                 playerRef.current
               ) {
                 const audioBuffer = base64ToArrayBuffer(part.inlineData.data);
-                playerRef.current.playPcm(audioBuffer);
-
-                isAgentSpeakingRef.current = true;
-                setStatus("speaking");
-                setElaraVolume(0.8);
-
-                if (speakingTimeoutRef.current) {
-                  clearTimeout(speakingTimeoutRef.current);
+                if (audioBuffer.byteLength) {
+                  playerRef.current.playPcm(audioBuffer, onAudioStart);
+                  onAudioStart = undefined;
                 }
-                speakingTimeoutRef.current = setTimeout(() => {
-                  isAgentSpeakingRef.current = false;
-                  setElaraVolume(0);
-                  setStatus("listening");
-                }, 3000);
               }
             }
           }
 
-          // Handle user speech transcription
-          if (adkEvent.inputTranscription && adkEvent.inputTranscription.text) {
-            const text = adkEvent.inputTranscription.text;
-            setUserTranscript((prev) => (prev ? `${prev} ${text}` : text));
-            onTranscriptionUpdate?.("user", text);
-          }
-
-          // Handle agent speech transcription
-          if (adkEvent.outputTranscription && adkEvent.outputTranscription.text) {
-            const text = adkEvent.outputTranscription.text;
-            setElaraTranscript((prev) => (prev ? `${prev} ${text}` : text));
-            onTranscriptionUpdate?.("elara", text);
-          }
+          // Preset Live transcription has no replicated-TTS delay.
+          if (outputText && !playbackAligned) publishTranscript();
 
           // Handle turn completion
-          if (adkEvent.turnComplete) {
-            if (speakingTimeoutRef.current) {
-              clearTimeout(speakingTimeoutRef.current);
-            }
+          if (adkEvent.turnComplete) assistantTurnCompleteRef.current = true;
+          if (adkEvent.turnComplete && !playerRef.current?.isBusy()) {
             isAgentSpeakingRef.current = false;
-            setElaraVolume(0);
+            setHugbackVolume(0);
             setStatus("listening");
           }
 
-          // Handle Gemini server-side interruption event
-          if (adkEvent.interrupted) {
-            console.log("[Elara] Server interruption signal received. Flushing audio.");
-            if (playerRef.current) {
-              playerRef.current.flush();
-            }
-            isAgentSpeakingRef.current = false;
-            setElaraVolume(0);
-            setStatus("listening");
-          }
         } catch (err) {
-          console.error("[Elara] Error processing WebSocket message:", err);
+          // Do not leave queued subtitles/audio alive after a malformed packet.
+          console.warn("[Hugback] Invalid playback event; stopping call.");
+          setErrorMessage("The audio response could not be played. Please start a new call.");
+          setStatus("error");
+          releaseCallResources(true);
         }
       };
 
@@ -219,11 +310,12 @@ export function useLiveAudio({
       // listening while no AI session exists yet.
       await new Promise<void>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
-          reject(new Error("Elara backend did not become ready in time"));
+          reject(new Error("Hugback backend did not become ready in time"));
         }, CONNECTION_TIMEOUT_MS);
 
         const handleOpen = () => {
-          console.log("[Elara] WebSocket connection established. Waiting for Gemini...");
+          if (!isCurrentAttempt()) { ws.close(); return; }
+          console.log("[Hugback] WebSocket connection established. Waiting for Gemini...");
           ws.send(JSON.stringify(authenticationMessage));
         };
         const handleMessage = (event: MessageEvent) => {
@@ -236,7 +328,7 @@ export function useLiveAudio({
             } else if (message.type === "error") {
               window.clearTimeout(timeout);
               removeStartupListeners();
-              reject(new Error(message.message || "Elara backend failed to start a session"));
+              reject(new Error(message.message || "Hugback backend failed to start a session"));
             }
           } catch {
             // Ignore non-JSON messages while waiting for the ready event.
@@ -245,12 +337,12 @@ export function useLiveAudio({
         const handleError = () => {
           window.clearTimeout(timeout);
           removeStartupListeners();
-          reject(new Error(`Unable to connect to Elara backend on ${wsUrl}`));
+          reject(new Error(`Unable to connect to Hugback backend on ${wsUrl}`));
         };
         const handleClose = () => {
           window.clearTimeout(timeout);
           removeStartupListeners();
-          reject(new Error("Elara backend disconnected before Gemini was ready"));
+          reject(new Error("Hugback backend disconnected before Gemini was ready"));
         };
         const removeStartupListeners = () => {
           ws.removeEventListener("open", handleOpen);
@@ -265,25 +357,26 @@ export function useLiveAudio({
         ws.addEventListener("close", handleClose);
       });
 
-      if (intentionalCloseRef.current || wsRef.current !== ws) {
+      if (!isCurrentAttempt() || wsRef.current !== ws) {
         return;
       }
 
       ws.onerror = (event) => {
-        console.error("[Elara] WebSocket error:", event);
+        console.error("[Hugback] WebSocket error:", event);
       };
       ws.onclose = () => {
-        console.log("[Elara] WebSocket closed.");
+        if (wsRef.current !== ws) return;
+        console.log("[Hugback] WebSocket closed.");
         releaseCallResources(false);
         if (!intentionalCloseRef.current) {
-          setErrorMessage((current) => current || "Elara lost its connection. Please call again.");
+          setErrorMessage((current) => current || "Hugback lost its connection. Please call again.");
           setStatus("error");
         }
       };
 
       // Start recording only after Gemini confirms the live session is ready.
       const recorder = await startAudioRecorder((pcm16Buffer) => {
-        if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        if (isCurrentAttempt() && wsRef.current === ws && ws.readyState === WebSocket.OPEN) {
           // Stream raw 16-bit PCM binary frame
           wsRef.current.send(pcm16Buffer);
 
@@ -316,15 +409,15 @@ export function useLiveAudio({
           }
 
           // Edge VAD Barge-in Check:
-          // If the user speaks firmly (volume > threshold) while Elara is actively speaking,
+          // If the user speaks firmly (volume > threshold) while Hugback is actively speaking,
           // instantly flush client playback and signal turn_complete to reclaim floor!
-          if (normalizedVol > 0.35 && isAgentSpeakingRef.current) {
-            console.log("[Elara] Edge VAD barge-in triggered by user voice!");
+          if (normalizedVol > 0.35 && (isAgentSpeakingRef.current || playerRef.current?.isBusy())) {
+            console.log("[Hugback] Edge VAD barge-in triggered by user voice!");
             if (playerRef.current) {
               playerRef.current.flush();
             }
             isAgentSpeakingRef.current = false;
-            setElaraVolume(0);
+            setHugbackVolume(0);
             setStatus("listening");
 
             // Signal to backend
@@ -332,11 +425,13 @@ export function useLiveAudio({
           }
         }
       });
+      if (!isCurrentAttempt()) { recorder.stop(); return; }
       recorderRef.current = recorder;
 
-      setStatus("listening");
+      if (!isAgentSpeakingRef.current) setStatus("listening");
     } catch (err: unknown) {
-      console.error("[Elara] Failed to start call:", err);
+      if (callAttemptRef.current !== attempt) return;
+      console.error("[Hugback] Failed to start call:", err);
       releaseCallResources(true);
       if (!intentionalCloseRef.current) {
         const message = err instanceof Error ? err.message : "Failed to access microphone or connect";
@@ -344,7 +439,7 @@ export function useLiveAudio({
         setStatus("error");
       }
     }
-  }, [status, wsUrl, onTranscriptionUpdate, releaseCallResources]);
+  }, [status, wsUrl, demoParent, recipientId, workflowAcknowledged, onTranscriptionUpdate, releaseCallResources]);
 
   // Clean up on unmount
   useEffect(() => {
@@ -357,9 +452,11 @@ export function useLiveAudio({
     status,
     errorMessage,
     userTranscript,
-    elaraTranscript,
+    hugbackTranscript,
+    transcriptEntries,
     userVolume,
-    elaraVolume,
+    hugbackVolume,
+    callInfo,
     isCallActive: status !== "disconnected" && status !== "error",
     startCall,
     endCall,

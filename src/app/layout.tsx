@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Elara - Voice Companion",
-  description: "Empathetic, real-time voice companion powered by Gemini Live API",
+  title: "HugBack AI - Close to home, no matter where you roam",
+  description: "A consent-led voice bridge that helps families stay close across distance, in the familiar voice parents miss most.",
+  icons: { icon: "/logo.png", apple: "/logo.png" },
 };
 
 export default function RootLayout({
@@ -13,7 +14,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="min-h-screen bg-[#FBF9F5] text-[#2D2621] antialiased">
+      <body className="min-h-screen text-stone-900 antialiased">
         {children}
       </body>
     </html>
