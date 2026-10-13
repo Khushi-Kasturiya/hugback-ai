@@ -55,13 +55,35 @@ class CreateRecipient(DemoInput):
 
 class CreateFamily(CreateRecipient):
     """Create the family and its first explicitly configured recipient."""
+    childName: str | None = Field(default=None, min_length=1, max_length=40)
     childGender: Literal["female", "male", "neutral"] | None = None
+
+    @field_validator("childName")
+    @classmethod
+    def clean_child_name(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value or any(ord(char) < 32 for char in value):
+            raise ValueError("Use a short, readable fictional child name")
+        return value
 
 
 class SetChildGender(DemoInput):
     familyId: str = Field(pattern=r"^demo-family-[a-f0-9]{32}$")
     revision: int = Field(ge=0, strict=True)
+    childName: str | None = Field(default=None, min_length=1, max_length=40)
     childGender: Literal["female", "male", "neutral"]
+
+    @field_validator("childName")
+    @classmethod
+    def clean_child_name(cls, value):
+        if value is None:
+            return None
+        value = value.strip()
+        if not value or any(ord(char) < 32 for char in value):
+            raise ValueError("Use a short, readable fictional child name")
+        return value
 
 
 class RecipientTarget(DemoInput):

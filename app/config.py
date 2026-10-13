@@ -81,6 +81,7 @@ class Settings(BaseSettings):
     HUGBACK_DEMO_PROJECT: str = ""
     HUGBACK_DEMO_DATABASE: str = "hugback-synthetic"
     HUGBACK_CLOUD_TEST_ENABLED: bool = False
+    # Comma-separated Firebase anonymous UIDs shown by the local child portal.
     HUGBACK_TEST_OWNER_UIDS: str = ""
     # Planner + Critic only for acknowledged synthetic calls, not real-family analysis.
     HUGBACK_WORKFLOW_ENABLED: bool = False
@@ -90,6 +91,9 @@ class Settings(BaseSettings):
     HUGBACK_ALERT_EMAIL_ENABLED: bool = False
     HUGBACK_ALERT_SMTP_USERNAME: str = ""
     HUGBACK_ALERT_SMTP_APP_PASSWORD: str = ""
+    # Firestore demo mode uses one operator-controlled test inbox. The address
+    # stays in backend configuration and is never written to Firestore.
+    HUGBACK_ALERT_TEST_DESTINATION: str = ""
 
     # Internal Forms/Drive intake storage only; no browser route or consent grant.
     # Requires pre-existing resources. Enabling Firestore alone does not upload.

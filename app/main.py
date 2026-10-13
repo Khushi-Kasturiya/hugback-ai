@@ -1033,6 +1033,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 try:
                                     await asyncio.to_thread(
                                         send_test_notice, details["label"], details["startedAt"], details["email"],
+                                        details.get("childName"),
                                     )
                                     delivered = True
                                 except Exception as exc:

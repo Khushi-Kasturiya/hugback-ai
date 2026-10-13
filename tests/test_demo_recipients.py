@@ -38,6 +38,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
         self.store = DemoStore(self.path)
         for name, value in {
             "LOCAL_DEMO_ENABLED": True, "HUGBACK_AUTH_MODE": "development", "HUGBACK_LIVE_VOICE_MODE": "preset",
+            "HUGBACK_DEMO_STORE": "sqlite",
             "LOCAL_DEMO_DB_PATH": self.path, "HUGBACK_VOICE_DB_PATH": self.voices.path,
             "HUGBACK_REPLICATED_TTS_ENABLED": True, "GEMINI_API_KEY": "synthetic-placeholder",
             "HUGBACK_WORKFLOW_ENABLED": False,
@@ -51,13 +52,14 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
     def recipient(self, rid):
         return next(r for r in self.store.get(OWNER)["recipients"] if r["recipientId"] == rid)
 
-    def test_child_gender_is_family_scoped_revisioned_and_used_by_future_calls(self):
+    def test_child_details_are_family_scoped_revisioned_and_used_by_future_calls(self):
         self.assertIsNone(self.store.get(OWNER)["childGender"])
         body = {"syntheticOnly": True, "familyId": self.family["familyId"],
-                "revision": 0, "childGender": "male"}
+                "revision": 0, "childName": "Asha", "childGender": "male"}
         response = self.client.put("/api/demo/child-details", headers=HEADERS, json=body)
         self.assertEqual(response.status_code, 200, response.text)
         self.assertEqual(response.json()["childGender"], "male")
+        self.assertEqual(response.json()["childName"], "Asha")
         self.assertEqual(response.json()["childGenderRevision"], 1)
         self.assertEqual(self.client.put("/api/demo/child-details", headers=HEADERS,
                          json={**body, "childGender": "female"}).status_code, 409)
@@ -66,6 +68,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
                                "revision": 1}).status_code, 404)
         state = self.store.start_call(OWNER, "gender-test", self.mother, 0)
         self.assertEqual(state["childGender"], "male")
+        self.assertEqual(self.store.get(OWNER)["childName"], "Asha")
         self.store.call_status(self.mother, "gender-test", "completed", release=True)
         self.assertEqual(self.store.get(OWNER)["recipients"][1]["voice"]["mode"], "standard")
 

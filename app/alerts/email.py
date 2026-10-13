@@ -14,21 +14,39 @@ PORTAL_URL = "http://127.0.0.1:3000/childportal"
 
 
 def configured() -> bool:
-    return bool(
+    base = bool(
         settings.LOCAL_DEMO_ENABLED
-        and settings.HUGBACK_DEMO_STORE == "sqlite"
         and settings.HUGBACK_ALERT_EMAIL_ENABLED
         and settings.HUGBACK_ALERT_SMTP_USERNAME
         and settings.HUGBACK_ALERT_SMTP_APP_PASSWORD
         and _EMAIL.fullmatch(settings.HUGBACK_ALERT_SMTP_USERNAME)
     )
+    if not base:
+        return False
+    if settings.HUGBACK_DEMO_STORE == "sqlite":
+        return True
+    return bool(
+        settings.HUGBACK_DEMO_STORE == "firestore"
+        and settings.HUGBACK_CLOUD_TEST_ENABLED
+        and settings.HUGBACK_AUTH_MODE == "firebase"
+        and valid_destination(settings.HUGBACK_ALERT_TEST_DESTINATION)
+    )
+
+
+def configured_destination() -> str | None:
+    """Return the backend-only Firestore test inbox, never a browser value."""
+    if settings.HUGBACK_DEMO_STORE != "firestore":
+        return None
+    value = settings.HUGBACK_ALERT_TEST_DESTINATION.strip()
+    return value if valid_destination(value) else None
 
 
 def valid_destination(address: str) -> bool:
     return bool(address and _EMAIL.fullmatch(address))
 
 
-def send_test_notice(recipient_label: str, call_time: str, destination: str) -> None:
+def send_test_notice(recipient_label: str, call_time: str, destination: str,
+                     child_name: str | None = None) -> None:
     """Send no excerpt, topic, medical claim, or transcript outside the portal."""
     if not configured() or not valid_destination(destination):
         raise RuntimeError("Synthetic alert email is not configured")
@@ -36,8 +54,9 @@ def send_test_notice(recipient_label: str, call_time: str, destination: str) -> 
     message["From"] = settings.HUGBACK_ALERT_SMTP_USERNAME
     message["To"] = destination
     message["Subject"] = "HugBack call update"
+    greeting = f"Hello {child_name},\n\n" if child_name else ""
     message.set_content(
-        "A topic you chose to be notified about came up in a fictional HugBack "
+        greeting + "A topic you chose to be notified about came up in a fictional HugBack "
         f"call with {recipient_label} at {call_time}.\n\n"
         f"Open the local child portal on the test computer: {PORTAL_URL}\n\n"
         "This automatic notice may be inaccurate or delayed. It is not an emergency alert."

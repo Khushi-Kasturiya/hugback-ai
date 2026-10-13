@@ -125,6 +125,39 @@ class AlertTests(unittest.TestCase):
         self.assertFalse(cleared["alertEmailSelected"])
         self.assertFalse(cleared["alertEmailConfigured"])
 
+    def test_firestore_uses_backend_destination_without_persisting_raw_email(self):
+        temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
+        path = Path(temp.name) / "firestore-contract.sqlite3"
+        values = {
+            "HUGBACK_DEMO_STORE": "firestore", "HUGBACK_CLOUD_TEST_ENABLED": True,
+            "HUGBACK_AUTH_MODE": "firebase", "HUGBACK_ALERT_TEST_DESTINATION": "child@example.com",
+        }
+        patches = [patch.object(settings, key, value) for key, value in values.items()]
+        for item in patches: item.start(); self.addCleanup(item.stop)
+        store = DemoStore(path)
+        family = store.create("firebase-owner", CreateFamily(
+            **BASE, childName="Asha", childGender="female", label="Mother", relationship="mother"))
+        recipient = family["recipients"][0]
+        self.assertTrue(family["alertEmailSelected"])
+        self.assertTrue(family["alertEmailConfigured"])
+        self.assertEqual(family["alertEmailHint"], "c***@example.com")
+        self.assertNotIn("child@example.com", str(family))
+        with self.assertRaises(DemoError):
+            store.set_alert_destination("firebase-owner", SetAlertDestination(
+                syntheticOnly=True, familyId=family["familyId"], email="other@example.com",
+                confirmTestRecipient=True))
+        internal = store.start_call("firebase-owner", "firestore-alert", recipient["recipientId"], 0)
+        generation = internal["alertSharing"]["generation"]
+        self.assertTrue(store.record_transcript(recipient["recipientId"], "firestore-alert", 1,
+                                                parent_words("I have a fever today")))
+        self.assertTrue(store.reserve_alert(recipient["recipientId"], "firestore-alert", generation,
+                                            "fever", email_configured=True))
+        store.call_status(recipient["recipientId"], "firestore-alert", "completed", release=True)
+        claim = store.claim_alert_send(recipient["recipientId"], "firestore-alert", generation)
+        self.assertEqual(claim["email"], "child@example.com")
+        self.assertEqual(claim["childName"], "Asha")
+        self.assertNotIn("child@example.com", path.read_bytes().decode("latin1"))
+
     def test_browser_destination_route_is_owner_scoped_and_returns_only_masked_address(self):
         family = self.store.get("child-alert")
         payload = {"syntheticOnly": True, "familyId": family["familyId"],
@@ -195,13 +228,14 @@ class AlertTests(unittest.TestCase):
         for item in patches: item.start(); self.addCleanup(item.stop)
         self.assertTrue(configured())
         with patch("app.alerts.email.smtplib.SMTP") as smtp:
-            send_test_notice("Mother", "2026-10-13T10:00:00+00:00", "child@example.com")
+            send_test_notice("Mother", "2026-10-13T10:00:00+00:00", "child@example.com", "Asha")
             client = smtp.return_value.__enter__.return_value
             client.starttls.assert_called_once()
             self.assertEqual(client.starttls.call_args.kwargs["context"].verify_mode, ssl.CERT_REQUIRED)
             client.login.assert_called_once_with("sender@gmail.com", "synthetic-password")
             message = client.send_message.call_args.args[0]
             self.assertEqual(message["To"], "child@example.com")
+            self.assertIn("Hello Asha", message.get_content())
             self.assertIn("childportal", message.get_content())
             self.assertNotIn("fever", message.get_content().lower())
             self.assertNotIn("transcript", message.get_content().lower())

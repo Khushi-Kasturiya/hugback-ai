@@ -14,7 +14,7 @@ from app.demo.models import (
 from app.memory.followups import FollowupState, expire, record_consent
 from app.memory.failures import MEMORY_ERROR_CODES
 from app.wellbeing.models import WellbeingSignalDraft, display_text
-from app.alerts.email import configured as alert_email_configured, valid_destination
+from app.alerts.email import configured as alert_email_configured, configured_destination, valid_destination
 
 MAX_RECIPIENTS = 8
 MAX_TRANSCRIPT_CHARS = 25_000
@@ -130,24 +130,34 @@ class DemoStore:
         }
 
     def public(self, state):
+        destination = self._alert_destination(state)
         return {key: state[key] for key in ("familyId", "childId", "expiresAt", "schemaVersion")} | {
             "syntheticOnly": True,
+            "childName": state.get("childName"),
             "childGender": state.get("childGender"),
             "childGenderRevision": state.get("childGenderRevision", 0),
             "storageMode": settings.HUGBACK_DEMO_STORE,
-            "alertEmailSelected": bool(state.get("alertEmail")),
-            "alertEmailHint": self._alert_email_hint(state.get("alertEmail")),
+            "alertEmailSelected": bool(destination),
+            "alertEmailHint": self._alert_email_hint(destination),
             "alertEmailConfigured": self._alert_destination_ready(state),
             "recipients": [self.public_recipient(recipient) for recipient in state["recipients"]],
         }
 
     @staticmethod
-    def _alert_destination_ready(state):
-        return bool(
-            settings.HUGBACK_DEMO_STORE == "sqlite"
-            and alert_email_configured()
-            and valid_destination(state.get("alertEmail", ""))
-        )
+    def _alert_destination(state):
+        if settings.HUGBACK_DEMO_STORE == "firestore":
+            return configured_destination()
+        value = state.get("alertEmail", "")
+        return value if valid_destination(value) else None
+
+    @classmethod
+    def _alert_destination_ready(cls, state):
+        return bool(alert_email_configured() and cls._alert_destination(state))
+
+    @classmethod
+    def _alert_destination_token(cls, state):
+        destination = cls._alert_destination(state)
+        return hashlib.sha256(destination.casefold().encode()).hexdigest() if destination else None
 
     @staticmethod
     def _alert_email_hint(address):
@@ -217,6 +227,7 @@ class DemoStore:
                 state.update({
                     "schemaVersion": 2, "familyId": f"demo-family-{uuid.uuid4().hex}",
                     "childId": f"demo-child-{uuid.uuid4().hex}",
+                    "childName": request.childName,
                     "childGender": request.childGender, "childGenderRevision": 0,
                     "expiresAt": (now() + timedelta(days=7)).isoformat(),
                     "recipients": [self.new_recipient(request)],
@@ -230,8 +241,10 @@ class DemoStore:
                 raise DemoError("Choose your own demo family.", 404)
             if state.get("childGenderRevision", 0) != request.revision:
                 raise DemoError("Child details changed in another tab. Refresh before continuing.")
-            if state.get("childGender") == request.childGender:
+            next_name = request.childName if request.childName is not None else state.get("childName")
+            if state.get("childGender") == request.childGender and state.get("childName") == next_name:
                 return self.public(state)
+            state["childName"] = next_name
             state["childGender"] = request.childGender
             state["childGenderRevision"] = request.revision + 1
             return self.public(state)
@@ -439,7 +452,7 @@ class DemoStore:
             call["alert"] = {
                 "category": category, "observedAt": now().isoformat(),
                 "status": "suppressed" if recent else "pending" if email_configured and self._alert_destination_ready(state) else "not_configured",
-                "destinationGeneration": state.get("alertEmailGeneration", 0),
+                "destinationGeneration": self._alert_destination_token(state),
             }
             return call["alert"]["status"] == "pending"
         return self._run(action, parent=parent)
@@ -455,12 +468,12 @@ class DemoStore:
             call = next((item for item in recipient["calls"] if item["sessionId"] == session_id), None)
             if not call or call.get("alert", {}).get("status") != "pending":
                 return None
-            if call["alert"].get("destinationGeneration") != state.get("alertEmailGeneration", 0):
+            if call["alert"].get("destinationGeneration") != self._alert_destination_token(state):
                 call["alert"]["status"] = "not_configured"
                 return None
             call["alert"]["status"] = "sending"
             return {"label": recipient["label"], "startedAt": call["startedAt"],
-                    "email": state["alertEmail"]}
+                    "email": self._alert_destination(state), "childName": state.get("childName")}
         return self._run(action, parent=parent)
 
     def finish_alert_send(self, parent, session_id, expected_generation, *, delivered):
