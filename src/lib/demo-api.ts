@@ -46,7 +46,9 @@ export interface DemoRecipient {
   calls: { sessionId: string; startedAt: string; endedAt?: string; status: string;
     transcriptStatus?: "pending" | "available" | "not_enabled" | "unavailable" | "revoked";
     summaryStatus?: "pending" | "available" | "not_enabled" | "unavailable" | "revoked";
-    summaryFailureCode?: "missing_text" | "input_too_long" | "model_or_content" | "processing_unavailable";
+    summaryFailureCode?: "missing_text" | "input_too_long" | "model_or_content" | "processing_unavailable"
+      | "timeout" | "rate_limited" | "provider_unavailable" | "network_unavailable"
+      | "provider_access" | "model_unavailable" | "provider_request_rejected" | "invalid_output" | "processing_failed";
     canGenerateLegacySummary?: boolean;
     alert?: { category: "fever" | "bereavement"; observedAt: string;
       status: "pending" | "sending" | "sent" | "failed" | "suppressed" | "not_configured" };
