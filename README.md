@@ -62,8 +62,10 @@ Set `HUGBACK_WORKFLOW_ENABLED=TRUE` on the backend for additional specialists.
 3. Use **Try a synthetic example** or a fictional export; map the two speakers,
    then click **Prepare [recipient]'s background** after the separate fictional
    declarations. No message-by-message selection is needed. The browser
-   considers every parent-authored text message and sends at most 24 dated,
-   evenly spread excerpts of up to 500 characters to the demo backend. This
+   considers every parent-authored text message and sends at most 24 dated
+   excerpts. When suitable child replies exist, up to four are attributed style
+   examples beside up to 20 parent excerpts; otherwise all 24 may be parent
+   excerpts. Each excerpt is at most 500 characters. This
    bounded context is not the complete chat or an AI summary. **Save local
    preview** alone does not activate background in calls. Switching
    recipients resets the pending preview/review so it cannot carry over by mistake.

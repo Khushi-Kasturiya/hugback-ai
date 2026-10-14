@@ -3,7 +3,9 @@
 - 13 October: fictional browser imports use one action after whole-chat simulated
   child and parent permission, rather than individual message checkboxes. The
   browser considers all parent-authored text messages and sends at most 24
-  evenly spread, dated excerpts to the selected demo recipient. Clearly state
+  dated excerpts to the selected demo recipient. When suitable child replies
+  exist, include up to four short, attributed style examples alongside up to
+  20 parent excerpts; otherwise all 24 may be parent excerpts. Clearly state
   that long chats are bounded and not fully recalled; never present this as
   real-family consent, full-file upload or production intake.
 

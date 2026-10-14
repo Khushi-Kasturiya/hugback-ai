@@ -136,7 +136,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
       </p>}
 
       <div className="mt-6 grid gap-4 sm:grid-cols-2" key={recorderVersion}>
-        <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "consent"} label="1 · Voice sample" minimumSeconds={10} help="Speak naturally for a few seconds. (20-30 seconds)" onRecorded={(file) => { setReference(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "reference" : null)} />
+        <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "consent"} label="1 · Voice sample" minimumSeconds={10} help="Speak in your usual rhythm for 20–30 seconds. Tell a short fictional everyday story and ask a natural question; do not whisper or act." onRecorded={(file) => { setReference(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "reference" : null)} />
         <BrowserAudioRecorder disabled={locked || !available || activeRecorder === "reference"} label="2 · Consent" minimumSeconds={2} help="Read the statement below." onRecorded={(file) => { setConsent(file); setAcknowledged(false); }} onRecordingChange={(recording) => setActiveRecorder(recording ? "consent" : null)} />
       </div>
       <div className="mt-3 rounded-xl bg-violet-50 p-4 text-sm leading-6 text-stone-700"><strong>Read this for recording 2:</strong><br />“I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.”</div>

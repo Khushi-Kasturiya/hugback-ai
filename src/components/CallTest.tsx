@@ -29,6 +29,7 @@ export function CallTest() {
   const wasCallActive = useRef(false);
   const transcriptBox = useRef<HTMLDivElement>(null);
   const [childPhotoUrl, setChildPhotoUrl] = useState<string>("");
+  const [workflowAcknowledged, setWorkflowAcknowledged] = useState(false);
 
   const childName = demo.family?.childName?.trim() || "Khushi";
   const childInitial = (childName[0] || "K").toUpperCase();
@@ -49,16 +50,9 @@ export function CallTest() {
     };
   }, [demo.family?.familyId]);
 
-  // Auto-select first recipient if none in URL
-  useEffect(() => {
-    if (!recipientId && demo.family?.recipients?.length) {
-      router.replace(parentCallUrl(demo.family.recipients[0].recipientId));
-    }
-  }, [recipientId, demo.family, router]);
+  const recipient = demo.family?.recipients.find((item) => item.recipientId === recipientId);
 
-  const recipient =
-    demo.family?.recipients.find((item) => item.recipientId === recipientId) ||
-    demo.family?.recipients?.[0];
+  useEffect(() => { setWorkflowAcknowledged(false); }, [recipientId]);
 
   const {
     status,
@@ -71,17 +65,20 @@ export function CallTest() {
     endCall,
   } = useLiveAudio({
     demoParent: demoParent === true,
-    recipientId: recipient?.recipientId || recipientId,
-    workflowAcknowledged: true,
+    recipientId: recipient?.recipientId,
+    workflowAcknowledged,
   });
 
-  const canStart = !demoParent || (!!recipient && !recipient.busy && !demo.error);
+  const canStart = !!recipient && !recipient.busy && !demo.error && workflowAcknowledged;
   const startSelectedCall = () => {
     if (canStart) void startCall();
   };
 
   useEffect(() => {
-    if (demoParent && wasCallActive.current && !isCallActive) void demo.refresh();
+    if (demoParent && wasCallActive.current && !isCallActive) {
+      setWorkflowAcknowledged(false);
+      void demo.refresh();
+    }
     wasCallActive.current = isCallActive;
   }, [demoParent, isCallActive, demo.refresh]);
 
@@ -203,20 +200,19 @@ export function CallTest() {
                   value={recipient?.recipientId || ""}
                   disabled={isCallActive}
                   onChange={(event) => {
+                    setWorkflowAcknowledged(false);
                     if (event.target.value) {
                       router.replace(parentCallUrl(event.target.value));
                     }
                   }}
                   className="cursor-pointer appearance-none rounded-full bg-[#F3F4FB] py-1 pl-3 pr-7 text-xs font-bold text-[#252D49] outline-none transition hover:bg-[#EAEBFA] focus:ring-2 focus:ring-[#9BA5FC]/30"
                 >
+                  <option value="">Choose recipient</option>
                   {demo.family?.recipients?.map((item) => (
                     <option key={item.recipientId} value={item.recipientId}>
                       {item.label} {item.busy ? "· busy" : ""}
                     </option>
                   ))}
-                  {(!demo.family || demo.family.recipients.length === 0) && (
-                    <option value="">Choose recipient</option>
-                  )}
                 </select>
                 <ChevronDown className="pointer-events-none absolute right-2 top-2 h-3 w-3 text-stone-500" />
               </div>
@@ -398,6 +394,13 @@ export function CallTest() {
                 <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
                 <span>{errorMessage}</span>
               </div>
+            )}
+
+            {!isCallActive && recipient && (
+              <label className="relative mt-5 flex w-full max-w-xs items-start gap-2 rounded-xl border border-[#DDE2F0] bg-white/90 p-3 text-left text-xs leading-5 text-stone-700">
+                <input type="checkbox" checked={workflowAcknowledged} onChange={(event) => setWorkflowAcknowledged(event.target.checked)} className="mt-1" />
+                <span>This is a fictional test call. I agree that HugBack may process its synthetic speech and context with Google AI, including Planner and Critic when enabled.</span>
+              </label>
             )}
 
             {/* Live Call Transcript / Subtitles Box */}
