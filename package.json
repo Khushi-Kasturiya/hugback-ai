@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev",
+    "dev": "node scripts/next-runtime.cjs",
     "build": "next build",
     "start": "next start -H 0.0.0.0",
     "test": "node tests/run.cjs",
