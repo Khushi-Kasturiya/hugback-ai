@@ -140,7 +140,7 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
             "voicekey_test123",
         )
         style = request["input"][0]["content"][0]["annotations"][0]["style"]
-        self.assertEqual(style, "Natural conversational pace; follow the replicated speaker's cadence and intonation.")
+        self.assertEqual(style, "Stay close to the selected replicated speaker's natural accent, pitch range, and cadence. Speak warmly at a normal conversational pace, with brief natural pauses and no exaggerated character shifts.")
 
     async def test_streaming_tts_yields_raw_audio_deltas(self):
         events = [
@@ -187,11 +187,26 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(request["response_format"]["mime_type"], "audio/l16")
         self.assertEqual(
             request["input"][0]["content"][0]["annotations"][0]["style"],
-            "Natural conversational pace; follow the replicated speaker's cadence and intonation.",
+            "Stay close to the selected replicated speaker's natural accent, pitch range, and cadence. Speak warmly at a normal conversational pace, with brief natural pauses and no exaggerated character shifts.",
         )
 
 
 class StreamingSpeechSegmentationTests(unittest.TestCase):
+    def test_short_interjection_waits_for_first_meaningful_phrase(self):
+        ready, pending = split_ready_speech("Haan...", first_phrase_chars=96)
+        self.assertEqual(ready, [])
+        self.assertEqual(pending, "Haan...")
+        ready, pending = split_ready_speech(
+            pending + " aapne jo kaha, woh samajh aaya.", first_phrase_chars=96,
+        )
+        self.assertEqual(ready, ["Haan... aapne jo kaha, woh samajh aaya."])
+        self.assertEqual(pending, "")
+        self.assertLess(len(ready[0]), 90)
+
+    def test_complete_short_turn_still_flushes(self):
+        ready, pending = split_ready_speech("Haan?", first_phrase_chars=96, final=True)
+        self.assertEqual((ready, pending), (["Haan?"], ""))
+
     def test_releases_complete_sentence_and_keeps_partial_text(self):
         ready, pending = split_ready_speech(
             "I remember that. Let me think about your next"

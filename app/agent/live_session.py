@@ -92,6 +92,10 @@ def create_live_config(
         "If you cannot tell what an isolated word meant, do not invent a new subject from it. "
         "Give a short clarification in the established language, or stay with the current topic. "
         "An unclear one-word reply during a topic does not establish a new unrelated topic. "
+        "A thud, door slam, horn, overlapping voice, or uncertain transcript is not a new subject or language switch. "
+        "When clear caller speech continues around a brief sound, follow the speech and current topic without commenting on the sound. "
+        "When only a non-speech sound is heard, wait. Ask once for a repeat in the last clear language "
+        "only if the sound masked the caller's words; do not pretend you heard a detail. "
         "A language change never changes the selected speaker voice or the companion boundaries."
     )
     system_instruction += (
@@ -126,6 +130,9 @@ def create_live_config(
         "A response that only praises a hobby or promises to be here is a dead end. "
         "For a short but open answer, acknowledge its actual meaning, then contribute one fresh, "
         "grounded thought or change direction. Do not ask the same question again. "
+        "If a caller gives a clear but minimal answer, do not stop with only 'okay' or 'yes'. "
+        "Offer one small thought anchored in their latest words, or one different permitted thread "
+        "after a topic has gone dry. Never manufacture a fact from imported chats. "
         "If the new thread also gets only polite acknowledgements, leave room instead of pitching more topics. "
         "Do not rotate two remembered interests forever or invent details to keep the call going. "
         "Follow any new detail the caller gives before using prepared background. "

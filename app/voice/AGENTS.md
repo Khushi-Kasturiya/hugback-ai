@@ -27,6 +27,10 @@
   render cues are not playback/hearing acknowledgements for memory authority.
 - The initial phrase may release at a bounded clause/word boundary; later
   phrases retain sentence/280-character batching. Reuse the selected key/model.
+  Keep a very short opening interjection with the following thought while text
+  is still arriving; flush a complete short reply when the turn ends. Standard
+  Live audio and replicated TTS use the same conversation instruction. Voice
+  selection changes audio delivery, not the companion's identity or boundaries.
   At most one queued phrase may synthesize ahead, with bounded PCM queues and
   a single ordered emitter. Count cancelling producers against the concurrency
   limit; interruption/end discards pending audio and cancels provider streams.

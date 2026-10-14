@@ -19,7 +19,7 @@ MAX_RECORDING_SECONDS = 30
 _SENTENCE_BOUNDARY = re.compile(r'(?<=[.!?।])["\'’”)]*(?:\s+|$)')
 _CLAUSE_BOUNDARY = re.compile(r'(?<!\d[,;:，；：])(?<=[,;:，；：])(?:\s+|$)')
 REPLICATED_SPEECH_STYLE = (
-    "Natural conversational pace; follow the replicated speaker's cadence and intonation."
+    "Stay close to the selected replicated speaker's natural accent, pitch range, and cadence. Speak warmly at a normal conversational pace, with brief natural pauses and no exaggerated character shifts."
 )
 
 
@@ -125,7 +125,11 @@ def split_ready_speech(
     ready: list[str] = []
     while remaining:
         limit = first_phrase_chars if first_phrase_chars and not ready else maximum_chars
-        boundary = _SENTENCE_BOUNDARY.search(remaining)
+        # A one-word "Haan..." is an awkward, costly standalone TTS request.
+        # Keep a tiny opening anchor with the following thought when one is
+        # still arriving; a genuinely complete short turn flushes at final.
+        boundary = next((item for item in _SENTENCE_BOUNDARY.finditer(remaining)
+                         if not (first_phrase_chars and not ready) or item.end() >= 24), None)
         if first_phrase_chars and not ready:
             # Avoid micro-requests for "Yes," or splitting a number like 1,000.
             clause = next((item for item in _CLAUSE_BOUNDARY.finditer(remaining)

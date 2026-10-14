@@ -218,6 +218,18 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("natural phrasing and a small pause at sentence boundaries", instruction)
         self.assertIn("Speak calmly with natural space between short thought units", instruction)
         self.assertIn("it never calls for a different speaker, accent, or character voice", instruction)
+        self.assertIn("the first few spoken words carry a useful response", instruction)
+        self.assertIn("send a bare filler instead of an answer", instruction)
+        self.assertIn("occasional ellipsis or dash", instruction)
+        self.assertIn("do not make every turn a question or therapeutic validation", instruction)
+        self.assertIn("say plainly and warmly that you are HugBack, an AI", instruction)
+        self.assertIn("Never invent the child's schedule", instruction)
+        self.assertIn("During an ongoing conversation, treat a sudden thud", instruction)
+        self.assertIn("answer those words and stay on their current thread", instruction)
+        self.assertIn("If the caller tells you someone has died", instruction)
+        self.assertIn("A thud, door slam, horn, overlapping voice", instruction)
+        self.assertIn("When only a non-speech sound is heard, wait", instruction)
+        self.assertIn("If a caller gives a clear but minimal answer", instruction)
         self.assertEqual(config.realtime_input_config.automatic_activity_detection.silence_duration_ms, 1200)
         self.assertEqual(Settings.model_fields["HUGBACK_END_OF_SPEECH_SILENCE_MS"].default, 1300)
         for invalid in (699, 1601):
@@ -283,7 +295,7 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(score_call(call, ["Hey, HugBack here. Kaisi ho?"])[0]["passed"])
         for reply in ("Hello, I'm your daughter.", "Hey, HugBack here, your AI companion."):
             self.assertFalse(score_call(call, [reply])[0]["passed"])
-        self.assertIn("answer honestly that you are AI", HUGBACK_SYSTEM_INSTRUCTION)
+        self.assertIn("say plainly and warmly that you are HugBack, an AI", HUGBACK_SYSTEM_INSTRUCTION)
 
     def test_optional_voice_tone_check_in_is_tentative_and_scoped(self):
         self.assertEqual(tone_context({"toneContinuity": {"enabled": False}}), "")

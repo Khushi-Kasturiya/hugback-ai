@@ -388,6 +388,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             await asyncio.to_thread(demo_store.workflow_checkpoint, user_id, session_id,
                                     {"planner": planner_status})
         client = create_genai_client()
+        # Standard audio and replicated TTS share this conversation policy;
+        # the selected voice changes only the audio delivery path below.
         live_config = create_live_config(
             memory_context=render_memory_context(memory_context),
             enable_memory_tool=memory_service.enabled,
