@@ -207,6 +207,9 @@ class ReviewBackground(RecipientTarget):
             raise ValueError("Map two different participants")
         if len({e.sourceIndex for e in self.excerpts}) != len(self.excerpts):
             raise ValueError("Duplicate source message")
+        child_count = sum(item.sender == self.childSender for item in self.excerpts)
+        if child_count > 4 or (child_count and len(self.excerpts) - child_count > 20):
+            raise ValueError("Keep at most four child style examples and twenty parent excerpts")
         try:
             zone = ZoneInfo(self.timeZone)
             for item in self.excerpts:

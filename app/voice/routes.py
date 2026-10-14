@@ -20,6 +20,31 @@ logger = logging.getLogger("hugback.voice")
 _enrolling: set[str] = set()  # Local single-worker server, not a distributed lock.
 
 
+class VoiceProvisionFailure(Exception):
+    """A content-free record of the first enrollment transport failure."""
+
+    def __init__(self, *, status_code: int | None = None, repeated_send: bool = False):
+        self.status_code = status_code
+        self.repeated_send = repeated_send
+        super().__init__("voice enrollment transport failed")
+
+
+def provision_failure_detail(exc: Exception) -> str:
+    suffix = " No automatic retry was made. Refresh voice status before trying again."
+    if isinstance(exc, VoiceProvisionFailure):
+        if exc.repeated_send:
+            return "A second voice upload was blocked; the first request's outcome is unknown." + suffix
+        if exc.status_code in (401, 403):
+            return f"Google rejected voice setup (HTTP {exc.status_code}). Check the backend API key's project access and voice feature eligibility." + suffix
+        if exc.status_code == 429:
+            return "Google limited voice setup (HTTP 429). Check the backend API key project's quota and billing." + suffix
+        if exc.status_code is not None and 400 <= exc.status_code < 500:
+            return f"Google rejected voice setup (HTTP {exc.status_code}). Check recording and consent requirements, and project access." + suffix
+        if exc.status_code is not None and 500 <= exc.status_code < 600:
+            return f"Google voice setup is unavailable (HTTP {exc.status_code})." + suffix
+    return "Voice setup did not complete; the cause could not be determined safely." + suffix
+
+
 class VoiceEnrollmentRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     voiceSampleAudio: str = Field(min_length=1, max_length=MAX_BASE64_CHARS, repr=False)
@@ -56,14 +81,22 @@ async def provision_voice(recordings):
     async def send_once(request):
         nonlocal sent
         if sent:
-            raise RuntimeError("Automatic voice-enrollment retry blocked")
+            raise VoiceProvisionFailure(repeated_send=True)
         sent = True
+
+    async def capture_first_error(response):
+        # Stop the SDK's retry layer before it can hide the first Google status.
+        # Never read or log the response body, which can contain private data.
+        if response.status_code >= 400:
+            raise VoiceProvisionFailure(status_code=response.status_code)
 
     client = genai.Client(
         api_key=settings.GEMINI_API_KEY, vertexai=False,
         http_options={"api_version": "v1beta", "timeout": 45_000,
                       "retry_options": {"attempts": 0},
-                      "async_client_args": {"event_hooks": {"request": [send_once]}}},
+                      "async_client_args": {"event_hooks": {
+                          "request": [send_once], "response": [capture_first_error],
+                      }}},
     )
     try:
         async with asyncio.timeout(55):
@@ -98,21 +131,22 @@ async def enroll_voice(payload: VoiceEnrollmentRequest, identity=Depends(voice_i
         raise HTTPException(400, str(exc)) from exc
     _enrolling.add(identity.user_id)
     try:
-        voice = await provision_voice(recordings)
-        profile = await asyncio.to_thread(
-            get_voice_store().save, identity.user_id, voice.key, getattr(voice, "expire_time", None),
-        )
+        try:
+            voice = await provision_voice(recordings)
+        except Exception as exc:
+            # Neither provider errors nor validation messages may echo keys/audio.
+            logger.warning("Voice provider request failed (%s, HTTP %s)",
+                           type(exc).__name__, getattr(exc, "status_code", None))
+            raise HTTPException(502, provision_failure_detail(exc)) from exc
+        try:
+            profile = await asyncio.to_thread(
+                get_voice_store().save, identity.user_id, voice.key, getattr(voice, "expire_time", None),
+            )
+        except Exception as exc:
+            logger.warning("Voice provider response could not be saved locally (%s)", type(exc).__name__)
+            raise HTTPException(500, "Google returned a voice, but local voice setup could not save it. "
+                                "Refresh voice status and check local storage before another upload.") from exc
         return {"profile": profile}
-    except Exception as exc:
-        # Neither API errors nor validation messages may echo provider keys/audio.
-        logger.warning("Voice enrollment failed (%s)", type(exc).__name__)
-        detail = (
-            "Google did not complete voice setup. Check project access, billing and recordings. "
-            "No automatic retry was made. Refresh voice status before trying again."
-        )
-        if "Paid Quota Tier 1" in str(exc):
-            detail = "Google requires Paid Tier 1 on the backend API key's project. Check that project's billing."
-        raise HTTPException(502, detail) from exc
     finally:
         _enrolling.discard(identity.user_id)
 

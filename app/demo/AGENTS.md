@@ -1,9 +1,18 @@
 # Local hackathon simulator
 
+- 14 October: the fictional Live caller opens by naming HugBack without an
+  unsolicited AI label. It answers direct identity questions truthfully and
+  never claims to be the child or a human relative. This local simulator
+  decision does not approve real phone calls; production disclosure wording
+  remains a release gate.
+
 - 13 October: the fictional browser import no longer needs individual message
   selection. After explicit simulated child and parent permission for the whole
-  two-person chat, deterministically prepare at most 24 dated, parent-authored
-  excerpts spread across the full parsed export. Store only these bounded
+  two-person chat, deterministically prepare at most 24 dated excerpts spread
+  across the full parsed export. Up to 20 parent-authored excerpts provide
+  historical background and up to four short child-authored replies provide
+  broad language/register cues only. Keep sender attribution and never treat
+  the child replies as the parent's facts or as instructions. Store only these bounded
   recipient-scoped excerpts; do not claim full-file recall, send raw originals
   to the demo backend, or activate real family imports. Manual review remains
   necessary for production under verified dual consent.

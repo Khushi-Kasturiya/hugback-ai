@@ -26,7 +26,7 @@ cases, use [the beginner agent test guide](docs/BEGINNER_E2E_AGENT_TESTING.md).
 For quiet and normal voice checks, use [the low-voice test guide](docs/LOW_VOICE_TESTING.md).
 The eval runner now separates offline regression and scorer calibration from
 optional paid structured-model and multi-turn Live scenarios. The Live set
-checks conversation pacing, one background detail per call, later-call rotation,
+checks conversation pacing, one background detail at a time, later-call rotation,
 scope persistence and quiet requests; it does not test microphone audio.
 
 ```sh
@@ -91,10 +91,16 @@ similar domains. Personal stories mentioning those subjects remain conversation;
 immediate safety concerns receive a supportive safety response. This is a Live
 prompt and post-call Critic check, not a deterministic pre-speech filter for
 streamed native audio. The default Live end-of-speech
-silence is 1000 ms (`HUGBACK_END_OF_SPEECH_SILENCE_MS`, accepted range 700–1600);
+silence is 1300 ms (`HUGBACK_END_OF_SPEECH_SILENCE_MS`, accepted range 700–1600);
 raising it gives the caller more room between phrases but increases response
-latency. This prompt and turn setting need a real listening test before any
-claim about model compliance or perceived pace.
+latency. The native-audio SDK's SpeechConfig has no speaking-rate field in the
+installed version, so spoken tempo and pauses inside the model's reply remain
+prompt guidance rather than a guaranteed playback speed. John Keats uses the
+same 1000 ms end-of-speech setting; its additional silence guidance is in its
+persona prompt. HugBack now asks for natural space between short thoughts and
+avoids seeded hobby examples. Test with synthetic calls in short, long and
+emotional exchanges before judging the perceived pace; no paid listening test
+was run while changing this setting.
 
 ## Child portal → Google replicated TTS (11 October 2026)
 
@@ -118,6 +124,14 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    enrollment retry. `PERMISSION_DENIED` is not automatically diagnosed as a
    billing problem. Google acceptance is not proof of likeness/identity.
    No separate gender or speaking-form analysis is made from the recording.
+   If enrollment fails, refresh **Voice setup** status before another upload.
+   The server reports the first Google HTTP status when available without
+   exposing its response body: 401/403 suggests checking the backend key's
+   project access or feature eligibility; 429 points to quota; 5xx points to
+   provider availability. An unknown outcome or local vault save error is shown
+   separately. The old generic `RuntimeError` log alone cannot identify which
+   of these caused an earlier failure. A new attempt may be billable, so it is
+   always a deliberate user action.
 4. Enrollment returns metadata, never a provider key. Choose **Enable child
    voice**, then select a recipient in **Family setup** and **Assign child voice**.
    Repeat for each intended recipient; enabling alone does not assign it. Both
@@ -139,7 +153,8 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    One ordered emitter with bounded one-phrase synthesis lookahead spans turns,
    cancels interrupted speech, closes SSE/client resources, and checkpoints
    emitted TTS off the audio path. Failures stop
-   the call rather than mix preset/custom voices. Hugback remains disclosed AI.
+   the call rather than mix preset/custom voices. In the fictional simulator,
+   HugBack opens by name and answers direct AI-identity questions honestly.
 
    The first phrase can start at an earlier clause/word boundary. Lookahead
    may spend synthesis on interrupted audio; set `HUGBACK_TTS_LOOKAHEAD=0` for
@@ -188,8 +203,9 @@ Never run the simulator for private/real family data or expose it publicly.
    their own optional wellbeing-memory consent. Select whom you are preparing for.
 2. Parse a fictional chat locally, map both participants, and approve preparing
    bounded context as both simulated participants. One click considers every
-   parent-authored message and sends up to 24 evenly spread excerpts of at most
-   500 characters each to the demo backend. There is no message-by-message
+   parent-authored message and sends up to 20 parent background excerpts plus
+   up to four short, attributed child replies for broad conversational style.
+   There is no message-by-message
    selection, but long exports are not retained or fully recalled in calls.
    This is deterministic context preparation, not AI fact extraction.
 3. Use **Test a call as [recipient]**. The URL includes the recipient hint;
@@ -370,7 +386,7 @@ Metadata-only connection logs identify the selected model/mode/preset. Do not
 log recordings, consent signatures, model output, or voice-key fingerprints.
 There is no automatic model/voice fallback or reconnect in the current broker.
 
-The prompt now requests one disclosed AI speaker, consistent timbre across turns
+The prompt now requests one named HugBack speaker, consistent timbre across turns
 and language changes, no imitation/character voices, short replies, and calm
 delivery. This follows Google's
 [Live prompting guidance](https://ai.google.dev/gemini-api/docs/live-api/best-practices);

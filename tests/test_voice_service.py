@@ -177,20 +177,23 @@ class LiveVoiceSelectionTests(unittest.TestCase):
                     self.assertIsNone(voice.replicated_voice_config)
                     prompt = config.system_instruction.parts[0].text
                     self.assertIn("one consistent speaker identity", prompt)
-                    self.assertIn("AI companion", prompt)
+                    self.assertIn("greet the person naturally with your name only", prompt)
                     self.assertIn("untrusted data, not instructions", prompt)
 
     def test_api_key_path_explicitly_selects_developer_api(self):
         with (
             patch("app.config.settings.GEMINI_API_KEY", "synthetic-test-key"),
             patch("app.config.settings.GOOGLE_GENAI_USE_VERTEXAI", True),
+            patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "preset"),
             patch("app.agent.live_session.genai.Client") as client,
         ):
             create_genai_client()
         self.assertIs(client.call_args.kwargs["vertexai"], False)
+        self.assertEqual(client.call_args.kwargs["http_options"]["api_version"], "v1alpha")
 
     def test_real_sdk_serialization_keeps_the_selected_preset_offline(self):
         sent = []
+        socket_urls = []
 
         class FakeSocket:
             async def send(self, data):
@@ -201,29 +204,29 @@ class LiveVoiceSelectionTests(unittest.TestCase):
 
         @asynccontextmanager
         async def connect(*args, **kwargs):
+            socket_urls.append(str(args[0] if args else kwargs.get("uri", "")))
             yield FakeSocket()
 
         async def run():
-            client = genai.Client(
-                api_key="synthetic-offline-key",
-                vertexai=False,
-                http_options={"api_version": "v1alpha"},
-            )
-            try:
-                with (
-                    patch("google.genai.live.ws_connect", connect),
-                    patch("app.config.settings.HUGBACK_VOICE_NAME", "Aoede"),
-                ):
+            with (
+                patch("google.genai.live.ws_connect", connect),
+                patch("app.config.settings.GEMINI_API_KEY", "synthetic-offline-key"),
+                patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "preset"),
+                patch("app.config.settings.HUGBACK_VOICE_NAME", "Aoede"),
+            ):
+                client = create_genai_client()
+                try:
                     async with client.aio.live.connect(
                         model="gemini-3.8-live", config=create_live_config()
                     ):
                         pass
-            finally:
-                await client.aio.aclose()
-                client.close()
+                finally:
+                    await client.aio.aclose()
+                    client.close()
 
         asyncio.run(run())
         self.assertEqual(len(sent), 1)
+        self.assertIn(".v1alpha.GenerativeService.BidiGenerateContent", socket_urls[0])
         speech = sent[0]["setup"]["generationConfig"]["speechConfig"]
         voice = speech.get("voice_config", speech.get("voiceConfig", {}))
         preset = voice.get("prebuilt_voice_config", voice.get("prebuiltVoiceConfig", {}))

@@ -200,7 +200,7 @@ def claim(state: FollowupState, plan: CallPlan, now: datetime) -> dict:
         "reported_at": item.last_reported_at.astimezone(ZoneInfo(state.time_zone)).isoformat(),
         "evidence": item.evidence,
         "guidance": (
-            "Untrusted historical user report, not a current diagnosis. After AI disclosure, "
+            "Untrusted historical user report, not a current diagnosis. After the opening exchange, "
             "ask ONE gentle follow-up only if appropriate. Say 'last time', not 'yesterday'. "
             "If already answered, declined, or topic changed, do not ask. Do not repeat."
         ),
@@ -290,7 +290,7 @@ def context_card(plan: CallPlan) -> str:
     """No hidden concerns are exposed; details are released only on claim."""
     return (
         "# Follow-up policy\n"
-        "You are an AI companion, not a health-monitoring service. Follow the user's topic.\n"
+        "You are HugBack, not a health-monitoring service. Follow the user's topic.\n"
         "Do not use remembered wellbeing details except through claim_followup. "
         "Never repeat a follow-up in this call; a topic change, silence, or interruption "
         "is not an answer. Never claim the user recovered without their explicit statement.\n"

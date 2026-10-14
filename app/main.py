@@ -18,7 +18,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
 from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.responses import JSONResponse
-from google.genai import types
+from google.genai import errors as genai_errors, types
 
 from app.agent.live_session import create_genai_client, create_live_config
 from app.voice.grammar import speaking_form_for_call
@@ -69,6 +69,29 @@ from app.voice.service import (
 from app.voice.routes import router as voice_router
 from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice, voice_owner
 from app.voice.playback import ReplicatedPlayback
+
+
+def live_failure_detail(exc: Exception, *, connected: bool) -> tuple[int | None, str]:
+    """Return only the provider status category, never its response body."""
+    code = exc.code if isinstance(exc, genai_errors.APIError) and isinstance(exc.code, int) else None
+    prefix = "The voice connection stopped" if connected else "Google did not open the voice connection"
+    if code == 400:
+        return code, f"{prefix} (HTTP 400). The Live call setup was rejected; check its model and settings."
+    if code in (401, 403):
+        return code, f"{prefix} (HTTP {code}). Check the backend API key's project and Live model access."
+    if code == 404:
+        return code, f"{prefix} (HTTP 404). Check whether this Live model is available to the backend API key."
+    if code == 429:
+        return code, f"{prefix} (HTTP 429). The project may be at its Live quota or capacity limit; check usage before retrying."
+    if code is not None and 500 <= code < 600:
+        return code, f"{prefix} (HTTP {code}). Google Live was unavailable; try again later."
+    if code == 1011:
+        return code, (f"{prefix} (WebSocket 1011). Google closed Live setup, but this code does not identify why. "
+                      "Check this API key's Live limits and status in Google AI Studio; compare a Stream test in the same project.")
+    if code == 1006:
+        return code, (f"{prefix} (WebSocket 1006). The connection ended without a provider close reason. "
+                      "Check network or VPN connectivity before another attempt.")
+    return code, f"{prefix}. The provider reason could not be classified safely. Check the backend's Live configuration."
 
 # Configure logging
 logging.basicConfig(
@@ -378,8 +401,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 + (TONE_SIGNAL_CONTEXT if demo_state["toneContinuity"]["enabled"] else "")
             ) if demo_state else "",
             enable_wellbeing_signal_tool=signal_collector.enabled,
-            conversation_plan_context=plan_context(conversation_plan),
+            conversation_plan_context=plan_context(conversation_plan, demo_state),
             speaking_form=speaking_form,
+            preferred_language=demo_state.get("language", "auto") if demo_state else "auto",
         )
     except Exception as e:
         if demo_state:
@@ -833,12 +857,15 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     await playback.close()
 
     except Exception as e:
-        logger.error("Gemini live connection failed (%s)", type(e).__name__)
+        provider_code, detail = live_failure_detail(e, connected=call_ready)
+        logger.error("Gemini Live %s failed (%s, provider_code=%s)",
+                     "stream" if call_ready else "setup", type(e).__name__, provider_code)
         try:
             await websocket.send_text(
                 json.dumps({
                     "type": "error",
-                    "message": "The voice connection failed. Please check setup and retry.",
+                    "code": "live_stream_failed" if call_ready else "live_setup_failed",
+                    "message": detail,
                 })
             )
         except Exception:

@@ -160,6 +160,24 @@ class PortalVoiceTests(unittest.TestCase):
         self.provider.assert_awaited_once()
         self.assertIsNone(self.store.get("synthetic-voice-owner"))
 
+    def test_known_provider_status_is_safe_and_actionable(self):
+        from app.voice.routes import VoiceProvisionFailure
+        self.provider.side_effect = VoiceProvisionFailure(status_code=403)
+        response = self.client.post("/api/voice/enroll", headers=HEADERS, json=enrollment())
+        self.assertEqual(response.status_code, 502)
+        self.assertIn("HTTP 403", response.text)
+        self.assertIn("project access", response.text)
+        self.provider.assert_awaited_once()
+
+    def test_local_save_failure_is_not_reported_as_google_rejection(self):
+        with patch("app.voice.routes.get_voice_store") as get_store:
+            get_store.return_value.save.side_effect = OSError("private local path")
+            response = self.client.post("/api/voice/enroll", headers=HEADERS, json=enrollment())
+        self.assertEqual(response.status_code, 500)
+        self.assertIn("local voice setup", response.text)
+        self.assertNotIn("private local path", response.text)
+        self.provider.assert_awaited_once()
+
 
     def test_pending_upload_blocks_duplicate_mutations(self):
         with patch("app.voice.routes._enrolling", {"synthetic-voice-owner"}):
@@ -524,7 +542,7 @@ class EnrollmentTransportTests(unittest.IsolatedAsyncioTestCase):
     async def test_provider_retry_is_blocked_at_transport_boundary(self):
         import httpx
         from google import genai
-        from app.voice.routes import provision_voice
+        from app.voice.routes import VoiceProvisionFailure, provision_voice
         from app.voice.service import InlineVoice
         real_client = genai.Client
         requests = []
@@ -535,6 +553,28 @@ class EnrollmentTransportTests(unittest.IsolatedAsyncioTestCase):
             kwargs["http_options"]["async_client_args"]["transport"] = httpx.MockTransport(respond)
             return real_client(**kwargs)
         with patch("app.voice.routes.genai.Client", side_effect=factory), patch.object(settings, "GEMINI_API_KEY", "offline-placeholder"):
-            with self.assertRaises(Exception):
+            with self.assertRaises(VoiceProvisionFailure) as failure:
                 await provision_voice(InlineVoice(sample=make_wav(), consent=make_wav(duration=2)))
         self.assertEqual(requests, ["/v1beta/voices"])
+        self.assertEqual(failure.exception.status_code, 503)
+        self.assertFalse(failure.exception.repeated_send)
+
+    async def test_first_non_retryable_provider_error_is_preserved_without_body(self):
+        import httpx
+        from google import genai
+        from app.voice.routes import VoiceProvisionFailure, provision_voice
+        from app.voice.service import InlineVoice
+        real_client = genai.Client
+        requests = []
+        def respond(request):
+            requests.append(request.url.path)
+            return httpx.Response(403, json={"error": {"message": "private provider detail"}})
+        def factory(**kwargs):
+            kwargs["http_options"]["async_client_args"]["transport"] = httpx.MockTransport(respond)
+            return real_client(**kwargs)
+        with patch("app.voice.routes.genai.Client", side_effect=factory), patch.object(settings, "GEMINI_API_KEY", "offline-placeholder"):
+            with self.assertRaises(VoiceProvisionFailure) as failure:
+                await provision_voice(InlineVoice(sample=make_wav(), consent=make_wav(duration=2)))
+        self.assertEqual(requests, ["/v1beta/voices"])
+        self.assertEqual(failure.exception.status_code, 403)
+        self.assertNotIn("private", str(failure.exception))

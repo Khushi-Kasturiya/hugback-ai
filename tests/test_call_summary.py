@@ -4,7 +4,7 @@ import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-from app.demo.summary import summarize_call, summary_input
+from app.demo.summary import INSTRUCTION, summarize_call, summary_input
 from app.memory.models import TranscriptTurn
 
 
@@ -16,6 +16,12 @@ def turns():
 
 
 class SummaryTests(unittest.IsolatedAsyncioTestCase):
+    def test_summary_guidance_adds_detail_only_when_supported(self):
+        self.assertIn("two or three concise", INSTRUCTION)
+        self.assertIn("one other meaningful detail", INSTRUCTION)
+        self.assertIn("how HugBack responded", INSTRUCTION)
+        self.assertIn("one accurate sentence is enough", INSTRUCTION)
+
     async def test_grounded_short_summary(self):
         provider = SimpleNamespace(generate=AsyncMock(return_value=SimpleNamespace(
             summary="  Mother described painting blue flowers.  HugBack asked about the colours. ",

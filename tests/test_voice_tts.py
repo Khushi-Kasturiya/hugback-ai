@@ -139,6 +139,8 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
             request["generation_config"]["speech_config"][0]["voice"],
             "voicekey_test123",
         )
+        style = request["input"][0]["content"][0]["annotations"][0]["style"]
+        self.assertEqual(style, "Natural conversational pace; follow the replicated speaker's cadence and intonation.")
 
     async def test_streaming_tts_yields_raw_audio_deltas(self):
         events = [
@@ -183,6 +185,10 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(request["stream"])
         self.assertFalse(request["store"])
         self.assertEqual(request["response_format"]["mime_type"], "audio/l16")
+        self.assertEqual(
+            request["input"][0]["content"][0]["annotations"][0]["style"],
+            "Natural conversational pace; follow the replicated speaker's cadence and intonation.",
+        )
 
 
 class StreamingSpeechSegmentationTests(unittest.TestCase):

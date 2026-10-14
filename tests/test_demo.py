@@ -131,6 +131,17 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValidationError):
             ReviewBackground(**request)
 
+    def test_child_style_examples_have_separate_bound(self):
+        request = review()
+        parent = request["excerpts"][0]
+        child = request["excerpts"][1]
+        request["excerpts"] = [parent | {"sourceIndex": index} for index in range(20)] + [
+            child | {"sourceIndex": index} for index in range(20, 24)]
+        self.assertEqual(len(ReviewBackground(**request).excerpts), 24)
+        request["excerpts"] = request["excerpts"][1:] + [child | {"sourceIndex": 24}]
+        with self.assertRaises(ValidationError):
+            ReviewBackground(**request)
+
     def test_review_revision_busy_and_clear(self):
         self.create()
         self.store.review("synthetic-browser-a", self.review_request())

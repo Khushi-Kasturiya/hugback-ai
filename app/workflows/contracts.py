@@ -13,7 +13,8 @@ class ConversationPlan(BaseModel):
 
 class Finding(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
-    code: Literal["missing_ai_disclosure", "repeated_followup", "unsupported_memory",
+    code: Literal["missing_ai_disclosure", "missing_hugback_identity", "unprompted_ai_label",
+                  "repeated_followup", "unsupported_memory",
                   "ignored_topic_change", "false_memory_action", "impersonation",
                   "language_mismatch", "out_of_scope_answer"]
     severity: Literal["warning", "error"]

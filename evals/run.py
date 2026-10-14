@@ -147,7 +147,8 @@ async def live_cases(scenarios):
                     )
                 config = create_live_config(
                     background_context=background_context(state) if background else "",
-                    conversation_plan_context=plan_context(plan),
+                    conversation_plan_context=plan_context(plan, state),
+                    preferred_language=state["language"],
                 )
                 replies = []
                 async with asyncio.timeout(90):

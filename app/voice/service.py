@@ -18,6 +18,9 @@ MAX_BASE64_CHARS = 4 * ((MAX_WAV_BYTES + 2) // 3)
 MAX_RECORDING_SECONDS = 30
 _SENTENCE_BOUNDARY = re.compile(r'(?<=[.!?।])["\'’”)]*(?:\s+|$)')
 _CLAUSE_BOUNDARY = re.compile(r'(?<!\d[,;:，；：])(?<=[,;:，；：])(?:\s+|$)')
+REPLICATED_SPEECH_STYLE = (
+    "Natural conversational pace; follow the replicated speaker's cadence and intonation."
+)
 
 
 class VoiceEnrollmentError(ValueError):
@@ -229,7 +232,7 @@ async def synthesize_replicated_speech(
                 "text": text,
                 "annotations": [{
                     "type": "speech_metadata",
-                    "style": "warm, natural, caring, and conversational",
+                    "style": REPLICATED_SPEECH_STYLE,
                 }],
             }],
         }],
@@ -259,7 +262,7 @@ async def stream_replicated_speech(
                 "text": text,
                 "annotations": [{
                     "type": "speech_metadata",
-                    "style": "warm, natural, caring, and conversational",
+                    "style": REPLICATED_SPEECH_STYLE,
                 }],
             }],
         }],
