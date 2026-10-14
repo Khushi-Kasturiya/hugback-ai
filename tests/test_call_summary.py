@@ -3,6 +3,7 @@
 import unittest
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+from google.genai import errors
 
 from app.demo.summary import INSTRUCTION, summarize_call, summary_input
 from app.memory.models import TranscriptTurn
@@ -30,6 +31,8 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         result = await summarize_call(turns(), provider=provider)
         self.assertEqual(result, "Mother described painting blue flowers. HugBack asked about the colours.")
         provider.generate.assert_awaited_once()
+        self.assertEqual(provider.generate.call_args.kwargs["model"], "gemini-3.5-flash-lite")
+        self.assertEqual(provider.generate.call_args.kwargs["timeout_ms"], 42_000)
 
     async def test_invalid_evidence_and_provider_failure_fail_closed(self):
         bad = SimpleNamespace(generate=AsyncMock(return_value=SimpleNamespace(
@@ -47,6 +50,13 @@ class SummaryTests(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(await summarize_call(turns(), provider=copied_turn))
         failed = SimpleNamespace(generate=AsyncMock(side_effect=RuntimeError("synthetic provider failure")))
         self.assertIsNone(await summarize_call(turns(), provider=failed))
+
+    async def test_provider_failure_is_content_free_and_classified(self):
+        provider = SimpleNamespace(generate=AsyncMock(side_effect=errors.APIError(
+            503, {"error": {"message": "private fictional call text"}})))
+        failure = {}
+        self.assertIsNone(await summarize_call(turns(), provider=provider, failure=failure))
+        self.assertEqual(failure, {"code": "provider_unavailable"})
 
     async def test_missing_speaker_skips_model_and_long_call_is_bounded(self):
         provider = SimpleNamespace(generate=AsyncMock())

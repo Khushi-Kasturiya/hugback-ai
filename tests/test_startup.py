@@ -218,6 +218,9 @@ class StartupTests(unittest.TestCase):
                         server_content=types.LiveServerContent(interrupted=True)
                     )
                 yield types.LiveServerMessage(server_content=types.LiveServerContent(
+                    input_transcription=types.Transcription(text="Hello"),
+                ))
+                yield types.LiveServerMessage(server_content=types.LiveServerContent(
                     model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(
                         data=b"\0\0" * 24, mime_type="audio/pcm;rate=24000",
                     ))]),
@@ -243,6 +246,145 @@ class StartupTests(unittest.TestCase):
                 self.assertTrue(interrupted)
         self.assertEqual(len(configurations), 1)
         self.assertEqual(configurations[0].speech_config.voice_config.prebuilt_voice_config.voice_name, "Aoede")
+
+    def test_show_character_facts_are_replaced_before_preset_audio_playback(self):
+        class FakeLiveSession:
+            def __init__(self):
+                self.queue = asyncio.Queue()
+
+            async def send_client_content(self, **kwargs):
+                text = kwargs["turns"].parts[0].text
+                if "Taarak" in text:
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        input_transcription=types.Transcription(text=text),
+                    )))
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(
+                            data=b"CHAT", mime_type="audio/pcm;rate=24000",
+                        ))]),
+                        output_transcription=types.Transcription(text="Achha, TV dekh rahe the."),
+                        turn_complete=True,
+                    )))
+                else:
+                    # Simulate provider audio arriving before finalized input words.
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(
+                            data=b"FACT", mime_type="audio/pcm;rate=24000",
+                        ))]),
+                    )))
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        input_transcription=types.Transcription(text="Haan, kuch batana yaar."),
+                    )))
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(
+                            data=b"MORE", mime_type="audio/pcm;rate=24000",
+                        ))]),
+                    )))
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        input_transcription=types.Transcription(text=text),
+                    )))
+                    await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
+                        output_transcription=types.Transcription(text="Jethalal aur Daya Ben."),
+                        turn_complete=True,
+                    )))
+
+            async def receive(self):
+                while True:
+                    event = await self.queue.get()
+                    yield event
+                    if event.server_content.turn_complete:
+                        return
+
+        @asynccontextmanager
+        async def connect(*, model, config):
+            yield FakeLiveSession()
+
+        async def safe_tts(*args, **kwargs):
+            self.assertEqual(kwargs["voice_key"], "Aoede")
+            yield SimpleNamespace(pcm=b"SAFE", sample_rate=24000)
+
+        fake_client = SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
+        with (
+            patch("app.main.create_genai_client", return_value=fake_client),
+            patch("app.voice.playback.stream_replicated_speech", safe_tts),
+            TestClient(app) as client,
+        ):
+            with client.websocket_connect("/ws") as websocket:
+                websocket.send_json({"type": "authenticate", "userId": "local-test-user"})
+                self.assertEqual(websocket.receive_json()["voiceName"], "Aoede")
+                websocket.send_json({"type": "text", "text": "Aaj Taarak Mehta dekh raha tha."})
+                first = []
+                while True:
+                    event = websocket.receive_json()
+                    first.append(event)
+                    if event.get("turnComplete"):
+                        break
+                self.assertTrue(any("content" in event for event in first))
+                websocket.send_json({"type": "text", "text": "Iske kirdaar ke baare mein tumhe pata hai kya?"})
+                second = []
+                while True:
+                    event = websocket.receive_json()
+                    second.append(event)
+                    if event.get("turnComplete"):
+                        break
+                audio = [base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"])
+                         for event in second if "content" in event]
+                captions = [event["outputTranscription"]["text"] for event in second
+                            if "outputTranscription" in event]
+                self.assertEqual(audio, [b"SAFE"])
+                self.assertTrue(any("facts" in text for text in captions))
+                self.assertFalse(any("Jethalal" in text for text in captions))
+
+    def test_direct_first_turn_show_question_discards_early_live_audio(self):
+        class FakeLiveSession:
+            def __init__(self):
+                self.ready = asyncio.Event()
+
+            async def send_client_content(self, **kwargs):
+                self.text = kwargs["turns"].parts[0].text
+                self.ready.set()
+
+            async def receive(self):
+                await self.ready.wait()
+                yield types.LiveServerMessage(server_content=types.LiveServerContent(
+                    model_turn=types.Content(parts=[types.Part(inline_data=types.Blob(
+                        data=b"UNSAFE", mime_type="audio/pcm;rate=24000",
+                    ))]),
+                    output_transcription=types.Transcription(text="It has famous characters."),
+                ))
+                yield types.LiveServerMessage(server_content=types.LiveServerContent(
+                    input_transcription=types.Transcription(text=self.text),
+                    turn_complete=True,
+                ))
+
+        @asynccontextmanager
+        async def connect(*, model, config):
+            yield FakeLiveSession()
+
+        async def safe_tts(*args, **kwargs):
+            self.assertEqual(kwargs["voice_key"], "Aoede")
+            yield SimpleNamespace(pcm=b"SAFE", sample_rate=24000)
+
+        fake_client = SimpleNamespace(aio=SimpleNamespace(live=SimpleNamespace(connect=connect)))
+        with (
+            patch("app.main.create_genai_client", return_value=fake_client),
+            patch("app.voice.playback.stream_replicated_speech", safe_tts),
+            TestClient(app) as client,
+        ):
+            with client.websocket_connect("/ws") as websocket:
+                websocket.send_json({"type": "authenticate", "userId": "local-test-user"})
+                self.assertEqual(websocket.receive_json()["type"], "ready")
+                websocket.send_json({"type": "text", "text": "Do you know this TV show?"})
+                events = []
+                while True:
+                    event = websocket.receive_json()
+                    events.append(event)
+                    if event.get("turnComplete"):
+                        break
+                audio = [base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"])
+                         for event in events if "content" in event]
+                self.assertEqual(audio, [b"SAFE"])
+                self.assertNotIn("famous characters", str(events))
 
 
 if __name__ == "__main__":

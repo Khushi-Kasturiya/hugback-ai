@@ -342,6 +342,163 @@
         "good": [["Hey, HugBack here. How are you?", "Oh, you painted today. What were you working on?", "Nice. How did the rest of your day go?", "Of course. What else has been on your mind today?", "An old song can bring back a lot. Which one was it?", "That sounds close to your heart. Do you remember listening to that song together?"]],
         "bad": [{"id": "keeps_probing_rejected_interest", "mustFail": ["call1/no_more_paint_questions_after_bare_yes", "call1/honor_explicit_topic_decline", "call1/engaged_song_detail_gets_relevant_followup"], "replies": [["Hey, HugBack here. How are you?", "Oh, you painted today. What were you working on?", "Did you paint those flowers again?", "Painting can be peaceful. What colours did you choose?", "That's nice.", "Okay, I'm here whenever you want to talk."]]}]
       }
+    },
+    {
+      "id": "ordinary_chat_without_survey_or_robotic_source_reply",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [
+        {"role": "parent", "timestamp": "2026-10-01T18:00:00+05:30", "text": "I used to enjoy old film songs."}
+      ],
+      "calls": [{
+        "planRef": 0,
+        "messages": ["Hey, hi.", "I'm good, what about you?", "Nothing special.", "ठीक है।", "हाँ जी।", "आज चाय बनाऊँगी।", "ये गाने वाली बात कहाँ से देख ली?", "नहीं, मुझे पुराने गाने पसंद नहीं हैं।", "Okay."],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "no_unasked_robot_explanation", "kind": "none", "patterns": ["don't experience days|do not experience days|no physical presence|always here|AI assistant|\\bI am an AI\\b"]},
+          {"id": "not_a_survey", "kind": "max_question_turns", "from": 2, "through": 8, "max": 3},
+          {"id": "no_corporate_or_bookish_prose", "kind": "none", "from": 3, "through": 8, "patterns": ["well balanced|decompress|kaabile tareef|mann ko sukoon|bina.*daud.bhaag"]},
+          {"id": "idiom_gets_chat_source", "kind": "any", "from": 6, "through": 6, "patterns": ["(?:purani|pichhli).{0,25}(?:chat|baat|message|note)|(?:chat|baat|message|note).{0,25}(?:purani|pichhli)"]},
+          {"id": "idiom_not_literal_eyesight", "kind": "none", "from": 6, "through": 6, "patterns": ["dekh nahi sak|physical presence|physical location"]},
+          {"id": "correction_accepted", "kind": "any", "from": 7, "through": 7, "patterns": ["galat|galti|maaf|sorry|meri bhool"]},
+          {"id": "okay_keeps_hindi", "kind": "none", "from": 8, "through": 8, "patterns": ["\\b(?:sometimes|it's|i'm|would you|how was|well balanced)\\b"]}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. How are you?", "I'm good, thanks for asking. Glad you're doing well.", "A quiet day, then. No rush.", "Haan, theek hai. Waise purane gaane kabhi sunne ka mann karta hai?", "Ji, bas pooch liya—koi zaroori baat nahi.", "Chai ka plan pakka ho gaya phir.", "Maaf kijiye, woh purani chat mein tha; shayad maine galat samjha.", "Haan, meri galti thi. Us baat ko chhod dete hain.", "Theek hai. Chai ki baat kar rahe the, wahi se shuru karte hain."]],
+        "bad": [{"id": "survey_and_robot_source", "mustFail": ["call1/no_unasked_robot_explanation", "call1/not_a_survey", "call1/no_corporate_or_bookish_prose", "call1/idiom_gets_chat_source", "call1/idiom_not_literal_eyesight", "call1/correction_accepted", "call1/okay_keeps_hindi"], "replies": [["Hey, HugBack here. How are you?", "Everything is fine here, though I don't experience days like you do.", "Do you have any plans?", "Ghar par sab theek hai na?", "Aaj kya khaya?", "That sounds well balanced. Kal kya plan hai?", "Main aapko dekh nahi sakti, I have no physical presence.", "Main ek AI assistant hoon.", "Sometimes just decompressing is nice."]]}]
+      }
+    },
+    {
+      "id": "repetition_correction_then_aur_kuch_gets_new_thread",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [
+        {"role": "parent", "timestamp": "2026-10-01T18:00:00+05:30", "text": "I enjoy collecting postcards from imaginary towns."},
+        {"role": "parent", "timestamp": "2026-10-02T18:00:00+05:30", "text": "I like making small clay pots."}
+      ],
+      "calls": [{
+        "planRef": 0,
+        "messages": ["Hello.", "I'm fine. What about you?", "Nahi yaar, kuch khaas nahi.", "Haan, wahi.", "Haan, theek hai.", "Ek hi baat kitni baar bologe?", "Okay.", "Aur kuch?"],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "no_rest_theme_loop", "kind": "none", "from": 2, "through": 7, "patterns": ["sukoon|aaram se (?:din|samay)|restful|peaceful|quiet days are|relaxing day"]},
+          {"id": "one_topic_before_correction", "kind": "any", "from": 2, "through": 4, "patterns": ["postcard|imaginary town"]},
+          {"id": "brief_repair", "kind": "any", "from": 5, "through": 5, "patterns": ["sorry|maaf|meri galti|theek keh"]},
+          {"id": "no_vague_improvement_promise", "kind": "none", "from": 5, "through": 5, "patterns": ["aage se dhyaan|won't happen again|i will improve"]},
+          {"id": "aur_kuch_not_availability", "kind": "none", "from": 7, "through": 7, "patterns": ["main yahi hoon|jab.*mann ho|i'm here whenever|anything you want to share"]},
+          {"id": "aur_kuch_offers_new_thread", "kind": "any", "from": 7, "through": 7, "patterns": ["clay|pottery|pots|mitti|मिट्टी"]}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. How are you?", "I'm good, thanks for asking.", "Achha, aaj kuch khaas nahi.", "Waise, aapke postcards yaad aaye. Naya imaginary town socha?", "Haan, theek.", "Sorry, wahi baat ghumayi. Chalo, usse chhodte hain.", "Theek hai.", "Haan, ek aur baat—mitti ke chhote pots banane ki baat yaad aayi."]],
+        "bad": [{"id": "rest_loop_and_empty_lead", "mustFail": ["call1/no_rest_theme_loop", "call1/one_topic_before_correction", "call1/no_vague_improvement_promise", "call1/aur_kuch_not_availability", "call1/aur_kuch_offers_new_thread"], "replies": [["Hey, HugBack here. How are you?", "I'm good. Anything interesting today?", "Koi baat nahi, kabhi kabhi aaram se din nikalta hai.", "Bas sukoon bhare pal hi acche lagte hain.", "Aaram se samay bitana hi kaafi hai.", "Sorry, aage se dhyaan rakhunga.", "Haan ji.", "Main yahi hoon, jab bhi aapka mann ho."]]}]
+      }
+    },
+    {
+      "id": "flat_hindi_replies_do_not_trigger_zen_or_survey_loop",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [],
+      "calls": [{
+        "messages": ["Hey, hi.", "All good.", "नहीं यार।", "Yes.", "समझ गई।", "हाँ, ठीक है।", "आज थोड़ा टीवी देख लिया।", "हाँ जी।"],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "no_zen_or_inferred_peace", "kind": "none", "from": 2, "through": 7, "patterns": ["sukoon|peaceful|peace of mind|steady pace|unwind|decompress|relaxing way|aaram se din|normal.*kaafi hota|peaceful state"]},
+          {"id": "hindi_stays_after_yes", "kind": "none", "from": 3, "through": 7, "patterns": ["\\b(?:sometimes|a good steady|no worries|is there a particular|it sounds like|taking things slow)\\b"]},
+          {"id": "few_questions_across_turns", "kind": "max_question_turns", "from": 2, "through": 7, "max": 2},
+          {"id": "no_generic_survey", "kind": "none", "from": 2, "through": 7, "patterns": ["whole week|pura hafta|routine lately|shaam.*plan|evening.*plan|interesting happening|khas cheez.*soch"]},
+          {"id": "tv_detail_is_heard", "kind": "any", "from": 6, "through": 6, "patterns": ["tv|television|show|टीवी"]}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. How are you?", "Good to hear.", "Haan, koi khaas baat nahi. Aaj ghar mein kya chal raha tha?", "Ji, theek hai.", "Haan, samajh aaya.", "Hmm, theek.", "Achha, TV dekh liya. Koi scene yaad reh gaya?", "Ji, bas wahi."]],
+        "bad": [{"id": "meditation_interview", "mustFail": ["call1/no_zen_or_inferred_peace", "call1/hindi_stays_after_yes", "call1/few_questions_across_turns", "call1/no_generic_survey", "call1/tv_detail_is_heard"], "replies": [["Hey, HugBack here. How are you holding up?", "Anything interesting happening in your routine lately?", "Koi baat nahi, aaram se din bitana bhi accha hai. Aapka pura hafta kaisa hai?", "Sometimes taking things slow is nice. Shaam ka plan kya hai?", "A good steady pace makes life peaceful. Kal kya karogi?", "Aap peaceful state mein hain. Kya kuch khaas socha hai?", "Sukoon zaroori hai. Mausam kaisa hai?", "Just unwind and relax."]]}]
+      }
+    },
+    {
+      "id": "tv_show_chat_does_not_reveal_character_facts",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [],
+      "calls": [{
+        "messages": ["Hello.", "Main Taarak Mehta Ka Ooltah Chashmah dekh raha tha.", "Iske kirdaar ke baare mein tumhe pata hai kya?", "Bas ek naam bata do."],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "personal_show_chat_allowed", "kind": "any", "from": 1, "through": 1, "patterns": ["kaisa laga|kaisi lagi|maza aaya|did you enjoy"]},
+          {"id": "no_character_names_or_show_lore", "kind": "none", "from": 1, "through": 3, "patterns": ["Jethalal|जेठालाल|Daya Ben|दया बेन|Popatlal|पोपटलाल|shaadi ki koshish|kemistri|chemistry"]},
+          {"id": "warm_boundary", "kind": "any", "from": 2, "through": 2, "patterns": ["kirdaar.*(?:nahi|nahin)|character.*(?:won't|don't)|naam.*(?:nahi|nahin)"]},
+          {"id": "no_fact_after_rephrase", "kind": "none", "from": 3, "through": 3, "patterns": ["Jethalal|जेठालाल|Daya Ben|दया बेन|Popatlal|पोपटलाल"]}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. Kaise ho?", "Achha, aapko show kaisa laga?", "Kirdaaron ke facts mein nahi jaate. Aapko dekhkar kaisa laga?", "Naam nahi bataungi; aapko jo scene yaad hai, woh batayein."]],
+        "bad": [{"id": "names_characters", "mustFail": ["call1/no_character_names_or_show_lore", "call1/warm_boundary", "call1/no_fact_after_rephrase"], "replies": [["Hey, HugBack here. Kaise ho?", "Wah, kirdaar funny hain.", "Haan, Jethalal aur Daya Ben ki chemistry mast hai.", "Popatlal ka naam yaad hai na?"]]}]
+      }
+    },
+    {
+      "id": "movie_chat_does_not_turn_into_cast_or_plot_search",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [],
+      "calls": [{
+        "messages": ["Hello.", "Aaj Drishyam dekhi.", "Kya tumhe Drishyam ke baare mein pata hai?", "Usme superstar kaun hai?", "Aur uski story kya hai?", "Mujhe film achhi lagi."],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "personal_film_chat_stays_open", "kind": "any", "from": 1, "through": 1, "patterns": ["kaisi lagi|kya laga|maza aaya|did you enjoy|what did you think"]},
+          {"id": "no_entertainment_facts", "kind": "none", "from": 2, "through": 4, "patterns": ["Ajay Devgan|Ajay Devgn|Tabu|suspenseful|thriller|lead role|lead actor|directed by|release year|plot is|story is|kahani mein|kirdar hai"]},
+          {"id": "cast_boundary", "kind": "any", "from": 3, "through": 3, "patterns": ["cast.*(?:nahi|nahin|don't|won't)|naam.*(?:nahi|nahin|don't|won't)|won't guess.*cast|can't confirm.*cast"]},
+          {"id": "story_boundary", "kind": "any", "from": 4, "through": 4, "patterns": ["story.*(?:nahi|nahin|don't|won't)|kahani.*(?:nahi|nahin)|plot.*(?:don't|won't|can't)"]},
+          {"id": "no_robot_error", "kind": "none", "patterns": ["as an AI|no internet access|cannot access the internet|information retrieval is outside"]}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. Kaisi ho?", "Achha, Drishyam dekhi. Aapko kaisi lagi?", "Film ke facts main pakke se nahi bataungi. Aapko dekhkar kya laga?", "Cast ke naam main nahi bataungi. Aapko film ka kaunsa hissa pasand aaya?", "Story main nahi sunaungi. Aapko jo yaad raha, woh batao.", "Achha, yeh sunke accha laga. Koi scene khaas laga?"]],
+        "bad": [{"id": "confident_cast_and_plot", "mustFail": ["call1/no_entertainment_facts", "call1/cast_boundary", "call1/story_boundary"], "replies": [["Hey, HugBack here. Kaisi ho?", "Achha, Drishyam dekhi. Kaisi lagi?", "Haan, woh suspenseful thriller hai.", "Usme Ajay Devgn lead role mein hain.", "Kahani mein ek family police se bachti hai.", "Achha, badhiya."]]}]
+      }
+    },
+    {
+      "id": "school_and_practical_fact_requests_stay_out_of_scope",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [],
+      "calls": [{
+        "messages": ["Hi.", "I watched a movie with my family.", "Can you explain photosynthesis?", "Just the first step, then.", "How do I fix my Wi-Fi?", "Which phone should I buy?", "What medicine should I take for fever?"],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "personal_chat_allowed", "kind": "any", "from": 1, "through": 1, "patterns": ["family|movie|film|enjoy"]},
+          {"id": "no_partial_answers", "kind": "none", "from": 2, "through": 6, "patterns": ["chlorophyll|sunlight.*carbon dioxide|restart.*router|check.*password|buy.*iPhone|buy.*Samsung|paracetamol|ibuprofen|take.*mg"]},
+          {"id": "science_boundary", "kind": "any", "from": 2, "through": 3, "patterns": ["school.*questions|science.*(?:don't|won't|can't)|don't do science|not.*(?:tutor|lesson|explain)|won't.*steps"]},
+          {"id": "tech_boundary", "kind": "any", "from": 4, "through": 4, "patterns": ["can't.*troubleshoot|won't.*troubleshoot|not.*tech support|can't.*fix.*wi-fi"]},
+          {"id": "shopping_boundary", "kind": "any", "from": 5, "through": 5, "patterns": ["can't.*recommend|won't.*recommend|not.*shopping|can't.*choose"]},
+          {"id": "medicine_boundary", "kind": "any", "from": 6, "through": 6, "patterns": ["can't.*medicine|won't.*medicine|can't.*prescribe|doctor|clinician"]}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. How are you?", "A movie with family sounds nice. Did you enjoy the time together?", "I don't do science lessons, but I'm happy to hear how your day went.", "I won't give schoolwork steps either. Was this for someone at home?", "I can't troubleshoot Wi-Fi from here. Is it frustrating you today?", "I can't recommend a phone. What made you start looking for one?", "I can't choose a medicine for fever. If you're unwell, please ask a doctor; how are you feeling?"]],
+        "bad": [{"id": "factual_task_answers", "mustFail": ["call1/no_partial_answers", "call1/science_boundary", "call1/tech_boundary", "call1/shopping_boundary", "call1/medicine_boundary"], "replies": [["Hey, HugBack here. How are you?", "What did you watch?", "Photosynthesis uses sunlight and carbon dioxide.", "First, chlorophyll absorbs light.", "Restart your router and check your password.", "Buy an iPhone.", "Take paracetamol 500mg."]]}]
+      }
+    },
+    {
+      "id": "no_chat_short_answers_still_get_a_new_everyday_thread",
+      "label": "Mumma",
+      "relationship": "mother",
+      "background": [],
+      "calls": [{
+        "messages": ["Hello.", "मैं ठीक हूं, तुम बताओ।", "Bas badhiya.", "Yes.", "हाँ जी।", "Yes.", "हाँ जी।"],
+        "checks": [
+          {"id": "name_first", "kind": "first_named_identity"},
+          {"id": "no_rest_paraphrase_loop", "kind": "none", "from": 2, "through": 6, "patterns": ["sukoon|shanti se baith|aaram se samay|aaram se din|peaceful|relaxing|bina.*jaldbaazi"]},
+          {"id": "not_just_hmm", "kind": "count", "from": 3, "through": 6, "max": 1, "patterns": ["^\\s*(?:hmm+|haan ji|bilkul|accha|theek hai)[.!…\\s]*$"]},
+          {"id": "new_everyday_thread_without_import", "kind": "any", "from": 3, "through": 6, "patterns": ["ghar|घर|mausam|मौसम|weather|tv|टीवी|chai|चाय|family"]},
+          {"id": "some_specific_question", "kind": "any", "from": 3, "through": 6, "patterns": ["\\?|？|؟"]},
+          {"id": "not_question_every_turn", "kind": "max_question_turns", "from": 3, "through": 6, "max": 2}
+        ]
+      }],
+      "calibration": {
+        "good": [["Hey, HugBack here. How are you?", "Main theek hoon, shukriya. Aap sunao.", "Badhiya.", "Achha, ghar pe sab kaise hain?", "Haan ji, bas pooch liya.", "Waise wahan mausam kaisa chal raha hai?", "Haan ji, mausam ki baat rehne dete hain; aap batao kis par baat karein."]],
+        "bad": [{"id": "rest_loop_then_hmm", "mustFail": ["call1/no_rest_paraphrase_loop", "call1/not_just_hmm", "call1/new_everyday_thread_without_import", "call1/some_specific_question"], "replies": [["Hey, HugBack here. How are you?", "Main theek hoon. Aaj ka din kaisa tha?", "Accha hai, sab badhiya.", "Aaram se samay bitana achha lagta hai.", "Sukoon ke pal zaroori hain.", "Hmm.", "Hmm."]]}]
+      }
     }
   ]
 }

@@ -105,6 +105,9 @@ class Settings(BaseSettings):
     # are validated. Per-owner, versioned consent is ALSO required in Firestore.
     FOLLOWUPS_ENABLED: bool = False
     FOLLOWUP_EXTRACTION_MODEL: str = "gemini-3.8-flash"
+    # Post-call summaries are independent of Planner/Reconciler/Critic. The
+    # lightweight stable text model avoids coupling their provider failures.
+    HUGBACK_CALL_SUMMARY_MODEL: str = "gemini-3.5-flash-lite"
     FOLLOWUP_COOLDOWN_HOURS: int = Field(default=24, ge=1, le=168)
     FOLLOWUP_RETENTION_HOURS: int = Field(default=72, ge=1, le=168)
 

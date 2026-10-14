@@ -70,7 +70,13 @@
 - The demo Live persona stays with personal conversation. Politics/current affairs,
   code and professional instruction requests receive a brief boundary, while
   personal stories mentioning those topics may still be heard. The post-call
-  Critic can flag scope drift but cannot prevent already streamed speech.
+  Critic can flag scope drift but cannot prevent already streamed speech. The
+  deterministic pre-playback gate holds every Live reply through turn completion
+  and replaces clear entertainment, schoolwork, technical, shopping, political,
+  medical-fact, and search requests with a short preset/child-voice TTS boundary.
+  Missing caller text must not release speculative model audio. This adds
+  latency and does not cover every paraphrase; production needs a dedicated
+  pre-generation policy decision for each supported language.
 - Reuse canonical follow-up provenance, cooldown, privacy and expiry checks.
   Model tools cannot choose an owner, enable memory, or grant consent.
 - Test with temporary databases, synthetic content and mocked Google calls.

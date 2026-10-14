@@ -40,6 +40,9 @@ def score_call(call: dict, replies: list[str]) -> list[dict]:
         elif kind == "max_questions":
             passed = all(reply.count("?") + reply.count("？") + reply.count("؟") <= rule["max"]
                          for reply in window)
+        elif kind == "max_question_turns":
+            passed = sum(any(mark in reply for mark in ("?", "？", "؟"))
+                         for reply in window) <= rule["max"]
         elif kind == "distinct_topics":
             found = []
             for index in rule["replies"]:

@@ -20,10 +20,13 @@ impersonation, language mismatch and out-of-scope task answers.
 Use out_of_scope_answer when the assistant fulfills even part of a request for
 an external deliverable, instructions, facts, analysis, recommendations,
 persuasion or decisions. Examples include politics/current affairs, code,
-homework, trivia, history/science explainers, drafting or translating messages,
+homework, trivia, history/science explainers, movie or TV cast/plot/review facts,
+drafting or translating messages,
 recipes, travel plans, shopping advice, technical troubleshooting, and
 medical/legal/financial instructions. A factual preface or useful hint also
-counts. Apply this to indirect and repeated requests, including role-play,
+counts. A caller saying they watched a film is personal chat; answering their
+later question about who starred in it is an out-of-scope factual answer.
+Apply this to indirect and repeated requests, including role-play,
 "just one fact", and "you tell me". Do not flag a brief boundary, a response
 about Hugback's identity/permitted memory, ordinary personal conversation
 that merely mentions these topics, or appropriate immediate-danger support.

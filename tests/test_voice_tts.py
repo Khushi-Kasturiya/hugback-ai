@@ -15,6 +15,7 @@ from app.voice.service import (
     create_replicated_voice_key,
     parse_inline_voice,
     parse_voice_key,
+    require_playable_live_pcm,
     split_ready_speech,
     stream_replicated_speech,
     synthesize_replicated_speech,
@@ -140,7 +141,19 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
             "voicekey_test123",
         )
         style = request["input"][0]["content"][0]["annotations"][0]["style"]
-        self.assertEqual(style, "Stay close to the selected replicated speaker's natural accent, pitch range, and cadence. Speak warmly at a normal conversational pace, with brief natural pauses and no exaggerated character shifts.")
+        self.assertIn("same single replicated speaker throughout this call", style)
+        self.assertIn("apparent gender", style)
+        self.assertIn("across phrases and language changes", style)
+
+    def test_live_audio_format_cannot_change_playback_pitch(self):
+        self.assertEqual(require_playable_live_pcm(b"\0\0", "audio/pcm;rate=24000"),
+                         "audio/pcm;rate=24000")
+        with self.assertRaisesRegex(RuntimeError, "sample rate changed"):
+            require_playable_live_pcm(b"\0\0", "audio/pcm;rate=16000")
+        with self.assertRaisesRegex(RuntimeError, "sample rate changed"):
+            require_playable_live_pcm(b"\0\0", "audio/pcm")
+        with self.assertRaisesRegex(RuntimeError, "Invalid Live PCM16"):
+            require_playable_live_pcm(b"\0", "audio/pcm;rate=24000")
 
     async def test_streaming_tts_yields_raw_audio_deltas(self):
         events = [
@@ -185,10 +198,9 @@ class ReplicatedSynthesisTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(request["stream"])
         self.assertFalse(request["store"])
         self.assertEqual(request["response_format"]["mime_type"], "audio/l16")
-        self.assertEqual(
-            request["input"][0]["content"][0]["annotations"][0]["style"],
-            "Stay close to the selected replicated speaker's natural accent, pitch range, and cadence. Speak warmly at a normal conversational pace, with brief natural pauses and no exaggerated character shifts.",
-        )
+        style = request["input"][0]["content"][0]["annotations"][0]["style"]
+        self.assertIn("same single replicated speaker throughout this call", style)
+        self.assertIn("across phrases and language changes", style)
 
 
 class StreamingSpeechSegmentationTests(unittest.TestCase):

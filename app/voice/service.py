@@ -19,8 +19,26 @@ MAX_RECORDING_SECONDS = 30
 _SENTENCE_BOUNDARY = re.compile(r'(?<=[.!?।])["\'’”)]*(?:\s+|$)')
 _CLAUSE_BOUNDARY = re.compile(r'(?<!\d[,;:，；：])(?<=[,;:，；：])(?:\s+|$)')
 REPLICATED_SPEECH_STYLE = (
-    "Stay close to the selected replicated speaker's natural accent, pitch range, and cadence. Speak warmly at a normal conversational pace, with brief natural pauses and no exaggerated character shifts."
+    "Use the same single replicated speaker throughout this call: preserve their habitual pitch range, resonance, accent, apparent gender, and speaking level across phrases and language changes. Speak warmly at a normal conversational pace, with brief natural pauses. Do not shift to another voice or perform a character."
 )
+PRESET_SCOPE_REPLY_STYLE = (
+    "Use the selected single preset speaker in a steady, warm, conversational voice. "
+    "Keep the same apparent gender and accent; read the text exactly."
+)
+
+
+def require_playable_live_pcm(data: bytes, mime_type: str | None) -> str:
+    """Fail closed if Live audio would play at a pitch-changing sample rate."""
+    if not data or len(data) % 2:
+        raise RuntimeError("Invalid Live PCM16 audio")
+    mime = (mime_type or "").lower().replace(" ", "")
+    parameters = mime.split(";")
+    if parameters[0] != "audio/pcm":
+        raise RuntimeError("Unsupported Live audio format")
+    rates = [value.split("=", 1)[1] for value in parameters[1:] if value.startswith("rate=")]
+    if len(rates) != 1 or rates[0] != "24000":
+        raise RuntimeError("Live audio sample rate changed")
+    return "audio/pcm;rate=24000"
 
 
 class VoiceEnrollmentError(ValueError):
@@ -254,6 +272,7 @@ async def stream_replicated_speech(
     voice_key: str,
     text: str,
     model: str,
+    style: str = REPLICATED_SPEECH_STYLE,
 ) -> AsyncIterator[SynthesizedAudio]:
     """Yield raw PCM chunks as Google synthesizes the replicated voice."""
     stream = await client.aio.interactions.create(
@@ -266,7 +285,7 @@ async def stream_replicated_speech(
                 "text": text,
                 "annotations": [{
                     "type": "speech_metadata",
-                    "style": REPLICATED_SPEECH_STYLE,
+                    "style": style,
                 }],
             }],
         }],

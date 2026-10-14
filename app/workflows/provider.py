@@ -6,7 +6,7 @@ from app.config import settings
 from app.google_structured import json_response_config
 
 class GoogleStructuredProvider:
-    async def generate(self, instruction, payload, schema, *, timeout_ms=10_000):
+    async def generate(self, instruction, payload, schema, *, timeout_ms=10_000, model=None):
         options = types.HttpOptions(
             api_version="v1beta" if settings.GEMINI_API_KEY else "v1",
             timeout=timeout_ms, retry_options=types.HttpRetryOptions(attempts=1),
@@ -17,7 +17,7 @@ class GoogleStructuredProvider:
                       location=settings.GOOGLE_CLOUD_LOCATION, http_options=options))
         try:
             response = await client.aio.models.generate_content(
-                model=settings.FOLLOWUP_EXTRACTION_MODEL,
+                model=model or settings.FOLLOWUP_EXTRACTION_MODEL,
                 contents=json.dumps(payload, ensure_ascii=False),
                 config=json_response_config(instruction, schema),
             )
