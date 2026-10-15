@@ -32,6 +32,7 @@ class EntertainmentScopeGateTests(unittest.TestCase):
         for text in (
             "I watched Taarak Mehta today.", "I liked that show.",
             "Do you know what I like?", "What is my background?",
+            "Are you an AI?", "What are you?", "Who are you?",
             "My daughter likes coding.", "The movie made me laugh.",
         ):
             with self.subTest(text=text):
