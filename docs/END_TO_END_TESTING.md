@@ -306,9 +306,14 @@ are not silently reassigned.
 | Original real WhatsApp exports | **Separate** trusted Forms/Drive → internal private GCS intake, unchanged and disabled in synthetic Firestore mode |
 
 Firestore test collections are fixed: `hugback_synthetic_test_families` and
-`hugback_synthetic_test_recipients`. The family document is bounded to 700 KB
-serialized JSON before write (this is not an exact Firestore encoded-size
-measurement). Recipient index documents map only to the validated owning family.
+`hugback_synthetic_test_recipients`. Family metadata and the recipient-ID list
+live in the family document; each recipient document contains that recipient's
+independent settings, call state, memory and bounded output. This prevents a
+Mother call from rewriting Father's state. The reconstructed transactional state
+is bounded to 700 KB serialized JSON before write (this is not an exact Firestore
+encoded-size measurement). Older aggregate synthetic documents are read and
+normalized on their next successful mutation. Recipient documents map only to
+the validated owning family.
 
 Families have seven-day **access expiry**. SQLite purges expired families on
 access. In Firestore, expired families become inaccessible; this patch does

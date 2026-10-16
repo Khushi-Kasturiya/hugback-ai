@@ -1,5 +1,14 @@
 # Hugback backend
 
+## Canonical architecture for judging and deployment
+
+Use [docs/HACKATHON_ARCHITECTURE.md](docs/HACKATHON_ARCHITECTURE.md) as the
+primary architecture narrative. Cloud Firestore is the canonical deployed state
+store; SQLite is an offline test adapter, while IndexedDB is a deliberately local
+pre-consent staging boundary rather than a competing source of truth. The running
+backend exposes a content-free `GET /api/architecture` manifest used by the
+frontend `/architecture` view.
+
 ## Four-role workflow + end-to-end evals (12 October 2026)
 
 The synthetic simulator now connects **Planner → existing Live conversation →

@@ -83,6 +83,8 @@ class SQLiteFamilyRepository:
 
 class FirestoreFamilyRepository:
     # Fixed, separate collections; callers cannot select arbitrary collection paths.
+    # Family metadata and recipient state are separate documents so independent
+    # Mother/Father calls do not continually rewrite one growing aggregate.
     FAMILIES = "hugback_synthetic_test_families"
     RECIPIENTS = "hugback_synthetic_test_recipients"
 
@@ -100,8 +102,11 @@ class FirestoreFamilyRepository:
         @self.firestore.transactional
         def run(tx):
             key = owner
+            recipient_scoped = owner is None
+            selected_snapshot = None
             if key is None:
-                index = self.client.collection(self.RECIPIENTS).document(recipient).get(transaction=tx).to_dict()
+                selected_snapshot = self.client.collection(self.RECIPIENTS).document(recipient).get(transaction=tx).to_dict()
+                index = selected_snapshot
                 if not index or not index.get("syntheticOnly"):
                     raise DemoError("Unknown synthetic recipient", 404)
                 key = index["owner"]
@@ -111,7 +116,36 @@ class FirestoreFamilyRepository:
             saved = ref.get(transaction=tx).to_dict()
             if saved and (saved.get("syntheticOnly") is not True or saved.get("owner") != key):
                 raise DemoError("Not a synthetic test family", 403)
-            state = copy.deepcopy(saved.get("state", {})) if saved else {}
+            saved_state = copy.deepcopy(saved.get("state", {})) if saved else {}
+            legacy_recipients = saved_state.pop("recipients", []) if saved_state else []
+            recipient_ids = list(saved.get("recipientIds", [])) if saved else []
+            if not recipient_ids:
+                recipient_ids = [item["recipientId"] for item in legacy_recipients]
+            if recipient is not None and recipient not in recipient_ids and selected_snapshot:
+                # A recipient index without membership in its owning family is
+                # stale and cannot revive or join a family.
+                raise DemoError("Unknown synthetic recipient", 404)
+
+            loaded_ids = [recipient] if recipient_scoped else recipient_ids
+            snapshots = {}
+            for recipient_id in loaded_ids:
+                if recipient_id == recipient and selected_snapshot is not None:
+                    item = selected_snapshot
+                else:
+                    item = self.client.collection(self.RECIPIENTS).document(recipient_id).get(transaction=tx).to_dict()
+                if item and (item.get("owner") != key or item.get("syntheticOnly") is not True):
+                    raise DemoError("Invalid synthetic recipient scope", 403)
+                snapshots[recipient_id] = item or {}
+
+            legacy_by_id = {item["recipientId"]: item for item in legacy_recipients}
+            recipients = []
+            for recipient_id in loaded_ids:
+                record = snapshots[recipient_id].get("state") or legacy_by_id.get(recipient_id)
+                if not isinstance(record, dict) or record.get("recipientId") != recipient_id:
+                    raise DemoError("Synthetic recipient state is unavailable", 503)
+                recipients.append(copy.deepcopy(record))
+
+            state = saved_state | ({"recipients": recipients} if saved else {})
             if state and state["expiresAt"] <= now().isoformat():
                 state = {}  # Old recipient references must never revive an expired family.
             if not state and not create:
@@ -123,12 +157,32 @@ class FirestoreFamilyRepository:
             if len(json.dumps(state).encode()) > 700_000:
                 raise DemoError("Synthetic family exceeded its storage bound")
             if state != before:
-                tx.set(ref, {"syntheticOnly": True, "owner": key, "state": state,
-                             "expiresAt": datetime.fromisoformat(state["expiresAt"])})
-                existing = {r["recipientId"] for r in before.get("recipients", [])}
-                for item in state["recipients"]:
-                    if item["recipientId"] not in existing:
-                        tx.set(self.client.collection(self.RECIPIENTS).document(item["recipientId"]),
-                               {"owner": key, "syntheticOnly": True})
+                next_recipients = state["recipients"]
+                next_ids = [item["recipientId"] for item in next_recipients]
+                if len(next_ids) != len(set(next_ids)):
+                    raise DemoError("Duplicate synthetic recipient")
+                family_state = copy.deepcopy(state)
+                family_state.pop("recipients", None)
+                before_family = copy.deepcopy(before)
+                before_family.pop("recipients", None)
+                if recipient_scoped:
+                    if family_state != before_family or next_ids != [recipient]:
+                        raise DemoError("Recipient-scoped transaction cannot change family membership")
+                    item = next_recipients[0]
+                    if item != before["recipients"][0] or not snapshots[recipient].get("state"):
+                        tx.set(self.client.collection(self.RECIPIENTS).document(recipient),
+                               {"owner": key, "syntheticOnly": True, "state": item})
+                    return copy.deepcopy(result)
+                normalized = bool(saved and "recipientIds" in saved and not legacy_recipients)
+                if family_state != before_family or next_ids != recipient_ids or not normalized:
+                    tx.set(ref, {"syntheticOnly": True, "owner": key, "state": family_state,
+                                 "recipientIds": next_ids,
+                                 "expiresAt": datetime.fromisoformat(state["expiresAt"])})
+                before_recipients = {item["recipientId"]: item for item in before.get("recipients", [])}
+                for item in next_recipients:
+                    recipient_id = item["recipientId"]
+                    if item != before_recipients.get(recipient_id) or not snapshots.get(recipient_id, {}).get("state"):
+                        tx.set(self.client.collection(self.RECIPIENTS).document(recipient_id),
+                               {"owner": key, "syntheticOnly": True, "state": item})
             return copy.deepcopy(result)
         return run(self.client.transaction(max_attempts=5))

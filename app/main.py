@@ -69,6 +69,7 @@ from app.voice.service import (
 from app.voice.routes import router as voice_router
 from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice, voice_owner
 from app.voice.playback import ReplicatedPlayback
+from app.architecture import architecture_manifest
 
 
 def live_failure_detail(exc: Exception, *, connected: bool) -> tuple[int | None, str]:
@@ -173,6 +174,12 @@ async def healthz():
         "workflow_enabled": settings.HUGBACK_WORKFLOW_ENABLED,
         "demo_storage_verified": False,  # Configuration is not a successful database probe.
     }
+
+
+@app.get("/api/architecture")
+async def architecture():
+    """Content-free architecture manifest for demos and operational inspection."""
+    return architecture_manifest()
 
 
 @app.post("/internal/memory/process")

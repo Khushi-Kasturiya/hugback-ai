@@ -62,6 +62,11 @@ async def portal_status(identity: UserIdentity = Depends(portal_identity)):
         "importsStatus": "local_preview_only",
         "localDemoEnabled": demo_enabled(),
         "demoStorage": settings.HUGBACK_DEMO_STORE,
+        "canonicalStateStore": "firestore",
+        "selectedStateAdapter": (
+            "firestore" if settings.HUGBACK_DEMO_STORE == "firestore" else "sqlite_test_adapter"
+        ),
+        "browserDraftStore": "indexeddb_private_preconsent_staging",
         "workflowEnabled": settings.HUGBACK_WORKFLOW_ENABLED,
     }
 

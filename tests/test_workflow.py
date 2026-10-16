@@ -184,6 +184,47 @@ class WorkflowTests(unittest.IsolatedAsyncioTestCase):
         for t in threads: t.join()
         self.assertEqual(sorted(results), [False, True])
 
+    async def test_firestore_recipient_transaction_does_not_rewrite_family_or_sibling(self):
+        db = FakeFirestore()
+        store = cloud_store(db)
+        family = store.create("operator-alpha", CreateFamily(**BASE, label="Mother"))
+        family = store.add_recipient("operator-alpha", CreateRecipient(**BASE, label="Father"))
+        mother, father = [item["recipientId"] for item in family["recipients"]]
+        owner = DemoStore.owner("operator-alpha")
+        family_path = f"hugback_synthetic_test_families/{owner}"
+        father_path = f"hugback_synthetic_test_recipients/{father}"
+        family_before = copy.deepcopy(db.data[family_path])
+        father_before = copy.deepcopy(db.data[father_path])
+
+        await store.transact(mother, lambda memory: memory.blocked_topics.append("sleep"))
+
+        self.assertEqual(db.data[family_path], family_before)
+        self.assertEqual(db.data[father_path], father_before)
+        self.assertIn("sleep", db.data[f"hugback_synthetic_test_recipients/{mother}"]["state"]["memory"]["blocked_topics"])
+
+    async def test_legacy_firestore_aggregate_normalizes_on_next_owner_mutation(self):
+        db = FakeFirestore()
+        store = cloud_store(db)
+        family = store.create("operator-alpha", CreateFamily(**BASE, label="Mother"))
+        mother = family["recipients"][0]["recipientId"]
+        owner = DemoStore.owner("operator-alpha")
+        family_path = f"hugback_synthetic_test_families/{owner}"
+        mother_path = f"hugback_synthetic_test_recipients/{mother}"
+        normalized_family = db.data[family_path]
+        mother_state = db.data[mother_path]["state"]
+        db.data[family_path] = {
+            "syntheticOnly": True, "owner": owner,
+            "state": normalized_family["state"] | {"recipients": [mother_state]},
+            "expiresAt": normalized_family["expiresAt"],
+        }
+        db.data[mother_path] = {"owner": owner, "syntheticOnly": True}
+
+        store.add_recipient("operator-alpha", CreateRecipient(**BASE, label="Father"))
+
+        self.assertNotIn("recipients", db.data[family_path]["state"])
+        self.assertEqual(len(db.data[family_path]["recipientIds"]), 2)
+        self.assertEqual(db.data[mother_path]["state"]["recipientId"], mother)
+
     async def test_quality_private_bounded_and_stale_writes_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             store = DemoStore(Path(directory)/"family.sqlite3")
