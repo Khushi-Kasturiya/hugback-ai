@@ -1,1 +1,1 @@
-"""Agent module for Elara AI."""
+"""Agent module for Hugback AI."""

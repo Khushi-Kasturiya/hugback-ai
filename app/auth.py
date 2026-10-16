@@ -9,7 +9,7 @@ from typing import Any
 
 from app.config import settings
 
-logger = logging.getLogger("elara.auth")
+logger = logging.getLogger("hugback.auth")
 
 _DEVELOPMENT_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{7,127}$")
 _FIREBASE_CLOCK_SKEW_SECONDS = 30
@@ -59,7 +59,7 @@ async def authenticate_message(message: dict[str, Any]) -> UserIdentity:
     if message.get("type") != "authenticate":
         raise AuthenticationError("The first message must authenticate the caller")
 
-    if settings.ELARA_AUTH_MODE.lower() == "firebase":
+    if settings.HUGBACK_AUTH_MODE.lower() == "firebase":
         token = message.get("idToken")
         if not isinstance(token, str) or not token:
             raise AuthenticationError("A Firebase ID token is required")
@@ -75,6 +75,8 @@ async def authenticate_message(message: dict[str, Any]) -> UserIdentity:
             raise AuthenticationError("Firebase token did not contain a user ID")
         return UserIdentity(user_id=uid, provider="firebase")
 
+    if settings.HUGBACK_AUTH_MODE.lower() != "development":
+        raise AuthenticationError("Unsupported authentication mode")
     user_id = message.get("userId")
     if not isinstance(user_id, str) or not _DEVELOPMENT_ID.fullmatch(user_id):
         raise AuthenticationError("A valid development user ID is required")
@@ -83,7 +85,7 @@ async def authenticate_message(message: dict[str, Any]) -> UserIdentity:
 
 async def authenticate_http_headers(headers: Any) -> UserIdentity:
     """Authenticate a privacy-control HTTP request using the configured mode."""
-    if settings.ELARA_AUTH_MODE.lower() == "firebase":
+    if settings.HUGBACK_AUTH_MODE.lower() == "firebase":
         authorization = headers.get("authorization", "")
         if not authorization.startswith("Bearer "):
             raise AuthenticationError("A Firebase bearer token is required")
@@ -96,6 +98,6 @@ async def authenticate_http_headers(headers: Any) -> UserIdentity:
     return await authenticate_message(
         {
             "type": "authenticate",
-            "userId": headers.get("x-elara-development-user"),
+            "userId": headers.get("x-hugback-development-user"),
         }
     )

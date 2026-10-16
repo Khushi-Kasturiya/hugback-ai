@@ -5,7 +5,7 @@ app/auth.py
 app/config.py
 app/main.py
 app/agent/__init__.py
-app/agent/elara_agent.py
+app/agent/hugback_agent.py
 app/agent/live_session.py
 app/agent/prompts.py
 app/memory/__init__.py
@@ -14,9 +14,9 @@ app/memory/processor.py
 app/memory/service.py
 app/memory/store.py
 app/memory/transcript.py
-elara_backend.egg-info/PKG-INFO
-elara_backend.egg-info/SOURCES.txt
-elara_backend.egg-info/dependency_links.txt
-elara_backend.egg-info/requires.txt
-elara_backend.egg-info/top_level.txt
+hugback_backend.egg-info/PKG-INFO
+hugback_backend.egg-info/SOURCES.txt
+hugback_backend.egg-info/dependency_links.txt
+hugback_backend.egg-info/requires.txt
+hugback_backend.egg-info/top_level.txt
 tests/test_memory.py

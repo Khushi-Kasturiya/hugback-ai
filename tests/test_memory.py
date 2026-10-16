@@ -34,6 +34,10 @@ class TranscriptCollectorTests(unittest.TestCase):
     def test_cumulative_chunks_are_not_duplicated(self):
         self.assertEqual(_merge("I feel", "I feel better"), "I feel better")
         self.assertEqual(_merge("I feel better", "better"), "I feel better")
+        self.assertEqual(
+            _merge("That sounds peaceful. Tell me more.", "Tell me more. I am listening."),
+            "That sounds peaceful. Tell me more. I am listening.",
+        )
 
     def test_finalize_flushes_partial_turn(self):
         collector = TranscriptCollector()
@@ -63,7 +67,7 @@ class MemoryPromptTests(unittest.TestCase):
 class DevelopmentAuthenticationTests(unittest.TestCase):
     def setUp(self):
         self.auth_mode = patch(
-            "app.auth.settings.ELARA_AUTH_MODE", "development"
+            "app.auth.settings.HUGBACK_AUTH_MODE", "development"
         )
         self.auth_mode.start()
         self.addCleanup(self.auth_mode.stop)
@@ -88,7 +92,7 @@ class DevelopmentAuthenticationTests(unittest.TestCase):
 class FirebaseAuthenticationTests(unittest.TestCase):
     def test_verified_token_uses_the_signed_subject(self):
         with (
-            patch("app.auth.settings.ELARA_AUTH_MODE", "firebase"),
+            patch("app.auth.settings.HUGBACK_AUTH_MODE", "firebase"),
             patch(
                 "app.auth._verify_firebase_id_token",
                 return_value={"sub": "firebase-user-123"},
@@ -105,7 +109,7 @@ class FirebaseAuthenticationTests(unittest.TestCase):
 
     def test_invalid_firebase_token_is_rejected(self):
         with (
-            patch("app.auth.settings.ELARA_AUTH_MODE", "firebase"),
+            patch("app.auth.settings.HUGBACK_AUTH_MODE", "firebase"),
             patch(
                 "app.auth._verify_firebase_id_token",
                 side_effect=ValueError("invalid signature"),
@@ -153,6 +157,40 @@ class MemoryIsolationTests(unittest.TestCase):
         facts = asyncio.run(service.search("firebase-user-a", "sleep", 3))
         self.assertEqual(facts, ["User fact"])
         self.assertEqual(api.scope, {"user_id": "firebase-user-a"})
+
+    def test_billing_error_opens_circuit_before_second_retrieval(self):
+        class DeniedMemoryApi:
+            def __init__(self):
+                self.profile_calls = 0
+                self.fact_calls = 0
+
+            def retrieve_profiles(self, **kwargs):
+                self.profile_calls += 1
+                raise RuntimeError("403 PERMISSION_DENIED: BILLING_DISABLED")
+
+            def retrieve(self, **kwargs):
+                self.fact_calls += 1
+                return type("Result", (), {"page": []})()
+
+        api = DeniedMemoryApi()
+        service = object.__new__(AgentPlatformMemoryService)
+        service._name = "memory-bank"
+        service._enabled = True
+        service.reason = None
+        service._client = type(
+            "Client",
+            (),
+            {"memory_banks": type("Banks", (), {"memories": api})()},
+        )()
+
+        first = asyncio.run(service.initial_context("firebase-user-a"))
+        second = asyncio.run(service.initial_context("firebase-user-a"))
+
+        self.assertTrue(first.is_empty)
+        self.assertTrue(second.is_empty)
+        self.assertFalse(service.enabled)
+        self.assertEqual(api.profile_calls, 1)
+        self.assertEqual(api.fact_calls, 0)
 
 
 class OptionalCloudDependencyTests(unittest.TestCase):

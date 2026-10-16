@@ -1,0 +1,20 @@
+{
+  "ownerId": "11111111-1111-4111-8111-111111111111",
+  "recipient": {
+    "requestId": "22222222-2222-4222-8222-222222222222",
+    "label": "Fictional mother",
+    "relationship": "mother",
+    "phone": "+12025550101",
+    "timeZone": "Asia/Kolkata",
+    "language": "Hindi",
+    "acknowledgeSetup": true
+  },
+  "mapping": {
+    "source": "whatsapp",
+    "dateOrder": "DMY",
+    "timeZone": "Asia/Kolkata",
+    "childSender": "Child",
+    "parentSender": "Parent",
+    "acknowledgeUpload": true
+  }
+}

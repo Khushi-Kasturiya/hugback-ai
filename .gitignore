@@ -9,4 +9,9 @@ venv/
 .DS_Store
 
 # Biometric voice-enrollment recordings and generated previews
-Voice/
+# Anchor to the repository root: on case-insensitive filesystems, an unanchored
+# Voice/ also ignores the Python source package app/voice/.
+/Voice/
+/.local-demo/
+/.local-voice/
+/.private-intake/

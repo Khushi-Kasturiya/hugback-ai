@@ -1,0 +1,15 @@
+.git
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.env
+.env.*
+!.env.example
+*.log
+Voice/converted/
+**/*.wav
+.local-voice/
+.local-demo/
+.private-intake/

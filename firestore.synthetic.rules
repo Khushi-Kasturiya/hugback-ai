@@ -1,0 +1,10 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Test clients use the authenticated backend, never direct browser Firestore.
+    // Server SDKs use IAM instead; these rules are not an IAM validation test.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

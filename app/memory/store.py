@@ -7,7 +7,7 @@ from typing import Any, Protocol
 from app.config import settings
 from app.memory.models import TranscriptTurn
 
-logger = logging.getLogger("elara.session_store")
+logger = logging.getLogger("hugback.session_store")
 
 
 class SessionStore(Protocol):

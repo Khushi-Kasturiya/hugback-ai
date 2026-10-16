@@ -36,7 +36,7 @@ class OngoingConcern(BaseModel):
 class CareProfile(BaseModel):
     """Schema uploaded to Memory Bank for low-latency profile retrieval."""
 
-    preferred_name: str = Field(description="The name the user prefers Elara to use.")
+    preferred_name: str = Field(description="The name the user prefers Hugback to use.")
     preferred_languages: list[str] = Field(
         description="Languages and language-mixing preferences explicitly used or requested."
     )
@@ -57,7 +57,7 @@ class CareProfile(BaseModel):
         description="Upcoming events, appointments, visits, and natural follow-up topics."
     )
     communication_preferences: list[str] = Field(
-        description="How the user prefers Elara to speak, ask questions, or provide support."
+        description="How the user prefers Hugback to speak, ask questions, or provide support."
     )
 
 
