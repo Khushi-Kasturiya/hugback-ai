@@ -12,7 +12,22 @@ export interface PortalStatus {
   importsStatus: "local_preview_only";
   localDemoEnabled?: boolean;
   demoStorage?: "sqlite" | "firestore";
+  canonicalStateStore?: "firestore";
+  selectedStateAdapter?: "firestore" | "sqlite_test_adapter";
+  browserDraftStore?: "indexeddb_private_preconsent_staging";
   workflowEnabled?: boolean;
+}
+
+export interface ArchitectureManifest {
+  version: string;
+  principle: string;
+  canonicalDeployment: Record<string, string>;
+  runtime: Record<string, string>;
+  stages: Array<{ name: string; when: string; authority: string; output: string }>;
+  trustControls: string[];
+  storageBoundaries: Array<{ data: string; store: string; reason: string }>;
+  configured: Record<string, boolean>;
+  notes: string[];
 }
 
 export interface SharedSummary {
@@ -56,4 +71,17 @@ export async function portalGet<T>(path: "/status" | "/summaries"): Promise<T> {
         : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
   }
   return response.json() as Promise<T>;
+}
+
+export async function architectureGet(): Promise<ArchitectureManifest> {
+  let response: Response;
+  try {
+    response = await fetch(`${backendUrl()}/api/architecture`, {
+      cache: "no-store", signal: AbortSignal.timeout(8000),
+    });
+  } catch {
+    throw new Error("The architecture manifest is unavailable because the backend could not be reached.");
+  }
+  if (!response.ok) throw new Error("The backend did not return its architecture manifest.");
+  return response.json() as Promise<ArchitectureManifest>;
 }

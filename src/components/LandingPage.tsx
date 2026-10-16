@@ -85,6 +85,7 @@ export function LandingPage() {
             <a href="#why" className="transition hover:text-[#56619C]">Why HugBack</a>
             <a href="#how-it-works" className="transition hover:text-[#56619C]">How it works</a>
             <a href="#for-families" className="transition hover:text-[#56619C]">For families</a>
+            <Link href="/architecture" className="transition hover:text-[#56619C]">Architecture</Link>
           </div>
           <Link href="/childportal" className="rounded-full bg-[#293052] px-5 py-3 text-sm font-bold text-white shadow-lg shadow-[#293052]/10 transition hover:-translate-y-0.5 hover:bg-[#404A7E]">
             Create your Family Bridge
@@ -247,7 +248,7 @@ export function LandingPage() {
 
       <footer className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-10 text-sm text-[#737D9E] sm:flex-row sm:items-center sm:justify-between sm:px-8">
         <div className="flex items-center gap-3"><Image src="/logo.png" width={727} height={343} alt="" className="h-8 w-16 object-contain" /><span className="font-bold text-[#2D344E]">HugBack AI</span><span>· Close to home, no matter where you roam.</span></div>
-        <div className="flex gap-6"><Link href="/childportal" className="font-semibold hover:text-[#56619C]">Child portal</Link><a href="#how-it-works" className="font-semibold hover:text-[#56619C]">How it works</a></div>
+        <div className="flex gap-6"><Link href="/childportal" className="font-semibold hover:text-[#56619C]">Child portal</Link><Link href="/architecture" className="font-semibold hover:text-[#56619C]">Architecture</Link><a href="#how-it-works" className="font-semibold hover:text-[#56619C]">How it works</a></div>
       </footer>
     </main>
   );
