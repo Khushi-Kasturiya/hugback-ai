@@ -279,7 +279,7 @@ An authorized operator must first confirm:
    database, then set `HUGBACK_CLOUD_TEST_ENABLED=TRUE` only after authorization.
    Remove any emulator-host setting from the shell and `.env`.
 5. Restart backend, create a **new synthetic family**, and verify its mode badge
-   and successful saved/reloaded state. `/healthz` reports configuration only;
+   and successful saved/reloaded state. `/health` reports configuration only;
    `demo_storage_verified=false` is intentional, not a connectivity claim.
 
 All browser test routes still require an actual loopback peer and allowed

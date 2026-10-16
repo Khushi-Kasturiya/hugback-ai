@@ -51,7 +51,7 @@ class StartupTests(unittest.TestCase):
             patch("app.main.settings.HUGBACK_LIVE_VOICE_MODE", "preset"),
             patch("app.main.settings.HUGBACK_VOICE_NAME", "Aoede"),
             # Private test-file settings must never turn into a global voice for
-            # ordinary callers or be read by /healthz and preset sessions.
+            # ordinary callers or be read by /health and preset sessions.
             patch("app.main.settings.HUGBACK_VOICE_REFERENCE_PATH", "/nonexistent/reference.wav"),
             patch("app.main.settings.HUGBACK_VOICE_CONSENT_PATH", "/nonexistent/consent.wav"),
         ):
@@ -66,7 +66,7 @@ class StartupTests(unittest.TestCase):
 
     def test_app_starts_and_health_is_available_without_cloud_services(self):
         with TestClient(app) as client:
-            response = client.get("/healthz")
+            response = client.get("/health")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["status"], "healthy")
         self.assertFalse(response.json()["memory_operational"])

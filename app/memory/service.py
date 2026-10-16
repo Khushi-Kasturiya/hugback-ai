@@ -304,7 +304,7 @@ def get_memory_service() -> MemoryService:
             except Exception as exc:
                 # Long-term recall is an enhancement, not a reason to reject a
                 # live call. Keep the voice path available and expose the
-                # degraded state through /healthz.
+                # degraded state through /health.
                 logger.error("Managed memory is unavailable: %s", exc)
                 _memory_service = DisabledMemoryService(str(exc))
     return _memory_service

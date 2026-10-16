@@ -142,7 +142,7 @@ cd /Users/pratham.gupta/elara.ai-frontend
 npm run dev
 ```
 
-Open `http://127.0.0.1:3000/childportal` in the **same browser profile** you will use for the role-play call. `http://127.0.0.1:8000/healthz` should return configuration status, but `status: healthy` and `demo_storage_verified: false` are **not** proof of a successful Gemini or Firestore request. The real check is creating/reloading a synthetic family and, later, completing a call.
+Open `http://127.0.0.1:3000/childportal` in the **same browser profile** you will use for the role-play call. `http://127.0.0.1:8000/health` should return configuration status, but `status: healthy` and `demo_storage_verified: false` are **not** proof of a successful Gemini or Firestore request. The real check is creating/reloading a synthetic family and, later, completing a call.
 
 If port `3000` or `8000` is already in use, stop the old process before starting another one. Avoid switching to `localhost:3000` mid-test; its browser identity and saved preview can differ from `127.0.0.1:3000`.
 

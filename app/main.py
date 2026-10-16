@@ -144,8 +144,8 @@ async def private_validation_errors(request: Request, exc: RequestValidationErro
     return await request_validation_exception_handler(request, exc)
 
 
-@app.get("/healthz")
-async def healthz():
+@app.get("/health")
+async def health():
     """Health check endpoint."""
     auth_mode = "api_key" if settings.GEMINI_API_KEY else "vertex_ai"
     memory_service = (

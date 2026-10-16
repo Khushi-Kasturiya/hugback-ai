@@ -456,7 +456,7 @@ Use the same virtual environment to check startup and the regression tests:
 .venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-Then check `http://127.0.0.1:8000/healthz`. The latest WebSocket protocol requires
+Then check `http://127.0.0.1:8000/health`. The latest WebSocket protocol requires
 the frontend to send an `authenticate` message before the backend connects to
 Gemini. A bare socket connection is not a completed AI session.
 
