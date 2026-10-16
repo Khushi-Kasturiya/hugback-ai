@@ -514,7 +514,7 @@ class DemoStore:
             return True
         return self._run(action, parent=parent)
 
-    def record_call_summary(self, parent, session_id, expected_generation, summary):
+    def record_call_summary(self, parent, session_id, expected_generation, summary, *, failure_code="model_or_content"):
         """Commit only bounded model text while current recipient consent matches."""
         def action(state):
             recipient = self._recipient(state, parent)
@@ -526,7 +526,12 @@ class DemoStore:
                 return False
             if not isinstance(summary, str) or not 20 <= len(summary) <= 600:
                 call["summaryStatus"] = "unavailable"
-                call["summaryFailureCode"] = "model_or_content"
+                call["summaryFailureCode"] = (failure_code if failure_code in {
+                    "missing_text", "input_too_long", "model_or_content", "timeout",
+                    "provider_access", "model_unavailable", "rate_limited",
+                    "provider_unavailable", "provider_request_rejected",
+                    "network_unavailable", "invalid_output", "processing_failed",
+                } else "model_or_content")
                 return False
             call["summary"] = summary
             call["summaryStatus"] = "available"

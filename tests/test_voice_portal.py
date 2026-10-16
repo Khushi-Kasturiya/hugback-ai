@@ -285,7 +285,8 @@ class PortalVoiceTests(unittest.TestCase):
                     audio.append(base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"]))
                 if event.get("turnComplete"): turns += 1
             self.assertEqual(audio, [b"CUSTOM", b"CUSTOM"])
-            self.assertEqual(subtitles, ["Hello, I am Hugback AI.", "A second sentence."])
+            self.assertEqual(subtitles, ["Hello, I am Hugback AI.",
+                                         "Sorry, I missed that. Could you say it again?"])
         self.assertEqual(coordinator.begin.await_args.args[0], recipient["recipientId"])
 
     def test_broker_starts_first_phrase_before_live_turn_end_and_resets_after_interrupt(self):
@@ -342,21 +343,23 @@ class PortalVoiceTests(unittest.TestCase):
                           "demoRecipientId": recipient["recipientId"], "demoRecipientRevision": recipient["revision"],
                           "voiceProfileId": profile["id"]})
             self.assertEqual(ws.receive_json()["voice"], "replicated")
-            for iteration in range(3):
-                ws.send_json({"type": "text", "text": "start"})
+            # Strict scope checking holds even child-voice text until the
+            # caller's turn is complete. An interruption discards the draft.
+            ws.send_json({"type": "text", "text": "start"})
+            ws.send_json({"type": "text", "text": "interrupt"})
+            self.assertTrue(ws.receive_json()["interrupted"])
+            ws.send_json({"type": "text", "text": "start"})
+            ws.send_json({"type": "text", "text": "finish"})
+            captions = []
+            while True:
                 event = ws.receive_json()
-                self.assertEqual(event["outputTranscription"], {"text": prefix, "playbackAligned": True})
-                self.assertEqual(base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"]), b"CUSTOM")
-                self.assertNotIn("turnComplete", event)
-                if iteration == 1:
-                    ws.send_json({"type": "text", "text": "interrupt"})
-                    self.assertTrue(ws.receive_json()["interrupted"])
-                else:
-                    ws.send_json({"type": "text", "text": "finish"})
-                    self.assertEqual(ws.receive_json()["outputTranscription"]["text"], "and this is a synthetic sentence.")
-                    self.assertTrue(ws.receive_json()["turnComplete"])
-            self.assertEqual(requests, [prefix, "and this is a synthetic sentence.", prefix,
-                                        prefix, "and this is a synthetic sentence."])
+                if "outputTranscription" in event:
+                    self.assertEqual(base64.b64decode(event["content"]["parts"][0]["inlineData"]["data"]), b"CUSTOM")
+                    captions.append(event["outputTranscription"]["text"])
+                if event.get("turnComplete"):
+                    break
+            self.assertEqual(captions, [prefix, "and this is a synthetic sentence."])
+            self.assertEqual(requests, captions)
 
 
 class PlaybackTests(unittest.IsolatedAsyncioTestCase):

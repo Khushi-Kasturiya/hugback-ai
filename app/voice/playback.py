@@ -8,7 +8,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 
-from app.voice.service import stream_replicated_speech
+from app.voice.service import REPLICATED_SPEECH_STYLE, stream_replicated_speech
 
 logger = logging.getLogger("hugback.voice")
 _FAILED = object()
@@ -30,11 +30,13 @@ class _Speech:
 
 
 class ReplicatedPlayback:
-    def __init__(self, client, websocket, *, voice_key, model, on_audio=None, lookahead=1):
+    def __init__(self, client, websocket, *, voice_key, model, on_audio=None, lookahead=1,
+                 style=REPLICATED_SPEECH_STYLE):
         if lookahead not in (0, 1):
             raise ValueError("TTS lookahead must be zero or one")
         self.client, self.websocket = client, websocket
         self.voice_key, self.model = voice_key, model
+        self.style = style
         self.on_audio = on_audio
         self.lookahead = lookahead
         self.queue = deque()
@@ -93,6 +95,7 @@ class ReplicatedPlayback:
         try:
             stream = stream_replicated_speech(
                 self.client, voice_key=self.voice_key, text=speech.text, model=self.model,
+                style=self.style,
             )
             async with asyncio.timeout(30):
                 async for audio in stream:

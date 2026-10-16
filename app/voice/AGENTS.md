@@ -22,6 +22,19 @@
   Voice identity is never proof of caller identity or access to another memory.
 - Preset and replicated TTS must never mix. Failure/expiry stops custom voice
   rather than silently changing speakers. Tests use synthetic audio and mocks.
+- A standard Live call pins one configured preset for its session. Before
+  forwarding preset PCM to the 24 kHz browser player, reject missing or
+  mismatched sample-rate metadata and malformed PCM; never play it at an
+  assumed rate that could change the apparent pitch. Keep the replicated
+  voice key and TTS style fixed across phrases. Provider timbre consistency
+  is not independently verified by these settings.
+- The companion-scope gate holds each Live reply until the caller's current
+  turn has finalized text. It replaces clear external-information requests
+  with bounded TTS using the same selected preset name or child voice key,
+  and discards held Live audio and transcript before playback. This adds
+  one-turn latency and a different TTS engine may sound somewhat different.
+  Pattern matching is not a universal semantic boundary; never claim perfect
+  voice identity or guaranteed blocking of every paraphrase.
 - For replicated speech, send each phrase's subtitle only with its first TTS
   PCM chunk; never forward the earlier Live draft as a visible subtitle. Browser
   render cues are not playback/hearing acknowledgements for memory authority.

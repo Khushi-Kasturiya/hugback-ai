@@ -21,7 +21,9 @@ from fastapi.responses import JSONResponse
 from google.genai import errors as genai_errors, types
 
 from app.agent.live_session import create_genai_client, create_live_config
+from app.agent.scope_gate import EntertainmentScopeGate
 from app.voice.grammar import speaking_form_for_call
+from app.voice.service import PRESET_SCOPE_REPLY_STYLE, REPLICATED_SPEECH_STYLE, require_playable_live_pcm
 from app.auth import (
     AuthenticationError,
     authenticate_http_headers,
@@ -497,9 +499,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
 
             playback = ReplicatedPlayback(
-                client, websocket, voice_key=voice_key, model=settings.HUGBACK_TTS_MODEL,
-                on_audio=checkpoint_audio, lookahead=settings.HUGBACK_TTS_LOOKAHEAD,
-            ) if voice_key else None
+                client, websocket, voice_key=voice_key or voice_name,
+                model=settings.HUGBACK_TTS_MODEL,
+                on_audio=checkpoint_audio, lookahead=settings.HUGBACK_TTS_LOOKAHEAD if voice_key else 0,
+                style=REPLICATED_SPEECH_STYLE if voice_key else PRESET_SCOPE_REPLY_STYLE,
+            ) if not inline_voice else None
 
             def cancel_replicated_speech():
                 nonlocal tts_pending_text, replicated_turn_text, tts_first_phrase, tts_text_started_at
@@ -602,6 +606,33 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             async def downstream_task() -> None:
                 """Receives audio and events from Gemini and streams them back to the browser."""
                 nonlocal sent_audio, replicated_turn_text, tts_pending_text, tts_first_phrase, tts_text_started_at
+                scope_gate = EntertainmentScopeGate()
+                # Native Live can send audio before its input transcription.
+                # Hold every turn until the caller's finalized words are checked.
+                guard_hold = True
+                guard_input_seen = False
+                guard_blocked = False
+                held_payloads = []
+                held_transcriptions = []
+
+                async def accept_output_transcription(text):
+                    nonlocal replicated_turn_text, tts_pending_text, tts_text_started_at
+                    previous_text = replicated_turn_text
+                    replicated_turn_text = merge_transcription(replicated_turn_text, text)
+                    if voice_key and replicated_turn_text.startswith(previous_text):
+                        if tts_text_started_at is None:
+                            tts_text_started_at = time.monotonic()
+                        tts_pending_text += replicated_turn_text[len(previous_text):]
+                        ready, tts_pending_text = split_ready_speech(
+                            tts_pending_text,
+                            first_phrase_chars=settings.HUGBACK_TTS_FIRST_PHRASE_CHARS if tts_first_phrase else None,
+                        )
+                        for segment in ready:
+                            queue_replicated_speech(segment)
+                    collector.add_model(text)
+                    if not voice_key:
+                        await websocket.send_text(json.dumps({"outputTranscription": {"text": text}}))
+
                 try:
                     # The SDK's receive() iterator represents one complete
                     # model turn and intentionally stops at turn_complete.
@@ -623,6 +654,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 await websocket.send_text(
                                     json.dumps({"inputTranscription": {"text": user_text}})
                                 )
+                                guard_input_seen = True
                             if response.tool_call:
                                 function_responses = []
                                 for call in response.tool_call.function_calls:
@@ -705,6 +737,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     logger.info(f"Gemini signaled interrupted for {session_id}")
                                     cancel_replicated_speech()
                                     replicated_turn_text = ""
+                                    held_payloads.clear()
+                                    held_transcriptions.clear()
+                                    guard_hold = True
+                                    guard_input_seen = False
+                                    guard_blocked = False
                                     await websocket.send_text(json.dumps({"interrupted": True}))
                                     if followups and followup_plan:
                                         try:
@@ -725,6 +762,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                             # the supported Flash-Lite TTS endpoint instead.
                                             if voice_key:
                                                 continue
+                                            if guard_blocked:
+                                                continue
                                             if not sent_audio:
                                                 logger.info(
                                                     "Streaming Gemini audio response for %s",
@@ -732,18 +771,26 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 )
                                                 sent_audio = True
                                             # Base64 encode binary audio chunk for browser client
+                                            audio_mime = require_playable_live_pcm(
+                                                part.inline_data.data, part.inline_data.mime_type,
+                                            )
                                             audio_b64 = base64.b64encode(part.inline_data.data).decode("utf-8")
                                             payload = {
                                                 "content": {
                                                     "parts": [{
                                                         "inlineData": {
-                                                            "mimeType": part.inline_data.mime_type or "audio/pcm;rate=24000",
+                                                            "mimeType": audio_mime,
                                                             "data": audio_b64,
                                                         }
                                                     }]
                                                 }
                                             }
-                                            await websocket.send_text(json.dumps(payload))
+                                            if guard_hold:
+                                                held_payloads.append(payload)
+                                                if len(held_payloads) > 128:
+                                                    raise RuntimeError("Guarded Live audio buffer exceeded")
+                                            else:
+                                                await websocket.send_text(json.dumps(payload))
                                             if followups and followup_plan:
                                                 try:
                                                     await asyncio.wait_for(
@@ -752,47 +799,67 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 except Exception:
                                                     logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
 
-                                        if part.text and not voice_key:
-                                            await websocket.send_text(
-                                                json.dumps({"outputTranscription": {"text": part.text}})
-                                            )
+                                        if part.text and not voice_key and not guard_blocked:
+                                            payload = {"outputTranscription": {"text": part.text}}
+                                            if guard_hold:
+                                                held_payloads.append(payload)
+                                                if len(held_payloads) > 128:
+                                                    raise RuntimeError("Guarded Live audio buffer exceeded")
+                                            else:
+                                                await websocket.send_text(json.dumps(payload))
 
                                 # 2. Output speech transcription from server
                                 if (
                                     server_content.output_transcription
                                     and server_content.output_transcription.text
                                 ):
-                                    previous_text = replicated_turn_text
-                                    replicated_turn_text = merge_transcription(
-                                        replicated_turn_text,
-                                        server_content.output_transcription.text,
-                                    )
-                                    if voice_key and replicated_turn_text.startswith(previous_text):
-                                        if tts_text_started_at is None:
-                                            tts_text_started_at = time.monotonic()
-                                        tts_pending_text += replicated_turn_text[len(previous_text):]
-                                        ready, tts_pending_text = split_ready_speech(
-                                            tts_pending_text,
-                                            first_phrase_chars=settings.HUGBACK_TTS_FIRST_PHRASE_CHARS if tts_first_phrase else None,
-                                        )
-                                        for segment in ready:
-                                            queue_replicated_speech(segment)
-                                    collector.add_model(
-                                        server_content.output_transcription.text
-                                    )
-                                    if not voice_key:
-                                        await websocket.send_text(
-                                            json.dumps({
-                                                "outputTranscription": {
-                                                    "text": server_content.output_transcription.text
-                                                }
-                                            })
-                                        )
+                                    if not guard_blocked:
+                                        if guard_hold:
+                                            held_transcriptions.append(server_content.output_transcription.text)
+                                            if len(held_transcriptions) > 128:
+                                                raise RuntimeError("Guarded Live transcription buffer exceeded")
+                                        else:
+                                            await accept_output_transcription(server_content.output_transcription.text)
 
                                 # 4. Turn completion signal
                                 if server_content.turn_complete:
+                                    # Input transcription may arrive in fragments. Decide
+                                    # from the final merged utterance, before any held PCM
+                                    # or model text can reach the browser.
+                                    current_input = collector.pending_user_text()
+                                    if current_input:
+                                        safe_reply = scope_gate.inspect(current_input)
+                                        if safe_reply:
+                                            guard_blocked = True
+                                            held_payloads.clear()
+                                            held_transcriptions.clear()
+                                            if playback:
+                                                playback.enqueue(safe_reply, final=True)
+                                            collector.add_model(safe_reply)
+                                    if guard_hold and not current_input:
+                                        # A guarded topic without finalized caller words must
+                                        # not release speculative Live speech to the browser.
+                                        held_payloads.clear()
+                                        held_transcriptions.clear()
+                                        guard_blocked = True
+                                        clarification = "Sorry, I missed that. Could you say it again?"
+                                        if playback:
+                                            playback.enqueue(clarification, final=True)
+                                        collector.add_model(clarification)
+                                    elif guard_hold and not guard_blocked:
+                                        for held in held_payloads:
+                                            await websocket.send_text(json.dumps(held))
+                                        for held in held_transcriptions:
+                                            await accept_output_transcription(held)
+                                    held_payloads.clear()
+                                    held_transcriptions.clear()
                                     collector.complete_turn()
-                                    if voice_key:
+                                    if guard_blocked:
+                                        replicated_turn_text = ""
+                                        tts_pending_text = ""
+                                        tts_first_phrase = True
+                                        tts_text_started_at = None
+                                    elif voice_key:
                                         ready, tts_pending_text = split_ready_speech(
                                             tts_pending_text,
                                             final=True,
@@ -814,6 +881,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     else:
                                         replicated_turn_text = ""
                                         await websocket.send_text(json.dumps({"turnComplete": True}))
+                                    guard_hold = True
+                                    guard_input_seen = False
+                                    guard_blocked = False
 
 
                 except asyncio.CancelledError:
@@ -1047,11 +1117,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 )
                                 if not eligible:
                                     return
-                                summary = await summarize_call(turns)
+                                failure = {}
+                                summary = await summarize_call(turns, failure=failure)
                                 try:
                                     await asyncio.to_thread(
                                         demo_store.record_call_summary, user_id, session_id,
                                         transcript_generation, summary,
+                                        failure_code=failure.get("code", "model_or_content"),
                                     )
                                 except Exception:
                                     logger.warning("Synthetic call summary was not saved session=%s", session_id)

@@ -68,6 +68,10 @@ class TranscriptCollector:
             return self._pending_user
         return next((turn.text for turn in reversed(self._turns) if turn.role == "user"), "")
 
+    def pending_user_text(self) -> str:
+        """The caller's current turn, including browser text sent to Live."""
+        return self._pending_user
+
     def finalize(self) -> list[TranscriptTurn]:
         self.complete_turn()
         return list(self._turns)
