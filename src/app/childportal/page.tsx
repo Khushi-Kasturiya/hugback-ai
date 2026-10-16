@@ -29,12 +29,11 @@ import {
   X,
 } from "lucide-react";
 import { useDemoFamily } from "@/hooks/useDemoFamily";
+import { DemoCallHistory } from "@/components/DemoCallHistory";
 import {
-  DemoCallSummary,
   DemoFamily,
   DemoRecipient,
   WellbeingSignal,
-  demoCallSummary,
   demoRequest,
   parentCallUrl,
 } from "@/lib/demo-api";
@@ -98,6 +97,7 @@ function PulsingAudioRecorder({
   label,
   minimumSeconds,
   promptText,
+  promptLabel = "Say this aloud",
   compact = false,
   onRecorded,
 }: {
@@ -105,6 +105,7 @@ function PulsingAudioRecorder({
   label: string;
   minimumSeconds: number;
   promptText?: string;
+  promptLabel?: string;
   compact?: boolean;
   onRecorded: (file: File | null) => void;
 }) {
@@ -242,8 +243,8 @@ function PulsingAudioRecorder({
 
         {promptText && (
           <div className="mt-2 rounded-xl border border-[#9BA5FC]/15 bg-[#FAF8FF] px-3 py-2 text-xs leading-relaxed text-[#454E6D]">
-            <span className="block text-[11px] font-semibold text-[#56619C]">Say this aloud:</span>
-            <p className="mt-0.5 italic text-xs leading-normal">“{promptText}”</p>
+            <span className="block text-[11px] font-semibold text-[#56619C]">{promptLabel}:</span>
+            <p className="mt-0.5 italic text-xs leading-normal">{promptLabel === "Say this aloud" ? `“${promptText}”` : promptText}</p>
           </div>
         )}
 
@@ -311,8 +312,8 @@ function PulsingAudioRecorder({
 
       {promptText && (
         <div className="mt-3 rounded-xl border border-[#9BA5FC]/15 bg-[#FAF8FF] p-3 text-xs leading-relaxed text-[#454E6D]">
-          <p className="font-semibold text-[#56619C]">Say this aloud:</p>
-          <p className="mt-1 italic">“{promptText}”</p>
+          <p className="font-semibold text-[#56619C]">{promptLabel}:</p>
+          <p className="mt-1 italic">{promptLabel === "Say this aloud" ? `“${promptText}”` : promptText}</p>
         </div>
       )}
 
@@ -409,6 +410,8 @@ export default function ChildPortal() {
   const [consentFile, setConsentFile] = useState<File | null>(null);
   const [voiceConsentAcknowledged, setVoiceConsentAcknowledged] = useState(false);
   const [voiceEnrolling, setVoiceEnrolling] = useState(false);
+  const [voiceUncertain, setVoiceUncertain] = useState(false);
+  const [voiceAssignmentBusy, setVoiceAssignmentBusy] = useState<string | null>(null);
   const [voiceToast, setVoiceToast] = useState("");
 
   // Wizard state (View 3: Parent Setup Wizard)
@@ -430,8 +433,6 @@ export default function ChildPortal() {
 
   // Daily Signals Modal state
   const [signalsModalRecipient, setSignalsModalRecipient] = useState<DemoRecipient | null>(null);
-  const [callSummariesCache, setCallSummariesCache] = useState<Record<string, DemoCallSummary>>({});
-  const [loadingSummaryId, setLoadingSummaryId] = useState<string>("");
 
   // 1. Check Onboarding Profile Gate
   useEffect(() => {
@@ -563,9 +564,11 @@ export default function ChildPortal() {
 
   // Voice clone enrollment
   async function handleCreateVoice() {
-    if (!voiceSampleFile || !consentFile || !voiceConsentAcknowledged || voiceEnrolling) return;
+    if (!voiceSampleFile || !consentFile || !voiceConsentAcknowledged || voiceEnrolling || voiceUncertain ||
+        !status?.voice?.replicatedTtsEnabled) return;
     setVoiceEnrolling(true);
     setVoiceToast("Preparing high-fidelity 24 kHz audio and registering voice model…");
+    let submitted = false;
     try {
       const [sample, permission] = await Promise.all([
         prepareVoiceWav(voiceSampleFile, "Voice sample", 10),
@@ -576,6 +579,7 @@ export default function ChildPortal() {
         audioBase64(permission),
       ]);
 
+      submitted = true;
       const result = await voiceRequest("/enroll", "POST", {
         voiceSampleAudio,
         consentAudio,
@@ -587,13 +591,69 @@ export default function ChildPortal() {
       setVoiceSampleFile(null);
       setConsentFile(null);
       setVoiceConsentAcknowledged(false);
-      setVoiceToast("Voice model created successfully! Ready for your family bridge.");
-      setTimeout(() => setVoiceToast(""), 4500);
+      setVoiceToast("Voice created, but still off. Click Enable child voice, then assign it to each loved one.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Voice clone creation failed.");
-      setVoiceToast("");
+      setVoiceUncertain(submitted);
+      setVoiceToast(err instanceof Error ? err.message : "Voice creation failed. Refresh status before retrying.");
     } finally {
       setVoiceEnrolling(false);
+    }
+  }
+
+  async function handleRefreshVoiceStatus() {
+    setVoiceEnrolling(true);
+    try {
+      const current = await portalGet<PortalStatus>("/status");
+      const result = await voiceRequest("/profile", "GET");
+      setStatus({ ...current, voice: { ...current.voice, profile: result.profile } });
+      setVoiceUncertain(!!result.enrolling);
+      setVoiceToast(result.enrolling ? "Google voice setup is still processing. Refresh again shortly." :
+        result.profile ? "Voice status confirmed. Enable it below if it is off." :
+          "No voice was saved. You may create one after reviewing the recordings.");
+    } catch (err) {
+      setVoiceToast(err instanceof Error ? err.message : "Could not refresh voice status.");
+    } finally {
+      setVoiceEnrolling(false);
+    }
+  }
+
+  async function handleSetVoiceEnabled(enabled: boolean) {
+    const profile = status?.voice?.profile;
+    if (!profile || voiceEnrolling) return;
+    setVoiceEnrolling(true);
+    setVoiceToast("");
+    try {
+      const result = await voiceRequest("/profile", "PUT", { profileId: profile.id, enabled });
+      setStatus((current) => current ? { ...current, voice: { ...current.voice, profile: result.profile } } : current);
+      setVoiceToast(enabled
+        ? "Child voice enabled. Assign it to each loved one in the Family Room below."
+        : "Child voice disabled. Calls assigned to it are blocked until you choose another voice.");
+    } catch (err) {
+      setVoiceToast(err instanceof Error ? err.message : "Could not change voice status. Refresh and try again.");
+    } finally {
+      setVoiceEnrolling(false);
+    }
+  }
+
+  async function handleAssignVoice(recipient: DemoRecipient, mode: "standard" | "child") {
+    const profile = status?.voice?.profile;
+    if (voiceAssignmentBusy || recipient.busy ||
+        (mode === "child" && (!status?.voice?.replicatedTtsEnabled || !profile?.enabled || profile.expired))) return;
+    setVoiceAssignmentBusy(recipient.recipientId);
+    setError("");
+    try {
+      const result = await demoRequest("/recipient-voice", "PUT", {
+        syntheticOnly: true,
+        recipientId: recipient.recipientId,
+        revision: recipient.revision,
+        mode,
+        profileId: mode === "child" ? profile?.id : null,
+      });
+      demo.update(result);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not change this voice assignment. Refresh Family Room and retry.");
+    } finally {
+      setVoiceAssignmentBusy(null);
     }
   }
 
@@ -691,21 +751,8 @@ export default function ChildPortal() {
     }
   }
 
-  // Fetch Call Summary
-  async function fetchSummary(recipientId: string, sessionId: string) {
-    if (callSummariesCache[sessionId] || loadingSummaryId === sessionId) return;
-    setLoadingSummaryId(sessionId);
-    try {
-      const summary = await demoCallSummary(recipientId, sessionId);
-      setCallSummariesCache((prev) => ({ ...prev, [sessionId]: summary }));
-    } catch {
-      // Graceful fallback
-    } finally {
-      setLoadingSummaryId("");
-    }
-  }
-
   const recipients = demo.family?.recipients || [];
+  const activeSignalsRecipient = recipients.find((item) => item.recipientId === signalsModalRecipient?.recipientId);
   const selectedRecipient = recipients.find((r) => r.recipientId === selectedRecipientId) || recipients[0];
   const previewCallHref = parentCallUrl(selectedRecipient?.recipientId);
 
@@ -960,7 +1007,8 @@ export default function ChildPortal() {
                     disabled={voiceEnrolling}
                     label="1. Voice Sample (20-30s)"
                     minimumSeconds={10}
-                    promptText="Namaste Maa, I'm having a quiet evening here with a cup of tea, thinking about our garden back home…"
+                    promptLabel="Recording tip"
+                    promptText="Speak as you normally would to your parent for 20–30 seconds. Tell a short fictional everyday story and ask one natural question. Use your usual rhythm; do not whisper or act."
                     onRecorded={(file) => setVoiceSampleFile(file)}
                   />
 
@@ -969,7 +1017,7 @@ export default function ChildPortal() {
                     disabled={voiceEnrolling}
                     label="2. Consent Recording"
                     minimumSeconds={2}
-                    promptText="I am the owner of this voice and I consent to HugBack creating a synthetic voice model for family check-in calls."
+                    promptText="I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model."
                     onRecorded={(file) => setConsentFile(file)}
                   />
                 </div>
@@ -982,13 +1030,29 @@ export default function ChildPortal() {
                     className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded accent-[#56619C]"
                   />
                   <span>
-                    I am 18 or older, this is my authentic voice, and I authorize HugBack to synthesize this voice model for my family’s check-in bridge.
+                    I am 18 or older, this is my voice, and I agree to send both recordings to Google for synthetic voice creation, which may incur charges.
                   </span>
                 </label>
 
                 {voiceToast && (
                   <div className="rounded-xl bg-[#EDF7FF] p-2 text-[11px] font-semibold text-[#315F89]">
                     {voiceToast}
+                  </div>
+                )}
+                {voiceUncertain && <button type="button" disabled={voiceEnrolling} onClick={() => void handleRefreshVoiceStatus()}
+                  className="text-xs font-bold text-[#56619C] underline disabled:opacity-40">Refresh voice status before retrying</button>}
+                {status?.voice?.profile && (
+                  <div className="rounded-xl border border-[#9BA5FC]/20 bg-white p-3 text-xs text-[#454E6D]">
+                    <p>{status.voice.profile.expired ? "This voice has expired. Create a new one before assigning it." :
+                      status.voice.profile.enabled ? "Child voice enabled. Assign it to each loved one in the Family Room." :
+                      "Voice created, but disabled. Enable it before assigning it to a loved one."}</p>
+                    {!status.voice.profile.expired && !status.voice.profile.enabled && (
+                      <button type="button" disabled={voiceEnrolling || !status.voice.replicatedTtsEnabled}
+                        onClick={() => void handleSetVoiceEnabled(true)}
+                        className="mt-2 rounded-full bg-[#56619C] px-4 py-2 font-bold text-white disabled:opacity-40">
+                        Enable child voice
+                      </button>
+                    )}
                   </div>
                 )}
 
@@ -1006,11 +1070,11 @@ export default function ChildPortal() {
                     {voiceSampleFile && consentFile && voiceConsentAcknowledged && !status?.voice?.profile && (
                       <button
                         type="button"
-                        disabled={voiceEnrolling}
+                        disabled={voiceEnrolling || voiceUncertain || !status?.voice?.replicatedTtsEnabled}
                         onClick={handleCreateVoice}
                         className="rounded-full border border-[#9BA5FC] px-3.5 py-2 text-xs font-bold text-[#56619C] transition hover:bg-[#F2F4FD]"
                       >
-                        {voiceEnrolling ? "Generating Model…" : "Train Clone Now"}
+                        {voiceEnrolling ? "Creating voice…" : "Create voice"}
                       </button>
                     )}
 
@@ -1194,6 +1258,32 @@ export default function ChildPortal() {
                                   </span>
                                 </div>
                               </div>
+                              <div className="mt-4 text-xs">
+                                {status?.voice?.replicatedTtsEnabled && status.voice.profile?.enabled &&
+                                 !status.voice.profile.expired ? (
+                                  <button type="button"
+                                    disabled={!!voiceAssignmentBusy || recipient.busy ||
+                                      (recipient.voice.mode === "child" && recipient.voice.profileId === status.voice.profile.id)}
+                                    onClick={() => void handleAssignVoice(recipient, "child")}
+                                    className="rounded-full border border-[#9BA5FC] px-3 py-2 font-bold text-[#56619C] disabled:opacity-50">
+                                    {voiceAssignmentBusy === recipient.recipientId ? "Saving voice…" :
+                                      recipient.voice.mode === "child" && recipient.voice.profileId === status.voice.profile.id
+                                        ? "Child voice assigned" : "Assign child voice"}
+                                  </button>
+                                ) : (
+                                  <button type="button" onClick={() => { setProfileModalTab("voice"); setIsProfileModalOpen(true); }}
+                                    className="font-bold text-[#56619C] underline underline-offset-2">
+                                    Set up child voice to assign it
+                                  </button>
+                                )}
+                                {recipient.voice.mode === "child" && (
+                                  <button type="button" disabled={!!voiceAssignmentBusy || recipient.busy}
+                                    onClick={() => void handleAssignVoice(recipient, "standard")}
+                                    className="ml-2 rounded-full border border-stone-300 px-3 py-2 font-semibold text-stone-600 disabled:opacity-50">
+                                    Use standard voice
+                                  </button>
+                                )}
+                              </div>
                             </div>
 
                             {/* Card Actions */}
@@ -1204,7 +1294,7 @@ export default function ChildPortal() {
                                 className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-[#9BA5FC]/30 bg-white px-3 py-2 text-xs font-bold text-[#56619C] shadow-sm transition hover:bg-[#F2F4FD]"
                               >
                                 <Heart className="h-3.5 w-3.5 text-[#B69CF2]" />
-                                <span>View Daily Signals</span>
+                                <span>Signals &amp; call summaries</span>
                               </button>
 
                               <Link
@@ -1824,15 +1914,29 @@ export default function ChildPortal() {
                 <div className="mt-5 space-y-4">
                   {/* Status Banner */}
                   {status?.voice?.profile && (
-                    <div className="flex items-center justify-between rounded-2xl border border-emerald-200 bg-emerald-50/90 p-3.5 text-xs">
+                    <div className="flex items-center justify-between rounded-2xl border border-[#9BA5FC]/20 bg-[#FAF8FF] p-3.5 text-xs">
                       <div className="flex items-center gap-2.5">
-                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                        <span className="font-bold text-emerald-900">Your Voice Model is Active</span>
-                        <span className="text-emerald-700 text-xs hidden sm:inline">· Ready for your family bridges</span>
+                        <CheckCircle2 className="h-4 w-4 text-[#56619C]" />
+                        <span className="font-bold text-[#252D49]">{status.voice.profile.expired ? "Child voice expired" :
+                          status.voice.profile.enabled ? "Child voice enabled" : "Child voice created, but disabled"}</span>
                       </div>
                       <span className="rounded-full bg-white px-3 py-1 text-[11px] font-bold text-emerald-800 shadow-xs">
-                        Ready
+                        {status.voice.profile.expired ? "Renew" : status.voice.profile.enabled ? "Ready to assign" : "Off"}
                       </span>
+                    </div>
+                  )}
+                  {!status?.voice?.replicatedTtsEnabled && (
+                    <p className="rounded-xl bg-amber-50 p-3 text-xs text-amber-900">Child voice creation is unavailable on this backend. Check its voice feature flag and restart it.</p>
+                  )}
+                  {status?.voice?.profile && !status.voice.profile.expired && (
+                    <div className="flex flex-wrap items-center gap-2 text-xs">
+                      <button type="button" disabled={voiceEnrolling || !status.voice.replicatedTtsEnabled || status.voice.profile.enabled}
+                        onClick={() => void handleSetVoiceEnabled(true)}
+                        className="rounded-full bg-[#56619C] px-4 py-2 font-bold text-white disabled:opacity-40">Enable child voice</button>
+                      <button type="button" disabled={voiceEnrolling || !status.voice.profile.enabled}
+                        onClick={() => void handleSetVoiceEnabled(false)}
+                        className="rounded-full border border-stone-300 px-4 py-2 font-semibold text-stone-600 disabled:opacity-40">Disable child voice</button>
+                      {status.voice.profile.enabled && <span>Now choose “Assign child voice” on a loved one’s card in the Family Room.</span>}
                     </div>
                   )}
 
@@ -1843,16 +1947,17 @@ export default function ChildPortal() {
                       compact={true}
                       label="1. Voice Sample (20-30s)"
                       minimumSeconds={10}
-                      promptText="Namaste Maa, I'm having a quiet evening here with a cup of tea, thinking about our garden back home…"
+                      promptLabel="Recording tip"
+                      promptText="Speak as you normally would to your parent for 20–30 seconds. Tell a short fictional everyday story and ask one natural question. Use your usual rhythm; do not whisper or act."
                       onRecorded={(file) => setVoiceSampleFile(file)}
                     />
 
                     <PulsingAudioRecorder
                       disabled={voiceEnrolling}
                       compact={true}
-                      label="2. Consent Recording (2-5s)"
+                      label="2. Consent Recording (read the full sentence)"
                       minimumSeconds={2}
-                      promptText="I am the owner of this voice and I consent to HugBack creating a synthetic voice model for family check-in calls."
+                      promptText="I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model."
                       onRecorded={(file) => setConsentFile(file)}
                     />
                   </div>
@@ -1866,7 +1971,7 @@ export default function ChildPortal() {
                         onChange={(e) => setVoiceConsentAcknowledged(e.target.checked)}
                         className="h-4 w-4 rounded accent-[#56619C] shrink-0"
                       />
-                      <span>I am 18 or older, this is my voice, and I authorize HugBack voice synthesis.</span>
+                      <span>I am 18 or older, this is my voice, and I agree to send both recordings to Google for synthetic voice creation, which may incur charges.</span>
                     </label>
 
                     <div className="flex items-center gap-3">
@@ -1875,10 +1980,15 @@ export default function ChildPortal() {
                           {voiceToast}
                         </span>
                       )}
+                      {voiceUncertain && <button type="button" disabled={voiceEnrolling}
+                        onClick={() => void handleRefreshVoiceStatus()}
+                        className="text-xs font-bold text-[#56619C] underline disabled:opacity-40">Refresh voice status</button>}
                       <button
                         type="button"
                         disabled={
                           voiceEnrolling ||
+                          voiceUncertain ||
+                          !status?.voice?.replicatedTtsEnabled ||
                           !voiceSampleFile ||
                           !consentFile ||
                           !voiceConsentAcknowledged
@@ -1891,7 +2001,7 @@ export default function ChildPortal() {
                         ) : (
                           <Sparkles className="h-3.5 w-3.5" />
                         )}
-                        <span>Update Voice Model</span>
+                        <span>{status?.voice?.profile ? "Replace child voice" : "Create child voice"}</span>
                       </button>
                     </div>
                   </div>
@@ -1906,7 +2016,7 @@ export default function ChildPortal() {
       {/* DAILY SIGNALS & CALL HISTORY MODAL                                    */}
       {/* ===================================================================== */}
       <AnimatePresence>
-        {signalsModalRecipient && (
+        {activeSignalsRecipient && (
           <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
             <motion.div
               initial={{ opacity: 0 }}
@@ -1925,10 +2035,10 @@ export default function ChildPortal() {
               <div className="flex items-start justify-between">
                 <div>
                   <span className="text-[10px] font-extrabold uppercase tracking-widest text-[#56619C]">
-                    Daily Signals & Check-ins
+                    Signals &amp; call summaries
                   </span>
                   <h3 className="font-serif text-2xl font-medium text-[#252D49]">
-                    {signalsModalRecipient.label}’s Bridge
+                    {activeSignalsRecipient.label}’s Bridge
                   </h3>
                 </div>
 
@@ -1946,7 +2056,7 @@ export default function ChildPortal() {
                   Conversation Signal
                 </span>
                 <p className="mt-2 font-serif text-xl font-medium text-[#1F253B]">
-                  {signalsModalRecipient.wellbeingSignals?.at(-1)?.displayText ||
+                  {activeSignalsRecipient.wellbeingSignals?.at(-1)?.displayText ||
                     "No signals recorded yet. After the next check-in call, updates will appear here."}
                 </p>
                 <p className="mt-1 text-[11px] text-stone-500">
@@ -1955,53 +2065,7 @@ export default function ChildPortal() {
               </div>
 
               <div className="mt-6">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[#56619C]">
-                  Call History ({signalsModalRecipient.calls.length})
-                </h4>
-
-                <div className="mt-3 space-y-3">
-                  {signalsModalRecipient.calls.length > 0 ? (
-                    signalsModalRecipient.calls.slice().reverse().map((call) => (
-                      <div
-                        key={call.sessionId}
-                        className="rounded-2xl border border-stone-200 bg-stone-50/70 p-4 text-xs"
-                      >
-                        <div className="flex items-center justify-between">
-                          <span className="font-semibold text-[#252D49]">
-                            {readableCallStatus(call.status)}
-                          </span>
-                          <span className="text-[11px] text-stone-400">
-                            {formatDate(call.startedAt)}
-                          </span>
-                        </div>
-
-                        {callSummariesCache[call.sessionId] ? (
-                          <div className="mt-3 rounded-xl border border-stone-200 bg-white p-3 text-stone-700">
-                            <p className="font-bold text-[#56619C]">Call Summary:</p>
-                            <p className="mt-1">{callSummariesCache[call.sessionId].summary}</p>
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              fetchSummary(signalsModalRecipient.recipientId, call.sessionId)
-                            }
-                            disabled={loadingSummaryId === call.sessionId}
-                            className="mt-2 text-[11px] font-bold text-[#56619C] hover:underline"
-                          >
-                            {loadingSummaryId === call.sessionId
-                              ? "Loading summary…"
-                              : "Read call digest →"}
-                          </button>
-                        )}
-                      </div>
-                    ))
-                  ) : (
-                    <p className="rounded-2xl border border-dashed border-stone-200 p-6 text-center text-xs text-stone-500">
-                      No calls logged yet for {signalsModalRecipient.label}.
-                    </p>
-                  )}
-                </div>
+                <DemoCallHistory key={activeSignalsRecipient.recipientId} recipient={activeSignalsRecipient} refresh={demo.refresh} />
               </div>
             </motion.div>
           </div>

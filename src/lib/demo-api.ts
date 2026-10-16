@@ -46,7 +46,9 @@ export interface DemoRecipient {
   calls: { sessionId: string; startedAt: string; endedAt?: string; status: string;
     transcriptStatus?: "pending" | "available" | "not_enabled" | "unavailable" | "revoked";
     summaryStatus?: "pending" | "available" | "not_enabled" | "unavailable" | "revoked";
-    summaryFailureCode?: "missing_text" | "input_too_long" | "model_or_content" | "processing_unavailable";
+    summaryFailureCode?: "missing_text" | "input_too_long" | "model_or_content" | "processing_unavailable"
+      | "timeout" | "rate_limited" | "provider_unavailable" | "network_unavailable"
+      | "provider_access" | "model_unavailable" | "provider_request_rejected" | "invalid_output" | "processing_failed";
     canGenerateLegacySummary?: boolean;
     alert?: { category: "fever" | "bereavement"; observedAt: string;
       status: "pending" | "sending" | "sent" | "failed" | "suppressed" | "not_configured" };
@@ -206,8 +208,8 @@ export function reviewedExcerpts(preview: ChatPreview, indexes: number[], child:
   });
 }
 
-/** One-action synthetic context: consider every parent-authored text message,
- * preserve clear personal interests and timeline coverage. Raw chat is not sent. */
+/** One-action synthetic context: parent background plus a few attributed child
+ * replies for broad speaking style. Raw chat is not sent. */
 export function automaticBackgroundExcerpts(preview: ChatPreview, child: string, parent: string) {
   if (child === parent || !preview.participants.includes(child) || !preview.participants.includes(parent)) {
     throw new Error("Choose two different participants before preparing background.");
@@ -215,7 +217,13 @@ export function automaticBackgroundExcerpts(preview: ChatPreview, child: string,
   const parentMessages = preview.messages.flatMap((message, sourceIndex) =>
     message.sender === parent && message.text.trim() ? [{ ...message, sourceIndex }] : []);
   if (!parentMessages.length) throw new Error("This chat has no text messages from the selected parent.");
-  const count = Math.min(24, parentMessages.length);
+  const childStyleMessages = preview.messages.flatMap((message, sourceIndex) => {
+    const text = message.text.trim();
+    return message.sender === child && text.length >= 8 && text.length <= 220 &&
+      !/https?:\/\/|\n|\b(?:password|otp|ignore instructions|system prompt)\b/iu.test(text)
+      ? [{ ...message, sourceIndex }] : [];
+  });
+  const count = Math.min(childStyleMessages.length ? 20 : 24, parentMessages.length);
   let selected = parentMessages;
   if (parentMessages.length > count) {
     const interest = /\b(?:i\s+(?:like|love|enjoy|prefer|used to|remember)|my\s+(?:favourite|favorite|hobby)|mujhe|main\s+pasand)\b|(?:मुझे|मैं|मेरा|मेरी|पसंद)/iu;
@@ -239,7 +247,11 @@ export function automaticBackgroundExcerpts(preview: ChatPreview, child: string,
     for (let index = 0; chosen.size < count && index < parentMessages.length; index++) chosen.add(index);
     selected = [...chosen].sort((a, b) => a - b).map((index) => parentMessages[index]);
   }
-  return selected.map(({ sourceIndex, sender, timestamp, text }) => ({
+  const styleCount = Math.min(4, childStyleMessages.length, 24 - selected.length);
+  const styleSamples = Array.from({ length: styleCount }, (_, index) =>
+    childStyleMessages[Math.floor((index + 0.5) * childStyleMessages.length / styleCount)]);
+  return [...selected, ...styleSamples].sort((a, b) => a.sourceIndex - b.sourceIndex)
+    .map(({ sourceIndex, sender, timestamp, text }) => ({
     sourceIndex, sender, timestamp, text: text.trim().slice(0, 500),
-  }));
+    }));
 }

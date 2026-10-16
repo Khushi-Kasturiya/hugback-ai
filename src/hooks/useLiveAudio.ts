@@ -408,21 +408,8 @@ export function useLiveAudio({
             }
           }
 
-          // Edge VAD Barge-in Check:
-          // If the user speaks firmly (volume > threshold) while Hugback is actively speaking,
-          // instantly flush client playback and signal turn_complete to reclaim floor!
-          if (normalizedVol > 0.35 && (isAgentSpeakingRef.current || playerRef.current?.isBusy())) {
-            console.log("[Hugback] Edge VAD barge-in triggered by user voice!");
-            if (playerRef.current) {
-              playerRef.current.flush();
-            }
-            isAgentSpeakingRef.current = false;
-            setHugbackVolume(0);
-            setStatus("listening");
-
-            // Signal to backend
-            wsRef.current.send(JSON.stringify({ type: "turn_complete" }));
-          }
+          // Keep queued speech until the server confirms an interruption.
+          // Loud microphone input can be speaker echo, not a caller barge-in.
         }
       });
       if (!isCurrentAttempt()) { recorder.stop(); return; }

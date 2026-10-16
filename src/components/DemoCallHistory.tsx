@@ -24,6 +24,11 @@ function summaryMessage(call: DemoRecipient["calls"][number]): string {
   if (call.summaryStatus === "unavailable") {
     if (call.summaryFailureCode === "missing_text") return "No usable speech transcript reached the backend for this call, so it could not prepare a summary.";
     if (call.summaryFailureCode === "input_too_long") return "The speech transcript exceeded the summary limit for this call.";
+    if (call.summaryFailureCode === "timeout") return "Google took too long to prepare this summary. Try a new call after the service recovers.";
+    if (call.summaryFailureCode === "rate_limited") return "Google's summary limit was reached for this call. Try a new call later.";
+    if (call.summaryFailureCode === "provider_unavailable" || call.summaryFailureCode === "network_unavailable") return "Google's summary service was unavailable for this call. Try a new call later.";
+    if (call.summaryFailureCode === "provider_access" || call.summaryFailureCode === "model_unavailable" || call.summaryFailureCode === "provider_request_rejected") return "The backend's summary model could not be used. Check its Google model access and configuration.";
+    if (call.summaryFailureCode === "invalid_output") return "The summary model returned an invalid result for this call.";
     if (call.summaryFailureCode === "model_or_content") return "The summary model did not return a usable, grounded summary for this call.";
     if (call.summaryFailureCode === "processing_unavailable") return "Call processing ended before summary input was ready.";
     return "A reliable summary could not be prepared for this call.";

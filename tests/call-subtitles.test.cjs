@@ -114,12 +114,12 @@ test("server interruption wins over bundled stale audio/text and queued phrases"
   } finally { h.api.endCall(); }
 });
 
-test("local barge-in before render discards pending captions", async () => {
+test("loud local audio does not discard a pending child-voice phrase", async () => {
   const h = await callHarness();
   try {
     h.emit(phrase("Pending phrase."));
     h.speak(); h.render();
-    assert.equal(h.states[3], "");
+    assert.equal(h.states[3], "Pending phrase.");
   } finally { h.api.endCall(); }
 });
 
