@@ -1,5 +1,16 @@
 # Hugback frontend
 
+- 18 October: user approved the hosted synthetic demo without manual UID
+  approval/invitations. Keep Firebase anonymous authentication and recipient
+  isolation. Public demo admission is a separate explicit backend setting,
+  not authority from a browser flag. Hosted build uses the synthetic recipient
+  flow, both standard and consented adult child voice, and fictional-data notice.
+  Firestore mode stores the child key/profile in a backend-only collection in
+  the same named DB; never send keys to browsers or upload audio implicitly.
+  This supersedes the local-only voice-vault rule below; production family
+  intake remains separately gated. Do not promise real-family
+  consent or durable post-call processing.
+
 - 13 October: fictional browser imports use one action after whole-chat simulated
   child and parent permission, rather than individual message checkboxes. The
   browser considers all parent-authored text messages and sends at most 24

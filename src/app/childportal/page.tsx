@@ -30,6 +30,7 @@ import {
 } from "lucide-react";
 import { useDemoFamily } from "@/hooks/useDemoFamily";
 import { DemoCallHistory } from "@/components/DemoCallHistory";
+import { LocalConnectionDetails } from "@/components/LocalConnectionDetails";
 import {
   DemoFamily,
   DemoRecipient,
@@ -386,6 +387,7 @@ export default function ChildPortal() {
   // Backend state
   const [identity, setIdentity] = useState<{ owner: string; mode: "development" | "firebase" }>();
   const [status, setStatus] = useState<PortalStatus>();
+  const [connectionError, setConnectionError] = useState("");
   const [error, setError] = useState("");
   const [revision, setRevision] = useState(0);
 
@@ -470,8 +472,13 @@ export default function ChildPortal() {
         const capabilities = await portalGet<PortalStatus>("/status");
         if (!current) return;
         setStatus(capabilities);
+        setConnectionError("");
       } catch (loadError) {
-        if (current) setError(loadError instanceof Error ? loadError.message : "Could not load portal capabilities.");
+        if (current) {
+          const message = loadError instanceof Error ? loadError.message : "Could not load portal capabilities.";
+          setConnectionError(message);
+          setError(message);
+        }
       }
     })();
     return () => {
@@ -782,6 +789,23 @@ export default function ChildPortal() {
         !hasCompletedProfile ? "h-screen overflow-hidden" : ""
       }`}
     >
+      {status?.remoteTestEnabled && (
+        <div role="note" className="relative z-50 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950">
+          Hosted demo: use fictional profiles and chats only. Standard voice or your explicitly enrolled child voice; call summaries and memory processing are best effort.
+        </div>
+      )}
+      <LocalConnectionDetails
+        identity={identity}
+        status={status}
+        connectionError={connectionError}
+        familyError={demo.error}
+        onRetry={() => {
+          setError("");
+          setConnectionError("");
+          setStatus(undefined);
+          setRevision((value) => value + 1);
+        }}
+      />
       {/* Subtle Ambient Aurora Orbs */}
       <div
         aria-hidden="true"

@@ -109,7 +109,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
   }
 
   async function remove() {
-    if (!window.confirm("Remove this voice key from the local backend? Recipients assigned this voice will need a new assignment or an explicit switch to standard voice. End any active call first. This does not revoke Google's temporary key or guarantee provider data deletion.")) return;
+    if (!window.confirm("Remove this voice key from backend storage? Recipients assigned this voice will need a new assignment or an explicit switch to standard voice. End any active call first. This does not revoke Google's temporary key or guarantee provider data deletion.")) return;
     setBusy(true);
     try {
       await voiceRequest("/profile", "DELETE");
@@ -142,7 +142,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
       <div className="mt-3 rounded-xl bg-violet-50 p-4 text-sm leading-6 text-stone-700"><strong>Read this for recording 2:</strong><br />“I am the owner of this voice and I consent to Google using this voice to create a synthetic voice model.”</div>
       <label className="mt-4 flex items-start gap-3 text-sm leading-6 text-stone-700">
         <input className="mt-1.5 h-4 w-4 shrink-0 accent-violet-600" type="checkbox" checked={acknowledged} disabled={locked || !available} onChange={(event) => setAcknowledged(event.target.checked)} />
-        <span>I am 18 or older, this is my voice, and I agree to send these recordings to Google to create the voice.</span>
+        <span>I am 18 or older, this is my voice, and I agree to send these recordings to Google to create the voice, including applicable Google processing charges.</span>
       </label>
       <div className="mt-5 flex flex-wrap items-center gap-3">
         <button type="button" disabled={locked || !available || !reference || !consent || !acknowledged || uncertain || !!activeRecorder} onClick={enroll} className="flex items-center gap-2 rounded-full bg-violet-600 px-5 py-2.5 text-sm font-bold text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50">
@@ -174,7 +174,7 @@ export function VoiceEnrollment({ disabled = false, voice, onUpdated, recipient,
       {message && <p className="mt-4 rounded-xl bg-stone-100 p-3 text-sm leading-6 text-stone-800" role="status" aria-live="polite">{message}</p>}
       <details className="mt-5 border-t border-stone-100 pt-4 text-xs leading-5 text-stone-500">
         <summary className="cursor-pointer font-semibold text-stone-600">Privacy and recording details</summary>
-        <p className="mt-2">The recordings are sent to Google only after you confirm. Hugback does not save them in browser storage or Firestore. Hugback always identifies itself as AI.</p>
+        <p className="mt-2">The recordings are sent to Google only after you confirm. Hugback does not save them in browser storage or Firestore. Only the temporary voice key and profile are retained in {capability?.storage === "firestore" ? "backend-only Firestore storage" : "backend voice storage"}, scoped to your signed-in browser identity. Hugback never claims to be you and answers honestly if asked whether it is AI.</p>
       </details>
       {legacy && <div className="mt-3 border-t border-stone-100 pt-3 text-xs leading-5 text-stone-500">Older recordings are still saved in this browser. They are not automatically uploaded or selected by this flow. <button type="button" disabled={locked} onClick={removeLegacy} className="font-semibold text-rose-700 underline">Delete old browser recordings</button></div>}
     </section>
