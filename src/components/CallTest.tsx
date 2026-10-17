@@ -23,7 +23,7 @@ export function CallTest() {
   const [showSubtitles, setShowSubtitles] = useState(true);
   const params = useSearchParams();
   const router = useRouter();
-  const demoParent = true;
+  const demoParent = process.env.NEXT_PUBLIC_HUGBACK_DEMO_MODE === "true";
   const recipientId = params.get("recipient") || "";
   const demo = useDemoFamily(demoParent === true);
   const wasCallActive = useRef(false);
@@ -31,7 +31,7 @@ export function CallTest() {
   const [childPhotoUrl, setChildPhotoUrl] = useState<string>("");
   const [workflowAcknowledged, setWorkflowAcknowledged] = useState(false);
 
-  const childName = demo.family?.childName?.trim() || "Khushi";
+  const childName = demoParent ? demo.family?.childName?.trim() || "Khushi" : "HugBack";
   const childInitial = (childName[0] || "K").toUpperCase();
 
   // Load child photo from local storage / IndexedDB
@@ -128,7 +128,7 @@ export function CallTest() {
             color: "text-amber-800",
           };
         }
-        if (!recipient && !demo.loading) {
+        if (demoParent && !recipient && !demo.loading) {
           return {
             title: "Select a Recipient",
             desc: "Choose who is answering in the demo role above",
@@ -373,7 +373,7 @@ export function CallTest() {
             </div>
 
             {/* Live Volume Meter during Call */}
-            {demoParent && isCallActive && (
+            {isCallActive && (
               <div className="relative mt-4 w-full max-w-xs" aria-label="Microphone input level">
                 <div className="flex justify-between text-[11px] font-medium text-stone-500">
                   <span>Microphone level</span>
