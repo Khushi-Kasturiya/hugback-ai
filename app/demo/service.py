@@ -28,7 +28,9 @@ def require_demo_identity(identity):
         raise DemoError("Synthetic test mode is unavailable.", 403)
     if settings.HUGBACK_AUTH_MODE == "firebase":
         allowed = {value.strip() for value in settings.HUGBACK_TEST_OWNER_UIDS.split(",")}
-        if identity.provider != "firebase" or identity.user_id not in allowed:
+        if identity.provider != "firebase" or (
+            not settings.HUGBACK_PUBLIC_DEMO_ENABLED and identity.user_id not in allowed
+        ):
             raise DemoError("This identity is not an authorized synthetic test operator.", 403)
         return "firebase:" + identity.user_id
     if identity.provider != "development":
@@ -39,6 +41,13 @@ def require_demo_identity(identity):
 def require_demo(peer: str | None, origin: str | None, *, mutation=False):
     if not enabled():
         raise DemoError("Local demo mode is disabled.", 403)
+    if settings.HUGBACK_REMOTE_TEST_ENABLED:
+        # Origin is an additional browser boundary, NOT authentication. Every
+        # caller must ALSO pass require_demo_identity and recipient ownership.
+        # Do not trust forwarded headers or accept missing Origin for reads.
+        if not peer or origin != settings.HUGBACK_REMOTE_TEST_ORIGIN:
+            raise DemoError("Use the configured remote synthetic test origin.", 403)
+        return
     if peer not in LOOPBACK:
         raise DemoError("Demo mode is localhost-only.", 403)
     if origin is not None or mutation:

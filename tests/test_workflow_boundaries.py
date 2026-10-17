@@ -8,6 +8,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 from fastapi.testclient import TestClient
@@ -79,12 +80,21 @@ class CloudRouteTests(unittest.TestCase):
         self.provider.assert_not_called()
 
     def test_cloud_voice_owner_is_separate_from_development_owner(self):
-        vault = VoiceProfileStore(settings.HUGBACK_VOICE_DB_PATH)
-        vault.save("allowed-operator", "voicekey_syntheticDevelopmentKey")
-        # The Firebase owner sees no development voice.
-        self.assertIsNone(self.client.get("/api/voice/profile", headers=self.headers).json()["profile"])
-        own = vault.save("firebase:allowed-operator", "voicekey_syntheticFirebaseKey")
-        body = self.client.get("/api/voice/profile", headers=self.headers).json()
+        from app.voice.firestore_profiles import FirestoreVoiceProfileStore
+        local_vault = VoiceProfileStore(settings.HUGBACK_VOICE_DB_PATH)
+        local_vault.save("allowed-operator", "voicekey_syntheticDevelopmentKey")
+        db = FakeFirestore()
+        vault = FirestoreVoiceProfileStore(db)
+        vault.firestore = SimpleNamespace(transactional=db.transactional)
+        with (patch.object(settings, "HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED", True),
+              patch("app.voice.routes.get_voice_store", return_value=vault)):
+            # Neither local files nor development-scoped cloud profiles grant access.
+            token = vault.begin_enrollment("allowed-operator")
+            vault.save("allowed-operator", "voicekey_syntheticDevelopmentKey", enrollment_token=token)
+            self.assertIsNone(self.client.get("/api/voice/profile", headers=self.headers).json()["profile"])
+            token = vault.begin_enrollment("firebase:allowed-operator")
+            own = vault.save("firebase:allowed-operator", "voicekey_syntheticFirebaseKey", enrollment_token=token)
+            body = self.client.get("/api/voice/profile", headers=self.headers).json()
         self.assertEqual(body["profile"]["id"], own["id"])
         self.assertNotIn("voicekey", json.dumps(body))
 

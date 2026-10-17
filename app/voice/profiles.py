@@ -1,4 +1,4 @@
-"""Single-machine voice vault, separate from synthetic family/memory records."""
+"""Owner-scoped voice vault selection, separate from family/memory records."""
 
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -22,12 +22,24 @@ def enrollment_available():
         settings.HUGBACK_REPLICATED_TTS_ENABLED
         and (settings.HUGBACK_AUTH_MODE.lower() == "development" or
              (settings.HUGBACK_DEMO_STORE == "firestore" and enabled()))
+        and (settings.HUGBACK_DEMO_STORE != "firestore"
+             or settings.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED)
         and settings.HUGBACK_LIVE_VOICE_MODE == "preset"
         and bool(settings.GEMINI_API_KEY)
     )
 
 
-def require_local_voice(peer, origin, *, mutation=True):
+def require_voice_access(peer, origin, *, mutation=True):
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        from app.demo.service import require_demo
+        from app.demo.store import DemoError
+        try:
+            require_demo(peer, origin, mutation=mutation)
+            if not settings.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED:
+                raise VoiceEnrollmentError("The backend-only Firestore voice vault is not configured.")
+        except DemoError as exc:
+            raise VoiceEnrollmentError(str(exc)) from exc
+        return
     # Deletes/reads must remain possible after the enrollment feature is disabled.
     parsed = urlparse(origin or "")
     from app.demo.service import enabled
@@ -53,7 +65,7 @@ def voice_owner(identity):
     try:
         return require_demo_identity(identity)
     except DemoError as exc:
-        raise VoiceEnrollmentError("Only allowlisted local test owners may use this voice vault.") from exc
+        raise VoiceEnrollmentError("This identity is not authorized to use the voice vault.") from exc
 
 
 class VoiceProfileStore:
@@ -147,4 +159,15 @@ class VoiceProfileStore:
 
 
 def get_voice_store():
+    if settings.HUGBACK_DEMO_STORE == "firestore":
+        settings.validate_test_mode()
+        if not settings.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED:
+            raise VoiceEnrollmentError("The backend-only Firestore voice vault is not configured.")
+        from app.demo.service import _firestore_repository
+        from app.voice.firestore_profiles import FirestoreVoiceProfileStore
+        repository = _firestore_repository(
+            settings.HUGBACK_DEMO_PROJECT, settings.HUGBACK_DEMO_DATABASE,
+            os.environ.get("FIRESTORE_EMULATOR_HOST", ""),
+        )
+        return FirestoreVoiceProfileStore(repository.client)
     return VoiceProfileStore(settings.HUGBACK_VOICE_DB_PATH)

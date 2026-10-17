@@ -634,9 +634,13 @@ class DemoStore:
 
 
     def call_status(self, parent, session_id, status, *, release=False, quality_pending=False,
-                    memory_error=None):
+                    memory_error=None, planner_status=None):
         if memory_error is not None and memory_error not in MEMORY_ERROR_CODES:
             raise DemoError("Invalid memory failure category")
+        if planner_status is not None and (
+            status != "active" or planner_status not in ("ready", "fallback")
+        ):
+            raise DemoError("Invalid activation planner status")
         def action(state):
             recipient = self._recipient(state, parent)
             active = recipient.get("activeCall")
@@ -647,6 +651,8 @@ class DemoStore:
             for call in recipient["calls"]:
                 if call["sessionId"] == session_id:
                     call["status"] = status
+                    if planner_status is not None:
+                        call.setdefault("workflow", {})["planner"] = planner_status
                     if status == "memory_failed":
                         call["memoryErrorCode"] = memory_error or "processing_failed"
                     else:

@@ -1,5 +1,13 @@
 # Child portal boundaries
 
+- 18 October hosted synthetic demo: explicit remote + public-demo mode admits
+  verified anonymous Firebase visitors without a pre-known UID. Preserve
+  per-owner isolation and exact HTTPS Origin; no real identity/relationship
+  grant is implied. This narrowly supersedes the loopback-only rule below.
+  Both voices are supported. Firestore mode uses the backend-only Firestore
+  voice vault, never the single-machine adapter. Return metadata only, not keys.
+  Explicit own-voice/spoken consent and Google billing acknowledgement remain.
+
 - 13 October: product direction is date-filtered short call summaries after
   verified, recipient-specific standing parent consent, without per-call approval.
   The existing production mailbox reader is legacy and does not provide this.

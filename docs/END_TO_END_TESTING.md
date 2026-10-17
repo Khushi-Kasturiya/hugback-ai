@@ -288,7 +288,101 @@ occurs from SQLite, the browser preview store or the voice vault. A Firebase
 operator owns a separate `firebase:UID` scope; old development voice profiles
 are not silently reassigned.
 
+### Local application connected to the existing cloud test database
+
+Firestore belongs to the Google Cloud project, not to the teammate who first
+configured it. Use your own authorized Google account. These are distinct:
+
+- `gcloud` login authenticates administrative CLI commands.
+- Application Default Credentials (ADC) authenticate the Python Firestore SDK.
+- The browser's Firebase ID token and server UID allowlist select the permitted
+  synthetic owner. Project Owner access does not bypass application ownership.
+
+For the existing shared setup, the selected project is
+`project-84a7c715-3d60-4253-acb` and the existing named database is
+`hugback-synthetic` in `us-central1`. Confirm the target before any operation;
+do not create a replacement database or use real family data for tests.
+
+An authorized operator can sign in interactively with their own account:
+
+```sh
+gcloud auth login --update-adc --project=project-84a7c715-3d60-4253-acb
+```
+
+Complete Google sign-in/consent yourself. Keep the resulting credentials outside
+the repositories. Never paste tokens, ADC JSON or service-account keys into chat.
+An existing `GOOGLE_APPLICATION_CREDENTIALS` environment override can take
+precedence over the user ADC; inspect configuration without printing secrets.
+
+Apply the live-test backend overlay above deliberately, with
+`HUGBACK_DEMO_STORE=firestore`, matching project/Firebase settings and the approved
+UID allowlist. Keep `HOST=127.0.0.1`, `PORT=8000`, email and voice enrollment off
+for the storage check. There is no SQLite fallback and no implicit migration or
+deletion of existing local family data. Offline tests may still use SQLite;
+Firestore mode now also selects the private Firestore voice-key vault. Before
+enrollment, verify deny-all browser rules on that named DB and set
+`HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED=TRUE`. Existing SQLite keys are not migrated.
+
+In the frontend's private `.env.local`, keep the matching Firebase Web API key
+and set:
+
+```dotenv
+NEXT_PUBLIC_HUGBACK_API_URL=http://127.0.0.1:8000
+NEXT_PUBLIC_HUGBACK_WS_URL=ws://127.0.0.1:8000/ws
+NEXT_PUBLIC_HUGBACK_DEMO_MODE=true
+```
+
+Start the backend with `./run.sh` and bind the frontend explicitly to loopback:
+
+```sh
+./node_modules/.bin/next dev --hostname 127.0.0.1 --port 3000
+```
+
+Use one browser origin consistently. Localhost and the deployed website may
+have different anonymous Firebase UIDs. On `/childportal`, expand **Local
+connection details** at the bottom left to inspect the current UID, backend
+authorization and selected adapter, including before onboarding is complete.
+This panel is hidden on non-loopback hosts and never displays tokens.
+Use **Retry connection** after correcting configuration/restarting the backend.
+Do not clear saved browser identity or
+copy another browser's tokens to recover records. Approve only the intended
+local test operator UID. A 404 asking to create a synthetic family can mean
+successful storage access with no family for that owner; a 403/503 is not an
+empty database or permission to fall back to SQLite.
+
+Check the displayed selected adapter and an actual authorized storage operation;
+`/health` reports configuration, not successful Firestore connectivity. Any
+save/reload test must use new fictional data in the named test database. This
+storage setup does not authorize paid model calls, SMTP, private uploads,
+deployment, or bypassing the remote simulator's loopback checks.
+
 ## 3. Where each thing lives
+
+### Hosted demo admission — 18 October 2026
+
+The user approved a hosted fictional-data demo without invitations or manual UID
+approval. This is a separate explicit mode, not a change to the default local
+simulator. See `CLOUD_RUN_CONFIGURATION_AUDIT.md` and `.env.cloud-run.example`.
+
+Enable `HUGBACK_REMOTE_TEST_ENABLED` with one exact HTTPS
+`HUGBACK_REMOTE_TEST_ORIGIN` also in `CORS_ORIGINS`, and
+`HUGBACK_PUBLIC_DEMO_ENABLED` to admit new verified Firebase anonymous visitors.
+No UID list is required in public-demo mode. With public admission off, the
+existing UID allowlist remains required. Public admission cannot be enabled
+without the remote gate, live named Firestore, matching Firebase and cloud-storage
+opt-in. Development identities, emulator/SQLite, production data paths and SMTP
+are not permitted in remote mode. Both standard and explicitly consented adult
+child voice are supported; keys are backend-only Firestore records, not audio.
+
+Missing/wrong Origin, invalid tokens, foreign recipient selectors and stale
+revisions still fail closed. Public admission never makes one visitor's family
+visible to another. The browser build must use `NEXT_PUBLIC_HUGBACK_DEMO_MODE=true`
+so its calls include an explicit recipient and synthetic workflow acknowledgement.
+Anyone with the link can enroll anonymously and use paid calls; the URL is not
+a secret and existing per-call bounds are not a global cost cap. No new quotas
+were introduced. Keep family data fictional and label post-call work as best
+effort. Child voice requires explicit enrollment, verified backend-only Firestore
+rules and per-recipient assignment. Private local data/keys are not migrated.
 
 | Data | Storage in this implementation |
 |---|---|
@@ -328,7 +422,8 @@ issued to Google. Original GCS files are retained until a separately authorized
 erasure workflow, not deleted on import or assigned an automatic TTL.
 
 **Therefore “Firestore enabled” does not mean “nothing local.”** Your backend,
-frontend, credentials, browser identity/previews, and voice vault remain local.
+frontend, credentials and browser identity/previews remain local. The separate
+voice vault now uses the selected named Firestore database (18 October update).
 
 ## 4. Repeatable same-browser walkthrough
 
@@ -694,14 +789,17 @@ generation time, physical output measurement or evidence a person heard speech.
 ### Replicated voice: reducing application latency
 
 The existing assigned voice key is reused, **not re-created for each reply**.
-Standard voice goes from Live directly to playback. Replicated voice goes from
-Live transcription through a separate Google TTS request before playback; Live's
-preset audio is still discarded. Google streaming TTS and a shared per-call
-client were already in use. Equal latency to native Live is not promised.
+Both paths first wait for the companion-scope gate at Live turn completion.
+For an allowed reply, standard voice releases the held Live audio; replicated
+voice releases the held transcription through a separate Google TTS request
+before playback. Live's preset audio is still discarded for replicated calls.
+Google streaming TTS and a shared per-call client were already in use. Equal
+latency to native Live is not promised. A blocked reply uses bounded boundary
+TTS with the selected preset name or child key, never the held draft.
 
 The 12 October optimization removes three application waits:
 
-1. Start the first phrase on an available clause (at least 24 characters) or
+1. After the scope gate releases text, start the first phrase on an available clause (at least 24 characters) or
    word boundary around 96 characters instead of waiting for a sentence/280
    characters. Later phrases keep the existing batching. Short unpunctuated
    replies still wait for more text or turn completion; no token-by-token or
@@ -738,7 +836,8 @@ not guarantees against a blocked event loop or an uncooperative transport.
 
 INFO logs now report content-free stage durations:
 
-- `first_phrase_buffer_ms`: first Live transcription to initial phrase enqueue.
+- `first_phrase_buffer_ms`: first **released** Live transcription to initial
+  phrase enqueue; excludes the scope-gate hold.
 - `queue_ms`: phrase enqueue to synthesis worker start.
 - `synthesis_first_pcm_ms`: worker start to first nonempty provider PCM.
 - `ordered_wait_ms`: first provider PCM to first socket send completion, including
@@ -749,9 +848,57 @@ They do not measure microphone end-of-speech, Live thinking, physical speaker
 output or full mouth-to-ear latency; no real-world percentage reduction has
 been measured by the offline suite.
 
-Offline tests cover early synthesis through the actual WebSocket broker before
-Live turn completion, reset on next turn/interruption, ordered lookahead, serial
+Offline tests cover withheld synthesis through the actual WebSocket broker until
+Live turn completion, shorter initial phrases after release, reset on next
+turn/interruption, ordered lookahead, serial
 mode, bounded buffers, slow cleanup, blocked/failed checkpoints, PCM validation,
 split-chunk subtitles and fail-closed behavior. Google is mocked throughout.
 Restart the backend and refresh the existing simulator; reuse the already
 assigned voice—**no new recording or enrollment is needed**.
+
+### Firestore and both voice modes: 17 October latency investigation
+
+A small read-only probe from the local machine to the existing `us-central1`
+named synthetic database measured client initialization at 4,777 ms and four
+nonexistent-document reads at 2,142, 358, 1,344 and 346 ms. No family records were
+read or changed by that probe. These are cold/warm SDK/network samples, **not**
+measured call latency, a representative percentile, or a before/after result.
+
+The local backend now:
+
+- Initializes the family client off the async audio event loop.
+- Batches independent recipient reads inside the same owner transaction,
+  restoring membership order and retaining scope, revision and consent checks.
+  Recipient-scoped operations still use dependent recipient/family reads.
+  A single-recipient batch does not reduce the number of read round trips.
+- Saves bounded Planner status with validated call activation, removing one
+  sequential startup transaction. Neither Planner nor Live is run within a
+  retryable Firestore transaction.
+- Schedules standard-voice emitted-audio status persistence only after audio
+  is sent, with the existing one-second deadline off the PCM path, as already
+  done for replicated TTS. Held/discarded drafts are not emitted output.
+  This is relevant to claimed follow-ups; unclaimed output was already a no-op.
+  Status is neither speech permission nor proof someone heard the audio.
+
+Content-free `Call stage=... elapsed_ms=...` logs separate authentication,
+client initialization, family reservation, follow-up reservation, Planner,
+Live connection and activation. Repository timers measure whole transactions,
+including SDK retries. `Speech gate voice_mode=... hold_ms=... blocked=...`
+measures first held output through its gate decision/release; it excludes the
+wait before the first model output and is not microphone-to-speaker latency.
+Existing TTS stage timings separate synthesis from ordered delivery.
+
+No authorization caching, SQLite fallback, provider/model switch, speech-gate
+bypass, shortened Planner timeout, VAD tuning or replication enablement is
+introduced. Standard and child voice share the startup improvements; child
+voice retains its additional synthesis request, bounded lookahead, and fixed
+authorized key. The 18 October storage update puts keys in a separate backend-only
+Firestore collection in the same named database, not in family documents.
+
+Offline regressions use mocked Google and a transactional Firestore double:
+out-of-order batches, absent/invalid recipients, activation lease checks,
+blocked storage with both voice paths, and no synthesis/checkpoint of held
+output. They do not establish real Firestore transaction performance or paid
+voice latency. For an explicitly authorized local synthetic call, distinguish
+**Start → ready** from **end of speech → audible reply**, then inspect these
+stage timings. A backend restart is needed; no cloud deployment is implied.

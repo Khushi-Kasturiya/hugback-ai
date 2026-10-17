@@ -1,5 +1,15 @@
 # Child portal voice setup
 
+- 18 October updated approval: both standard and explicitly consented adult
+  child-voice enrollment are approved for the hosted synthetic demo. Firestore
+  mode stores temporary voice keys/profile metadata in the SAME named database,
+  in a backend-only collection with deny-all browser rules and appropriate IAM.
+  Verify rules before enabling HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED. No raw
+  recordings, direct browser key reads, SQLite fallback or silent migration.
+  Distributed transactional owner leases fence stale enrollment responses.
+  This supersedes the earlier local-only vault rule below, not the consent,
+  recipient isolation, no-fallback, real-phone enrollment or provider gates.
+
 - The user approved connecting the pulled Google Voices + streaming TTS flow to
   the local child portal. This is not telephone enrollment or a production role grant.
 - Adult own-voice confirmation, separate spoken consent and explicit Google
@@ -48,7 +58,10 @@
   a single ordered emitter. Count cancelling producers against the concurrency
   limit; interruption/end discards pending audio and cancels provider streams.
   Lookahead can waste paid synthesis on interruption; document its serial switch.
-- Emitted-audio status checkpoints run off the PCM path with a short deadline;
+- For both preset and replicated speech, emitted-audio status checkpoints run
+  only after audio is sent, off the PCM path with a short deadline;
   they never grant memory authority or assert that playback was heard. Latency
   logs contain numeric durations only, not text, voice keys or provider bodies.
   Offline ordering/timing tests are not proof of real provider latency or likeness.
+  First-phrase segmentation/lookahead applies only after the scope gate releases
+  text, not permission to synthesize or play an unchecked Live draft.
