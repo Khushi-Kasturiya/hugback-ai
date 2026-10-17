@@ -46,9 +46,12 @@ def sharing_gate(identity: UserIdentity) -> str:
 @router.get("/status")
 async def portal_status(identity: UserIdentity = Depends(portal_identity)):
     profile = None
-    if (identity.provider == "development" or demo_enabled()) and settings.HUGBACK_VOICE_DB_PATH.exists():
+    firestore_voice = settings.HUGBACK_DEMO_STORE == "firestore"
+    if ((identity.provider == "development" or demo_enabled())
+            and (settings.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED if firestore_voice
+                 else settings.HUGBACK_VOICE_DB_PATH.exists())):
         try:
-            profile = await asyncio.to_thread(get_voice_store().get, voice_owner(identity))
+            profile = await asyncio.to_thread(lambda: get_voice_store().get(voice_owner(identity)))
         except Exception as exc:
             raise HTTPException(503, "Voice selection is unavailable; call setup is blocked.") from exc
     return {
@@ -56,6 +59,7 @@ async def portal_status(identity: UserIdentity = Depends(portal_identity)):
         "voice": {
             "mode": settings.HUGBACK_LIVE_VOICE_MODE, "name": settings.HUGBACK_VOICE_NAME,
             "replicatedTtsEnabled": enrollment_available(),
+            "storage": "firestore" if firestore_voice else "sqlite_test_adapter",
             "profile": profile,
         },
         "sharingStatus": sharing_gate(identity),
@@ -68,6 +72,8 @@ async def portal_status(identity: UserIdentity = Depends(portal_identity)):
         ),
         "browserDraftStore": "indexeddb_private_preconsent_staging",
         "workflowEnabled": settings.HUGBACK_WORKFLOW_ENABLED,
+        "remoteTestEnabled": settings.HUGBACK_REMOTE_TEST_ENABLED,
+        "publicDemoEnabled": settings.HUGBACK_PUBLIC_DEMO_ENABLED,
     }
 
 

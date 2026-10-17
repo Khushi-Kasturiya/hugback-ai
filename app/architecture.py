@@ -30,7 +30,7 @@ def architecture_manifest() -> dict:
             "identity": "firebase" if settings.HUGBACK_AUTH_MODE == "firebase" else "loopback_development",
             "familyState": "firestore" if firestore_selected else "sqlite_test_adapter",
             "browserDrafts": "indexeddb_private_preconsent_staging",
-            "voiceSecrets": "local_sqlite_test_vault",
+            "voiceSecrets": "firestore_backend_only" if firestore_selected else "sqlite_test_adapter",
             "postCallExecution": (
                 "cloud_tasks" if settings.MEMORY_PROCESSING_MODE == "cloud_tasks"
                 else "inline_best_effort"
@@ -85,8 +85,8 @@ def architecture_manifest() -> dict:
             },
             {
                 "data": "temporary replicated voice provider key",
-                "store": "local_sqlite_vault",
-                "reason": "server-only prototype secret; never exposed to browser or Firestore",
+                "store": "firestore" if settings.HUGBACK_DEMO_STORE == "firestore" else "sqlite_test_adapter",
+                "reason": "backend-only owner-scoped vault; never exposed to browsers; no recordings",
             },
             {
                 "data": "retained original intake files",
@@ -99,7 +99,10 @@ def architecture_manifest() -> dict:
             "firebaseAuth": settings.HUGBACK_AUTH_MODE == "firebase",
             "fourStageWorkflow": settings.HUGBACK_WORKFLOW_ENABLED,
             "replicatedTts": settings.HUGBACK_REPLICATED_TTS_ENABLED,
+            "firestoreVoiceRulesConfirmed": settings.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED,
             "cloudIntake": settings.CLOUD_INTAKE_ENABLED,
+            "remoteSyntheticTest": settings.HUGBACK_REMOTE_TEST_ENABLED,
+            "publicDemo": settings.HUGBACK_PUBLIC_DEMO_ENABLED,
         },
         "notes": [
             "SQLite is not part of the canonical deployed family-state architecture.",

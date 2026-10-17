@@ -21,6 +21,7 @@ class ArchitectureManifestTests(unittest.TestCase):
         with patch.object(settings, "HUGBACK_DEMO_STORE", "firestore"):
             manifest = architecture_manifest()
         self.assertEqual(manifest["runtime"]["familyState"], "firestore")
+        self.assertEqual(manifest["runtime"]["voiceSecrets"], "firestore_backend_only")
         self.assertTrue(any("Configured means" in note for note in manifest["notes"]))
 
 

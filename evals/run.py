@@ -30,6 +30,8 @@ def offline_environment():
         "GOOGLE_APPLICATION_CREDENTIALS": "",
         "HUGBACK_AUTH_MODE": "development", "LOCAL_DEMO_ENABLED": "FALSE",
         "HUGBACK_DEMO_STORE": "sqlite", "HUGBACK_CLOUD_TEST_ENABLED": "FALSE",
+        "HUGBACK_REMOTE_TEST_ENABLED": "FALSE", "HUGBACK_REMOTE_TEST_ORIGIN": "",
+        "HUGBACK_PUBLIC_DEMO_ENABLED": "FALSE",
         "HUGBACK_WORKFLOW_ENABLED": "FALSE", "FIRESTORE_EMULATOR_HOST": "",
         "FIRESTORE_ENABLED": "FALSE", "MEMORY_ENABLED": "FALSE",
         "FOLLOWUPS_ENABLED": "FALSE", "CLOUD_INTAKE_ENABLED": "FALSE",
@@ -47,7 +49,8 @@ def synthetic_model_scope():
     from app.config import settings
     overrides = dict(LOCAL_DEMO_ENABLED=True, HUGBACK_DEMO_STORE="sqlite",
                      HUGBACK_AUTH_MODE="development", HUGBACK_WORKFLOW_ENABLED=False,
-                     FIRESTORE_EMULATOR_HOST=None)
+                     FIRESTORE_EMULATOR_HOST=None, HUGBACK_REMOTE_TEST_ENABLED=False,
+                     HUGBACK_PUBLIC_DEMO_ENABLED=False)
     previous = {key: getattr(settings, key) for key in overrides}
     emulator = os.environ.pop("FIRESTORE_EMULATOR_HOST", None)
     try:

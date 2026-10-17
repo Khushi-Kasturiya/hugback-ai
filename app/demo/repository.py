@@ -12,6 +12,7 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Protocol, TypeVar
 from datetime import datetime, timezone
+from app.timing import stage_timer
 
 T = TypeVar("T")
 
@@ -128,11 +129,22 @@ class FirestoreFamilyRepository:
 
             loaded_ids = [recipient] if recipient_scoped else recipient_ids
             snapshots = {}
+            # Batch independent reads in the SAME transaction. No ownership,
+            # revision or consent cache: every snapshot is checked below.
+            if not recipient_scoped and loaded_ids:
+                refs = [self.client.collection(self.RECIPIENTS).document(rid) for rid in loaded_ids]
+                for snapshot in self.client.get_all(refs, transaction=tx):
+                    rid = snapshot.reference.id
+                    if rid not in loaded_ids or rid in snapshots:
+                        raise DemoError("Invalid synthetic recipient snapshot", 503)
+                    snapshots[rid] = snapshot.to_dict() or {}
+                if set(snapshots) != set(loaded_ids):
+                    raise DemoError("Synthetic recipient state is unavailable", 503)
             for recipient_id in loaded_ids:
                 if recipient_id == recipient and selected_snapshot is not None:
                     item = selected_snapshot
                 else:
-                    item = self.client.collection(self.RECIPIENTS).document(recipient_id).get(transaction=tx).to_dict()
+                    item = snapshots[recipient_id]
                 if item and (item.get("owner") != key or item.get("syntheticOnly") is not True):
                     raise DemoError("Invalid synthetic recipient scope", 403)
                 snapshots[recipient_id] = item or {}
@@ -185,4 +197,6 @@ class FirestoreFamilyRepository:
                         tx.set(self.client.collection(self.RECIPIENTS).document(recipient_id),
                                {"owner": key, "syntheticOnly": True, "state": item})
             return copy.deepcopy(result)
-        return run(self.client.transaction(max_attempts=5))
+        with stage_timer("firestore_recipient_transaction" if recipient is not None
+                         else "firestore_owner_transaction"):
+            return run(self.client.transaction(max_attempts=5))

@@ -30,6 +30,7 @@ from app.auth import (
     authenticate_message,
 )
 from app.config import settings
+from app.timing import stage_timer
 from app.memory.models import ProcessMemoryRequest
 from app.memory.processor import (
     dispatch_memory_processing,
@@ -69,7 +70,7 @@ from app.voice.service import (
 )
 
 from app.voice.routes import router as voice_router
-from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice, voice_owner
+from app.voice.profiles import enrollment_available, get_voice_store, require_voice_access, voice_owner
 from app.voice.playback import ReplicatedPlayback
 from app.architecture import architecture_manifest
 
@@ -175,6 +176,8 @@ async def health():
         "demo_storage": settings.HUGBACK_DEMO_STORE,
         "workflow_enabled": settings.HUGBACK_WORKFLOW_ENABLED,
         "demo_storage_verified": False,  # Configuration is not a successful database probe.
+        "remote_test_enabled": settings.HUGBACK_REMOTE_TEST_ENABLED,
+        "public_demo_enabled": settings.HUGBACK_PUBLIC_DEMO_ENABLED,
     }
 
 
@@ -269,6 +272,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     alert_generation = 0
     conversation_plan = None
     workflow_active = False
+    planner_status = None
     tool_outcomes = []
 
     logger.info(f"Incoming WebSocket connection from {client_ip} [session: {session_id}]")
@@ -277,7 +281,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
     try:
         authentication_text = await asyncio.wait_for(websocket.receive_text(), timeout=15)
         authentication_message = json.loads(authentication_text)
-        identity = await authenticate_message(authentication_message)
+        with stage_timer("firebase_authentication"):
+            identity = await authenticate_message(authentication_message)
         if ("demoRecipientId" in authentication_message or "demoRecipientRevision" in authentication_message) and authentication_message.get("demoParent") is not True:
             raise DemoError("Recipient selection is supported only in the local parent simulator.", 400)
         if settings.HUGBACK_DEMO_STORE == "firestore" and authentication_message.get("demoParent") is not True:
@@ -290,14 +295,13 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
         if "voiceProfileId" in authentication_message:
             if not enrollment_available() or inline_voice:
                 raise VoiceEnrollmentError("Replicated TTS is unavailable for this call")
-            require_local_voice(
+            require_voice_access(
                 websocket.client.host if websocket.client else None,
                 websocket.headers.get("origin"),
             )
-            voice_key = await asyncio.to_thread(
-                get_voice_store().resolve, voice_owner(identity),
-                authentication_message["voiceProfileId"],
-            )
+            voice_key = await asyncio.to_thread(lambda: get_voice_store().resolve(
+                voice_owner(identity), authentication_message["voiceProfileId"],
+            ))
             speaking_form = "neutral"  # No family detail is trusted for an unscoped custom call.
         elif (
             not inline_voice and identity.provider == "development"
@@ -322,13 +326,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             workflow_active = settings.HUGBACK_WORKFLOW_ENABLED
             if workflow_active and authentication_message.get("simulateWorkflowConsent") is not True:
                 raise DemoError("Acknowledge synthetic Planner and Critic processing before calling.", 403)
-            demo_store = get_demo_store()
-            demo_state = await asyncio.to_thread(
-                demo_store.start_call, demo_owner, session_id,
-                authentication_message.get("demoRecipientId"),
-                authentication_message.get("demoRecipientRevision"),
-                authentication_message.get("voiceProfileId"),
-            )
+            with stage_timer("family_client_initialization"):
+                # ADC discovery/SDK initialization must not block other streams.
+                demo_store = await asyncio.to_thread(get_demo_store)
+            with stage_timer("family_call_reservation"):
+                demo_state = await asyncio.to_thread(
+                    demo_store.start_call, demo_owner, session_id,
+                    authentication_message.get("demoRecipientId"),
+                    authentication_message.get("demoRecipientRevision"),
+                    authentication_message.get("voiceProfileId"),
+                )
             if voice_key:
                 speaking_form = speaking_form_for_call(
                     custom_voice=True, child_gender=demo_state.get("childGender"),
@@ -380,7 +387,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             memory_service = DisabledMemoryService("canonical follow-up mode")
             try:
                 followups = get_demo_coordinator(demo_store) if demo_state else get_followup_coordinator()
-                followup_plan = await asyncio.wait_for(followups.begin(user_id, session_id), timeout=3)
+                with stage_timer("followup_reservation"):
+                    followup_plan = await asyncio.wait_for(followups.begin(user_id, session_id), timeout=3)
                 followup_context = context_card(followup_plan)
             except Exception:
                 followups = None
@@ -393,9 +401,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             memory_service = get_memory_service()
         memory_context = await memory_service.initial_context(user_id)
         if workflow_active:
-            conversation_plan, planner_status = await prepare_call(demo_state, followup_plan)
-            await asyncio.to_thread(demo_store.workflow_checkpoint, user_id, session_id,
-                                    {"planner": planner_status})
+            with stage_timer("planner"):
+                conversation_plan, planner_status = await prepare_call(demo_state, followup_plan)
+            # Persist this bounded status with the lease activation below,
+            # rather than an extra sequential Firestore transaction.
         client = create_genai_client()
         # Standard audio and replicated TTS share this conversation policy;
         # the selected voice changes only the audio delivery path below.
@@ -441,7 +450,10 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             "Connecting Live session=%s model=%s voice_mode=%s preset=%s",
             session_id, model, voice_mode, voice_name,
         )
+        live_connect_started = time.monotonic()
         async with client.aio.live.connect(model=model, config=live_config) as live_session:
+            logger.info("Call stage=live_connection elapsed_ms=%d",
+                        round((time.monotonic() - live_connect_started) * 1000))
             if inline_voice:
                 try:
                     require_live_consent_acknowledgement(
@@ -458,7 +470,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     return
             logger.info(f"Gemini Live session connected for {session_id}")
             if demo_state:
-                activated = await asyncio.to_thread(demo_store.call_status, user_id, session_id, "active")
+                with stage_timer("family_call_activation"):
+                    activated = await asyncio.to_thread(
+                        demo_store.call_status, user_id, session_id, "active",
+                        planner_status=planner_status,
+                    )
                 if not activated:
                     raise DemoError("The demo call lease expired during connection. Please retry.")
             call_ready = True
@@ -491,12 +507,22 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             tts_pending_text = ""
             tts_first_phrase = True
             tts_text_started_at = None
+            preset_checkpoint_task = None
             async def checkpoint_audio():
                 if followups and followup_plan:
                     try:
                         await asyncio.wait_for(followups.output(user_id, followup_plan), timeout=1)
                     except Exception:
                         logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
+
+            def checkpoint_preset_audio():
+                nonlocal preset_checkpoint_task
+                if (followups and followup_plan and followup_plan.claimed
+                        and not followup_plan.generated
+                        and (preset_checkpoint_task is None or preset_checkpoint_task.done())):
+                    # Status only, never permission to speak or proof of hearing.
+                    # Match the replicated path: bounded, off the PCM path.
+                    preset_checkpoint_task = asyncio.create_task(checkpoint_audio())
 
             playback = ReplicatedPlayback(
                 client, websocket, voice_key=voice_key or voice_name,
@@ -614,6 +640,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 guard_blocked = False
                 held_payloads = []
                 held_transcriptions = []
+                held_started_at = None
 
                 async def accept_output_transcription(text):
                     nonlocal replicated_turn_text, tts_pending_text, tts_text_started_at
@@ -739,6 +766,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     replicated_turn_text = ""
                                     held_payloads.clear()
                                     held_transcriptions.clear()
+                                    held_started_at = None
                                     guard_hold = True
                                     guard_input_seen = False
                                     guard_blocked = False
@@ -786,22 +814,20 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 }
                                             }
                                             if guard_hold:
+                                                if held_started_at is None:
+                                                    held_started_at = time.monotonic()
                                                 held_payloads.append(payload)
                                                 if len(held_payloads) > 128:
                                                     raise RuntimeError("Guarded Live audio buffer exceeded")
                                             else:
                                                 await websocket.send_text(json.dumps(payload))
-                                            if followups and followup_plan:
-                                                try:
-                                                    await asyncio.wait_for(
-                                                        followups.output(user_id, followup_plan), timeout=1,
-                                                    )
-                                                except Exception:
-                                                    logger.warning("Follow-up output checkpoint unavailable session=%s", session_id)
+                                                checkpoint_preset_audio()
 
                                         if part.text and not voice_key and not guard_blocked:
                                             payload = {"outputTranscription": {"text": part.text}}
                                             if guard_hold:
+                                                if held_started_at is None:
+                                                    held_started_at = time.monotonic()
                                                 held_payloads.append(payload)
                                                 if len(held_payloads) > 128:
                                                     raise RuntimeError("Guarded Live audio buffer exceeded")
@@ -815,6 +841,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 ):
                                     if not guard_blocked:
                                         if guard_hold:
+                                            if held_started_at is None:
+                                                held_started_at = time.monotonic()
                                             held_transcriptions.append(server_content.output_transcription.text)
                                             if len(held_transcriptions) > 128:
                                                 raise RuntimeError("Guarded Live transcription buffer exceeded")
@@ -849,8 +877,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     elif guard_hold and not guard_blocked:
                                         for held in held_payloads:
                                             await websocket.send_text(json.dumps(held))
+                                            if "content" in held:
+                                                checkpoint_preset_audio()
                                         for held in held_transcriptions:
                                             await accept_output_transcription(held)
+                                    if held_started_at is not None:
+                                        logger.info("Speech gate voice_mode=%s hold_ms=%d blocked=%s",
+                                                    voice_mode,
+                                                    round((time.monotonic() - held_started_at) * 1000),
+                                                    guard_blocked)
+                                    held_started_at = None
                                     held_payloads.clear()
                                     held_transcriptions.clear()
                                     collector.complete_turn()
@@ -934,6 +970,9 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                 await asyncio.gather(upstream, downstream, return_exceptions=True)
                 if playback:
                     await playback.close()
+                if preset_checkpoint_task:
+                    # Already bounded by checkpoint_audio's one-second deadline.
+                    await asyncio.gather(preset_checkpoint_task, return_exceptions=True)
 
     except Exception as e:
         provider_code, detail = live_failure_detail(e, connected=call_ready)

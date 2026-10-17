@@ -32,6 +32,7 @@ class FakeFirestore:
         self.data = {}
         self.lock = threading.Lock()
         self.abort_once = False
+        self.batch_reads = []
     def collection(self, name):
         db = self
         class Collection:
@@ -42,9 +43,15 @@ class FakeFirestore:
                         if transaction.writes:
                             raise AssertionError("Firestore reads must precede writes")
                         return SimpleNamespace(to_dict=lambda: copy.deepcopy(db.data.get(path)))
-                ref = Ref(); ref.path = path
+                ref = Ref(); ref.path = path; ref.id = key
                 return ref
         return Collection()
+    def get_all(self, refs, *, transaction):
+        self.batch_reads.append([ref.path for ref in refs])
+        # BatchGet does not promise request order.
+        for ref in reversed(refs):
+            snapshot = ref.get(transaction=transaction)
+            yield SimpleNamespace(reference=ref, to_dict=snapshot.to_dict)
     def transaction(self, **kwargs):
         return SimpleNamespace(writes=[], set=lambda ref, value: None)
     def transactional(self, fn):

@@ -81,7 +81,7 @@ async def recipient_voice(payload: SelectRecipientVoice, uid=Depends(demo_identi
             raise HTTPException(403, "Child voice is not available on this backend.")
         try:
             # Resolves owner, current profile, enabled status and expiry. No Google I/O.
-            await asyncio.to_thread(get_voice_store().resolve, uid, payload.profileId)
+            await asyncio.to_thread(lambda: get_voice_store().resolve(uid, payload.profileId))
         except VoiceEnrollmentError as exc:
             raise HTTPException(409, str(exc)) from exc
     return await execute(get_demo_store().select_voice, uid, payload)

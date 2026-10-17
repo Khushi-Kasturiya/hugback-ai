@@ -1,4 +1,4 @@
-"""Explicit, bounded local enrollment. No automatic uploads or paid retries."""
+"""Explicit, bounded enrollment. No automatic uploads or paid retries."""
 
 import asyncio
 import base64
@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, StrictBool
 
 from app.auth import AuthenticationError, authenticate_http_headers
 from app.config import settings
-from app.voice.profiles import enrollment_available, get_voice_store, require_local_voice, voice_owner
+from app.voice.profiles import enrollment_available, get_voice_store, require_voice_access, voice_owner
 from app.auth import UserIdentity
 from app.voice.service import MAX_BASE64_CHARS, VoiceEnrollmentError, parse_inline_voice
 
@@ -63,7 +63,7 @@ async def voice_identity(request: Request, response: Response):
     response.headers["Cache-Control"] = "no-store"
     response.headers["Vary"] = "Authorization, X-Hugback-Development-User"
     try:
-        require_local_voice(
+        require_voice_access(
             request.client.host if request.client else None, request.headers.get("origin"),
             mutation=request.method != "GET",
         )
@@ -115,21 +115,39 @@ async def provision_voice(recordings):
 
 @router.get("/profile")
 async def voice_profile(identity=Depends(voice_identity)):
-    return {"profile": await asyncio.to_thread(get_voice_store().get, identity.user_id),
-            "enrolling": identity.user_id in _enrolling}
+    try:
+        def read():
+            store = get_voice_store()
+            if settings.HUGBACK_DEMO_STORE == "firestore":
+                return store.status(identity.user_id)
+            return {"profile": store.get(identity.user_id), "enrolling": identity.user_id in _enrolling}
+        return await asyncio.to_thread(read)
+    except Exception as exc:
+        raise HTTPException(503, "Voice storage is unavailable. No local fallback was used.") from exc
 
 
 @router.post("/enroll")
 async def enroll_voice(payload: VoiceEnrollmentRequest, identity=Depends(voice_identity)):
     if not enrollment_available():
-        raise HTTPException(403, "Replicated TTS enrollment is not enabled for this local backend.")
-    if _enrolling:
+        raise HTTPException(403, "Replicated TTS enrollment is not enabled for this backend.")
+    cloud = settings.HUGBACK_DEMO_STORE == "firestore"
+    if not cloud and _enrolling:
         raise HTTPException(409, "Voice setup is already processing. Refresh its status before retrying.")
     try:
         recordings = parse_inline_voice(payload.model_dump())
     except VoiceEnrollmentError as exc:
         raise HTTPException(400, str(exc)) from exc
-    _enrolling.add(identity.user_id)
+    token = None
+    try:
+        store = await asyncio.to_thread(get_voice_store)
+        if cloud:
+            token = await asyncio.to_thread(store.begin_enrollment, identity.user_id)
+        else:
+            _enrolling.add(identity.user_id)
+    except VoiceEnrollmentError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Voice storage is unavailable. No recordings were sent to Google.") from exc
     try:
         try:
             voice = await provision_voice(recordings)
@@ -140,34 +158,51 @@ async def enroll_voice(payload: VoiceEnrollmentRequest, identity=Depends(voice_i
             raise HTTPException(502, provision_failure_detail(exc)) from exc
         try:
             profile = await asyncio.to_thread(
-                get_voice_store().save, identity.user_id, voice.key, getattr(voice, "expire_time", None),
+                store.save, identity.user_id, voice.key, getattr(voice, "expire_time", None),
+                **({"enrollment_token": token} if cloud else {}),
             )
         except Exception as exc:
-            logger.warning("Voice provider response could not be saved locally (%s)", type(exc).__name__)
-            raise HTTPException(500, "Google returned a voice, but local voice setup could not save it. "
-                                "Refresh voice status and check local storage before another upload.") from exc
+            logger.warning("Voice provider response could not be saved (%s)", type(exc).__name__)
+            location = "Firestore" if cloud else "local"
+            raise HTTPException(500, f"Google returned a voice, but {location} voice setup could not save it. "
+                                "Refresh voice status and check backend storage before another upload.") from exc
         return {"profile": profile}
     finally:
-        _enrolling.discard(identity.user_id)
+        if cloud:
+            try:
+                await asyncio.to_thread(store.end_enrollment, identity.user_id, token)
+            except Exception as exc:
+                # A failed release expires automatically; never retry Google or
+                # let cleanup turn a successful saved profile into a failure.
+                logger.warning("Voice enrollment lease release unavailable (%s)", type(exc).__name__)
+        else:
+            _enrolling.discard(identity.user_id)
 
 
 @router.put("/profile")
 async def select_voice(payload: VoiceSelectionRequest, identity=Depends(voice_identity)):
-    if identity.user_id in _enrolling:
+    if settings.HUGBACK_DEMO_STORE != "firestore" and identity.user_id in _enrolling:
         raise HTTPException(409, "Wait for voice setup to finish.")
     if payload.enabled and not enrollment_available():
         raise HTTPException(403, "Custom voice is disabled on this backend.")
     try:
-        return {"profile": await asyncio.to_thread(
-            get_voice_store().select, identity.user_id, payload.profileId, payload.enabled,
-        )}
+        def select():
+            return get_voice_store().select(identity.user_id, payload.profileId, payload.enabled)
+        return {"profile": await asyncio.to_thread(select)}
     except VoiceEnrollmentError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Voice storage is unavailable. Refresh voice status.") from exc
 
 
 @router.delete("/profile")
 async def delete_voice(identity=Depends(voice_identity)):
-    if identity.user_id in _enrolling:
+    if settings.HUGBACK_DEMO_STORE != "firestore" and identity.user_id in _enrolling:
         raise HTTPException(409, "Wait for voice setup to finish before removing it.")
-    await asyncio.to_thread(get_voice_store().delete, identity.user_id)
+    try:
+        await asyncio.to_thread(lambda: get_voice_store().delete(identity.user_id))
+    except VoiceEnrollmentError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(503, "Voice removal could not be confirmed. Refresh voice status.") from exc
     return {"profile": None}

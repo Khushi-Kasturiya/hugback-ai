@@ -40,8 +40,11 @@ class Settings(BaseSettings):
     # Explicit portal TTS capability; never inferred from old browser recordings
     # or enabled solely by the local call simulator.
     HUGBACK_REPLICATED_TTS_ENABLED: bool = False
-    # Private single-machine vault; no raw recordings and no cloud fallback.
+    # Offline SQLite adapter only. Firestore demo mode NEVER opens this file.
     HUGBACK_VOICE_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-voice" / "voices.sqlite3"
+    # Operator confirms deny-all browser rules on the selected named database.
+    # Server SDK uses IAM; Firebase client tokens must never read provider keys.
+    HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED: bool = False
     # Never infer the call's voice mode from browser storage. Experimental mode
     # requires both recordings on every call and must never fall back to a preset.
     HUGBACK_LIVE_VOICE_MODE: Literal["preset", "experimental-inline"] = "preset"
@@ -72,7 +75,7 @@ class Settings(BaseSettings):
     # parent/child enrollment and exact-content parent approval; never a UUID.
     PORTAL_SHARING_ENABLED: bool = False
 
-    # Synthetic, loopback-only hackathon simulator. Never a production store.
+    # Synthetic hackathon simulator. Local unless the restricted remote gate is enabled.
     LOCAL_DEMO_ENABLED: bool = False
     LOCAL_DEMO_DB_PATH: Path = Path(__file__).resolve().parent.parent / ".local-demo" / "hugback.sqlite3"
     # Explicit synthetic test storage; never redirects production collections.
@@ -81,6 +84,12 @@ class Settings(BaseSettings):
     HUGBACK_DEMO_PROJECT: str = ""
     HUGBACK_DEMO_DATABASE: str = "hugback-synthetic"
     HUGBACK_CLOUD_TEST_ENABLED: bool = False
+    # Separate from local use of cloud storage. Exact HTTPS origin required.
+    HUGBACK_REMOTE_TEST_ENABLED: bool = False
+    HUGBACK_REMOTE_TEST_ORIGIN: str = ""
+    # Explicit hosted demo admission. Firebase tokens and owner isolation remain
+    # mandatory; only the manual test-operator UID list is bypassed in this mode.
+    HUGBACK_PUBLIC_DEMO_ENABLED: bool = False
     # Comma-separated Firebase anonymous UIDs shown by the local child portal.
     HUGBACK_TEST_OWNER_UIDS: str = ""
     # Planner + Critic only for acknowledged synthetic calls, not real-family analysis.
@@ -142,6 +151,32 @@ class Settings(BaseSettings):
             raise ValueError("The four-role workflow currently requires the synthetic simulator")
         from urllib.parse import urlparse
         emulator = self.FIRESTORE_EMULATOR_HOST or os.environ.get("FIRESTORE_EMULATOR_HOST", "")
+        if self.HUGBACK_PUBLIC_DEMO_ENABLED and not self.HUGBACK_REMOTE_TEST_ENABLED:
+            raise ValueError("Public demo admission requires the remote synthetic test gate")
+        if self.HUGBACK_REMOTE_TEST_ENABLED:
+            origin = self.HUGBACK_REMOTE_TEST_ORIGIN
+            parsed = urlparse(origin)
+            # Reject malformed or out-of-range ports rather than accepting a
+            # string that can never equal a browser's serialized Origin.
+            _ = parsed.port
+            if (parsed.scheme != "https" or not parsed.hostname
+                    or parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+                    or parsed.username or parsed.password or parsed.path or parsed.query or parsed.fragment
+                    or origin != f"https://{parsed.netloc}" or "*" in origin
+                    or any(char.isspace() for char in origin)
+                    or origin not in self.cors_origins_list or "*" in self.cors_origins_list):
+                raise ValueError("Remote synthetic tests require one exact HTTPS origin also listed in CORS_ORIGINS")
+            if (self.HUGBACK_DEMO_STORE != "firestore" or emulator
+                    or not self.HUGBACK_CLOUD_TEST_ENABLED
+                    or self.HUGBACK_AUTH_MODE != "firebase"
+                    or self.HUGBACK_LIVE_VOICE_MODE != "preset"
+                    or self.HUGBACK_ALERT_EMAIL_ENABLED):
+                raise ValueError("Remote tests require live named Firestore, Firebase, preset Live mode and disabled SMTP")
+            uids = [uid.strip() for uid in self.HUGBACK_TEST_OWNER_UIDS.split(",")]
+            if not self.HUGBACK_PUBLIC_DEMO_ENABLED and any(
+                not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", uid) for uid in uids
+            ):
+                raise ValueError("Remote tests require explicit raw Firebase UIDs, never wildcards, prefixes or empty entries")
         if emulator:
             parsed = urlparse("//" + emulator)
             if (parsed.hostname not in {"localhost", "127.0.0.1", "::1"} or not parsed.port
@@ -151,6 +186,8 @@ class Settings(BaseSettings):
                 raise ValueError("Unset FIRESTORE_EMULATOR_HOST outside explicit Firestore test mode")
         if self.HUGBACK_DEMO_STORE != "firestore":
             return
+        if self.HUGBACK_REPLICATED_TTS_ENABLED and not self.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED:
+            raise ValueError("Firestore voice enrollment requires confirmed backend-only database rules")
         if not self.LOCAL_DEMO_ENABLED or not self.FIRESTORE_ENABLED:
             raise ValueError("Firestore test storage requires LOCAL_DEMO_ENABLED and FIRESTORE_ENABLED")
         if (not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", self.HUGBACK_DEMO_PROJECT)
@@ -164,7 +201,7 @@ class Settings(BaseSettings):
         elif not (
             self.HUGBACK_CLOUD_TEST_ENABLED and self.HUGBACK_AUTH_MODE == "firebase"
             and self.FIREBASE_PROJECT_ID == self.HUGBACK_DEMO_PROJECT
-            and self.HUGBACK_TEST_OWNER_UIDS.strip()
+            and (self.HUGBACK_TEST_OWNER_UIDS.strip() or self.HUGBACK_PUBLIC_DEMO_ENABLED)
         ):
             raise ValueError("Live test storage requires explicit cloud opt-in, matching Firebase project and an owner allowlist")
 
