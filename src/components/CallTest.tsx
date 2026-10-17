@@ -69,7 +69,9 @@ export function CallTest() {
     workflowAcknowledged,
   });
 
-  const canStart = !!recipient && !recipient.busy && !demo.error && workflowAcknowledged;
+  const canStart = demoParent
+    ? !!recipient && !recipient.busy && !demo.error && workflowAcknowledged
+    : true;
   const startSelectedCall = () => {
     if (canStart) void startCall();
   };
