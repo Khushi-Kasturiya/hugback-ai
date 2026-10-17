@@ -6,6 +6,7 @@ export interface PortalStatus {
   voice: {
     mode: "preset" | "experimental-inline"; name: string;
     replicatedTtsEnabled?: boolean;
+    storage?: "firestore" | "sqlite_test_adapter";
     profile?: VoiceProfile | null;
   };
   sharingStatus: "development_only" | "not_configured" | "awaiting_parent_link" | "ready" | "synthetic_test_only";
@@ -16,6 +17,8 @@ export interface PortalStatus {
   selectedStateAdapter?: "firestore" | "sqlite_test_adapter";
   browserDraftStore?: "indexeddb_private_preconsent_staging";
   workflowEnabled?: boolean;
+  remoteTestEnabled?: boolean;
+  publicDemoEnabled?: boolean;
 }
 
 export interface ArchitectureManifest {
@@ -64,11 +67,24 @@ export async function portalGet<T>(path: "/status" | "/summaries"): Promise<T> {
     throw new Error("Could not reach the local portal backend. It may be restarting. Local previews still work; retry to check server features.");
   }
   if (!response.ok) {
+    if (response.status === 403) {
+      const body = await response.json().catch(() => null);
+      if (body?.detail === "Demo mode is localhost-only.") {
+        throw new Error("This backend only permits the synthetic simulator from localhost. Adding a UID or changing CORS will not enable hosted access; a reviewed remote test gate is required.");
+      }
+      if (body?.detail === "This identity is not an authorized synthetic test operator.") {
+        const local = ["localhost", "127.0.0.1", "[::1]"].includes(window.location.hostname);
+        throw new Error(local
+          ? "This browser is signed in anonymously but is not authorized for the Firestore test. In Local connection details, copy the Backend allowlist UID (without the firebase: prefix). An operator must add it to HUGBACK_TEST_OWNER_UIDS, restart the backend, then Retry connection."
+          : "This browser's Firebase UID is not approved for this test. Ask the operator to review the deployed backend's HUGBACK_TEST_OWNER_UIDS. Local connection details are available only on localhost; never share ID or refresh tokens.");
+      }
+      // An unrelated 403 is not evidence that approving another UID will fix it.
+      // Do not echo arbitrary backend/provider response bodies.
+      throw new Error("The backend denied portal access. Ask the operator to check the test-mode configuration, permitted origin and browser authorization. No access checks were bypassed.");
+    }
     throw new Error(response.status === 401
       ? "The backend could not verify this browser's Firebase session. Check that frontend and backend Firebase projects match."
-      : response.status === 403
-        ? "This browser is signed in anonymously but is not authorized for the Firestore test. Add the Test operator identity shown above to HUGBACK_TEST_OWNER_UIDS, then restart the backend."
-        : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
+      : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
   }
   return response.json() as Promise<T>;
 }

@@ -4,6 +4,38 @@ Current product is **no-app**: child setup through Forms/Drive, parent calls on 
 ordinary phone. Existing `/childportal` and `/` are internal local prototype/test
 surfaces, not a product dashboard rollout. No hosting or deployment is authorized.
 
+## Cloud Run release review — 18 October 2026
+
+The operator approved hosted synthetic demo access for judges without invitations
+or manual UID approval. This change prepares the browser flow and diagnostics;
+it does not deploy, authorize real-family data,
+or remove backend access gates. See the backend
+`docs/CLOUD_RUN_CONFIGURATION_AUDIT.md` for the remaining blockers.
+
+- `.env.production` retains the existing Firebase Web API key and HTTPS/WSS backend
+  and sets `NEXT_PUBLIC_HUGBACK_DEMO_MODE=true` for recipient-scoped calls.
+  The backend also needs explicit remote/public-demo flags, the exact frontend
+  HTTPS Origin, matching Firebase, and the named Firestore test database.
+  Firebase anonymous sign-in happens automatically; public admission does not
+  skip token verification or owner/recipient isolation.
+- `NEXT_PUBLIC_FIREBASE_PROJECT_ID` is an informational label, **not read by
+  the identity helper**. The Web API key determines the frontend Firebase
+  project; the backend verifies token issuer/audience against its configured
+  Firebase project.
+- Next.js embeds `NEXT_PUBLIC_*` at **build time**. Rebuild/redeploy the frontend
+  image after changing them; Cloud Run runtime variables do not replace the
+  compiled browser values. The current Dockerfile reads `.env.production` and
+  excludes `.env*.local` from its context; it does not declare public build args.
+  A normal local build can instead be overridden by `.env.local` or process env.
+- Without the backend remote gate, hosted calls remain blocked. CORS alone does
+  not grant access. In public-demo mode, visitors do not need the local UID-list
+  procedure below; restricted/local Firestore tests still do. A forwarded link
+  can be used by anyone, not just judges, and paid-call cost limits are separate.
+- Both standard and replicated child voice are supported. Firestore mode stores
+  child keys/profile metadata in a separate backend-only collection in the same
+  named DB, not SQLite. Verify deny-all browser rules before enabling the vault.
+  SMTP remains off; durable post-call delivery is not implemented.
+
 ## Conversation history (13 October 2026)
 
 For future **fictional** simulator calls, Family setup offers a separate
@@ -42,10 +74,23 @@ developer identity details to bootstrap that allowlist. No sign-in screen is
 added. Restart the frontend after changing `.env.local`; `.env.example` documents
 the public API/WS endpoint and optional Firebase key.
 
+For repeated local tests, keep the same browser profile and exact origin
+(including hostname and port). A new Incognito session, clearing site data, or
+switching between `localhost` and `127.0.0.1` can create a different anonymous
+Firebase UID. A backend restart does not change that UID. In **Local connection
+details**, use **Backend allowlist UID (without prefix)** as the value to add to
+the private backend `HUGBACK_TEST_OWNER_UIDS` list; preserve existing entries,
+restart the backend, then use **Retry connection**. Do not add the displayed
+`firebase:` owner namespace or any ID/refresh token. Use a stable non-Incognito
+profile for future sessions, approving that profile's UID once. Changing profiles
+does not move existing family or voice data; do not copy credentials or remap
+another UID's records to work around the gate.
+
 This supersedes earlier SQLite-only test instructions below. It does not migrate
 existing data or authorize a product dashboard, real-family imports, shared
-recaps or cloud deployment. Browser previews/identity and the private backend
-voice-key vault remain local even when synthetic family state uses Firestore.
+recaps or cloud deployment. The private backend voice-key vault now uses
+Firestore when family storage does; browser previews
+and identity remain local. Existing SQLite keys are not silently migrated.
 
 ## Same-browser family simulator (schema v2)
 
@@ -149,24 +194,41 @@ speaker likeness. No real recordings or paid calls were used to verify this patc
    required. This removes application waits, not the additional Google synthesis
    stage; real latency and voice quality still need authorized listening tests.
 
-**Storage:** source audio is transient browser/backend memory, not saved by this
-flow. A client-managed key and metadata persist in private mode-0600 SQLite at
-`HUGBACK_VOICE_DB_PATH` (default backend `.local-voice/voices.sqlite3`), scoped to the
-browser development identity. This vault is separate from synthetic family data,
-gitignored and excluded from Docker context. It is not encrypted at rest. Raw audio
-is sent to Google on explicit upload; `store=False` is not a blanket promise about
-all provider processing/retention. The local expiry is the earlier of Google's
-reported expiry and seven days; absent provider expiry, seven days is only a local
-limit. Expired keys are purged on database access, not a background retention job.
-Expired selected metadata remains to prevent silent preset fallback.
+**Storage:** source audio remains transient browser/backend memory and is sent
+to Google only after the adult own-voice, spoken-consent and Google processing/
+billing acknowledgements. `store=False` is not a promise about all provider
+processing/retention. With `HUGBACK_DEMO_STORE=firestore`, BOTH synthetic family
+state and temporary child-voice keys use the same configured named Firestore
+database (`hugback-synthetic` in the shared project). Standard Google voice needs
+no custom key. The separate `hugback_private_voice_profiles` collection stores
+only the temporary key, owner-hashed profile metadata and enrollment lease;
+no recordings or transcripts. Browsers receive metadata only, never provider keys.
 
-**Remove voice** removes the local key/selection, not Google's key or provider
-retention, and does not terminate an existing call. Older browser IndexedDB
-recordings are not migrated/uploaded automatically; a separate control deletes
-them. Use the same browser profile, origin and backend; clearing browser identity
-loses access. The local vault is single-machine/single-worker only. Firebase/cloud
-voice storage, recovery, production enrollment, key revocation, provider likeness,
-paid entitlement and real latency/quality validation remain explicit gates.
+Before enabling voice operations, verify the named database has deny-all browser
+rules (`firestore.synthetic.rules`) and appropriate backend IAM, then set
+`HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED=TRUE`. This flag records an operator
+verification, not an automatic rules audit. Keep IAM narrowly scoped: server SDKs
+bypass Firebase rules. Firestore provides managed encryption at rest, not a separate
+application encryption layer; authorized backend/database administrators can read
+keys. Do not put permissive authenticated-user rules on this database.
+
+Firestore transactions serialize enrollment/replacement/removal per owner across
+instances. A 120-second lease fences late provider responses; the provider upload
+has a 55-second timeout and no automatic retry. New/replacement profiles are
+disabled until explicitly enabled and assigned per recipient. Keys are unusable
+after the earlier of provider expiry or seven days. Expired keys are cleared on
+successful access; there is no scheduled retention/purge job. Metadata remains to
+prevent silent standard-voice fallback. **Remove voice** erases the saved key and
+profile, but does not revoke Google's key, erase provider retention, or stop a
+call already using it. End active calls first.
+
+SQLite is retained only as an explicitly selected offline test adapter. Firestore
+mode never opens it and never falls back if cloud storage fails. Existing local
+keys/recordings are not copied or deleted automatically. Browser drafts and auth
+tokens remain in browser storage; moving keys does not upload raw chat previews.
+Use the same Firebase browser identity to retain access. Recovery, real-family
+identity/consent, provider likeness/entitlement and paid latency checks remain
+separate gates. Both voices are supported by code; that is not a deployment claim.
 
 Offline checks: `python -m unittest discover -s tests -q` (backend virtualenv),
 `npm test`, `npm run typecheck`, isolated frontend production build. Fixtures are

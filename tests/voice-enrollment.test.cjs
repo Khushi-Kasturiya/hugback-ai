@@ -9,10 +9,10 @@ const compiled = ts.transpileModule(fs.readFileSync('src/components/VoiceEnrollm
 }).outputText;
 const created = { id: 'synthetic-profile', expiresAt: '2099-01-01T00:00:00Z', enabled: false, expired: false };
 function harness({ enabled = true, profile = null, failUpload = false, recipient,
-                   failAssignment = false, identityMode = 'development' } = {}) {
+                   failAssignment = false, identityMode = 'development', storage } = {}) {
   let index = 0, tree;
   const states = [], requests = [];
-  const initialVoice = { mode: 'preset', name: 'Aoede', replicatedTtsEnabled: enabled, profile };
+  const initialVoice = { mode: 'preset', name: 'Aoede', replicatedTtsEnabled: enabled, profile, storage };
   const modules = {
     react: { useEffect() {}, useState: (initial) => {
       const i = index++;
@@ -66,7 +66,7 @@ function harness({ enabled = true, profile = null, failUpload = false, recipient
   }
   function consent() { nodes().find((n) => n.type === 'input' && n.props.type === 'checkbox').props.onChange({ target: { checked: true } }); render(); }
   render();
-  return { render, button, nodes, requests, prepare, consent,
+  return { render, button, nodes, requests, prepare, consent, text: () => text(tree),
     setRecipient(value) { recipient = value; render(); } };
 }
 test('browser recording stays local; voice creation requires explicit consent and separate activation', async () => {
@@ -87,6 +87,15 @@ test('browser recording stays local; voice creation requires explicit consent an
   assert.equal(ui.button('Disable child voice').props.disabled, false);
   await ui.button('Disable child voice').props.onClick(); ui.render();
   assert.equal(ui.requests[2].body.enabled, false);
+});
+test('Firestore voice copy distinguishes private keys from recordings and requires billing consent', () => {
+  const ui = harness({ identityMode: 'firebase', storage: 'firestore' });
+  assert.match(ui.text(), /backend-only Firestore storage/);
+  assert.match(ui.text(), /does not save them in browser storage or Firestore/);
+  assert.match(ui.text(), /applicable Google processing charges/);
+  assert.doesNotMatch(ui.text(), /local backend|local vault/);
+  assert.equal(ui.requests.length, 0);
+  assert.equal(ui.button('Create voice').props.disabled, true);
 });
 test('feature disabled blocks both browser recorders and makes no requests', () => {
   const ui = harness({ enabled: false });
