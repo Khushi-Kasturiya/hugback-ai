@@ -10,6 +10,7 @@ import { selectedVoicePayload } from "@/lib/voice-api";
 import { demoRequest, recipientCallPayload } from "@/lib/demo-api";
 
 const CONNECTION_TIMEOUT_MS = 20_000;
+const OPENING_TIMEOUT_MS = 30_000;
 const SPEECH_THRESHOLD = 0.05;
 const END_OF_SPEECH_SILENCE_MS = 700;
 
@@ -302,7 +303,7 @@ export function useLiveAudio({
       // The broker accepts the browser socket before it connects to Gemini.
       // Wait for its explicit ready event so the UI cannot claim to be
       // listening while no AI session exists yet.
-      await new Promise<void>((resolve, reject) => {
+      const autoOpening = await new Promise<boolean>((resolve, reject) => {
         const timeout = window.setTimeout(() => {
           reject(new Error("Hugback backend did not become ready in time"));
         }, CONNECTION_TIMEOUT_MS);
@@ -318,7 +319,7 @@ export function useLiveAudio({
             if (message.type === "ready") {
               window.clearTimeout(timeout);
               removeStartupListeners();
-              resolve();
+              resolve(message.autoOpening === true);
             } else if (message.type === "error") {
               window.clearTimeout(timeout);
               removeStartupListeners();
@@ -355,6 +356,64 @@ export function useLiveAudio({
         return;
       }
 
+      if (autoOpening) {
+        // Let HugBack finish the complete opening—including local playback—
+        // before enabling the microphone, so its own voice cannot become the
+        // recipient's first input turn through speaker echo.
+        await new Promise<void>((resolve, reject) => {
+          let playbackPoll: number | null = null;
+          const timeout = window.setTimeout(() => {
+            cleanup();
+            reject(new Error("HugBack did not finish the opening greeting in time"));
+          }, OPENING_TIMEOUT_MS);
+          const finish = () => {
+            window.clearTimeout(timeout);
+            cleanup();
+            resolve();
+          };
+          const waitForPlayback = () => {
+            if (!isCurrentAttempt() || wsRef.current !== ws) return;
+            if (!playerRef.current?.isBusy()) {
+              finish();
+              return;
+            }
+            playbackPoll = window.setTimeout(waitForPlayback, 25);
+          };
+          const handleMessage = (event: MessageEvent) => {
+            try {
+              const message = JSON.parse(event.data);
+              if (message.type === "error") {
+                window.clearTimeout(timeout);
+                cleanup();
+                reject(new Error(message.message || "HugBack could not start the conversation"));
+              } else if (message.turnComplete) {
+                waitForPlayback();
+              }
+            } catch {
+              // Opening audio packets are handled by the permanent listener.
+            }
+          };
+          const handleClose = () => {
+            window.clearTimeout(timeout);
+            cleanup();
+            reject(new Error("HugBack disconnected during the opening greeting"));
+          };
+          const cleanup = () => {
+            if (playbackPoll !== null) window.clearTimeout(playbackPoll);
+            ws.removeEventListener("message", handleMessage);
+            ws.removeEventListener("close", handleClose);
+          };
+
+          ws.addEventListener("message", handleMessage);
+          ws.addEventListener("close", handleClose);
+          ws.send(JSON.stringify({ type: "start_greeting" }));
+        });
+      }
+
+      if (!isCurrentAttempt() || wsRef.current !== ws) {
+        return;
+      }
+
       ws.onerror = (event) => {
         console.error("[Hugback] WebSocket error:", event);
       };
@@ -368,7 +427,8 @@ export function useLiveAudio({
         }
       };
 
-      // Start recording only after Gemini confirms the live session is ready.
+      // Start recording only after Gemini is ready and any proactive opening
+      // greeting has finished playing.
       const recorder = await startAudioRecorder((pcm16Buffer) => {
         if (isCurrentAttempt() && wsRef.current === ws && ws.readyState === WebSocket.OPEN) {
           // Stream raw 16-bit PCM binary frame

@@ -7,6 +7,7 @@ export interface BackgroundImport {
   filename: string;
   fingerprint: string;
   createdAt: number;
+  updatedAt: number;
   expiresAt: number;
   childSender: string;
   parentSender: string;
@@ -29,13 +30,23 @@ export interface ChildPhoto {
 
 async function database(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open("hugback-child-portal", 2);
-    request.onupgradeneeded = () => {
+    const request = indexedDB.open("hugback-child-portal", 3);
+    request.onupgradeneeded = (event) => {
       if (!request.result.objectStoreNames.contains("imports")) {
         request.result.createObjectStore("imports", { keyPath: "id" });
       }
       if (!request.result.objectStoreNames.contains("childProfiles")) {
         request.result.createObjectStore("childProfiles", { keyPath: "familyId" });
+      }
+      if (event.oldVersion < 3 && request.result.objectStoreNames.contains("imports")) {
+        const cursorRequest = request.transaction!.objectStore("imports").openCursor();
+        cursorRequest.onsuccess = () => {
+          const cursor = cursorRequest.result;
+          if (!cursor) return;
+          const record = cursor.value as BackgroundImport;
+          if (!Number.isFinite(record.updatedAt)) cursor.update({ ...record, updatedAt: record.createdAt });
+          cursor.continue();
+        };
       }
     };
     request.onsuccess = () => resolve(request.result);
@@ -89,7 +100,7 @@ export async function listImports(owner: string, recipientId?: string, includeUn
   return updateImports((_store, all) => importsForRecipient(all, owner, recipientId, includeUnassigned).sort((a, b) => b.createdAt - a.createdAt));
 }
 
-export async function saveImport(owner: string, input: Omit<BackgroundImport, "id" | "owner" | "createdAt" | "expiresAt" | "status">): Promise<void> {
+export async function saveImport(owner: string, input: Omit<BackgroundImport, "id" | "owner" | "createdAt" | "updatedAt" | "expiresAt" | "status">): Promise<void> {
   if (input.recipientId && !/^demo-parent-[a-f0-9]{32}$/.test(input.recipientId)) {
     throw new Error("Choose a valid demo recipient before saving.");
   }
@@ -111,7 +122,7 @@ export async function saveImport(owner: string, input: Omit<BackgroundImport, "i
     }
     store.put({
       ...input, id, owner,
-      createdAt: now, expiresAt: now + RETENTION_MS, status: "local_only",
+      createdAt: now, updatedAt: now, expiresAt: now + RETENTION_MS, status: "local_only",
     } satisfies BackgroundImport);
   });
 }

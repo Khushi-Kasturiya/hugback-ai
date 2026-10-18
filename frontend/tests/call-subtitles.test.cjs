@@ -8,8 +8,9 @@ const compiled = ts.transpileModule(fs.readFileSync("src/hooks/useLiveAudio.ts",
   compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020 },
 }).outputText;
 
-async function callHarness() {
+async function callHarness({ autoOpening = false } = {}) {
   const audio = audioHarness(), states = [], transcriptions = [];
+  const lifecycle = [];
   let socket, recorderCallback, stopped = false;
   const effects = [];
   class Socket {
@@ -28,8 +29,22 @@ async function callHarness() {
     }
     emit(data) { this.dispatch("message", { data: JSON.stringify(data) }); }
     send(data) {
-      if (typeof data === "string" && JSON.parse(data).type === "authenticate") {
-        queueMicrotask(() => this.emit({ type: "ready", voice: "replicated", sessionId: "synthetic" }));
+      if (typeof data !== "string") return;
+      const message = JSON.parse(data);
+      lifecycle.push(message.type);
+      if (message.type === "authenticate") {
+        queueMicrotask(() => this.emit({ type: "ready", autoOpening, voice: "replicated", sessionId: "synthetic" }));
+      } else if (message.type === "start_greeting") {
+        queueMicrotask(() => {
+          this.emit(phrase("Hey Mumma, I am HugBack.", 128));
+          this.emit({ turnComplete: true });
+          lifecycle.push("opening-generated");
+          setTimeout(() => {
+            audio.render(128);
+            audio.deliverEvents();
+            lifecycle.push("opening-played");
+          }, 0);
+        });
       }
     }
     close() { this.readyState = 3; this.dispatch("close", {}); }
@@ -45,6 +60,7 @@ async function callHarness() {
     },
     "@/lib/audio-player": audio.api,
     "@/lib/audio-recorder": { startAudioRecorder: async (callback) => {
+      lifecycle.push("recorder-started");
       recorderCallback = callback; return { stop() { stopped = true; } };
     } },
     "@/lib/identity": { getAuthenticationMessage: async () => ({ type: "authenticate" }) },
@@ -63,7 +79,7 @@ async function callHarness() {
   const api = exports.useLiveAudio({ onTranscriptionUpdate: (...args) => transcriptions.push(args) });
   await api.startCall();
   return {
-    audio, api, states, transcriptions, effects,
+    audio, api, states, transcriptions, effects, lifecycle,
     emit: (data) => socket.emit(data),
     get stopped() { return stopped; },
     speak: () => recorderCallback(new Int16Array(128).fill(2000).buffer),
@@ -76,6 +92,16 @@ function phrase(text, frames = 256) {
     { inlineData: { mimeType: "audio/pcm;rate=24000", data: Buffer.from(new Int16Array(frames).buffer).toString("base64") } },
   ] } };
 }
+
+test("demo greeting starts first and microphone waits for playback", async () => {
+  const h = await callHarness({ autoOpening: true });
+  try {
+    assert.deepEqual(h.lifecycle.slice(0, 5), [
+      "authenticate", "start_greeting", "opening-generated", "opening-played", "recorder-started",
+    ]);
+    assert.equal(h.states[3], "Hey Mumma, I am HugBack.");
+  } finally { h.api.endCall(); }
+});
 
 test("replicated transcript waits for playback, user transcript stays immediate, complete waits for drain", async () => {
   const h = await callHarness();
