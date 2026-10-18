@@ -1,7 +1,7 @@
 """FastAPI application for Hugback's authenticated live-audio WebSocket broker.
 
 Uses official Google GenAI SDK (google-genai) with direct support for both
-Google AI Studio GEMINI_API_KEY and Vertex AI Application Default Credentials.
+Google AI Studio GEMINI_API_KEY for model calls and Cloud Run IAM for Firestore.
 """
 
 import asyncio
@@ -52,7 +52,7 @@ from app.workflows.contracts import ToolOutcome
 from app.demo.store import DemoError
 from app.demo.summary import summarize_call, summary_input
 from app.alerts.policy import asks_not_to_alert, detect_topic
-from app.alerts.email import configured as alert_email_configured, send_test_notice
+from app.alerts.email import configured as alert_email_configured, send_call_summary, send_test_notice
 from app.wellbeing.service import (
     SIGNAL_CONTEXT,
     TONE_SIGNAL_CONTEXT,
@@ -148,7 +148,7 @@ async def private_validation_errors(request: Request, exc: RequestValidationErro
 @app.get("/health")
 async def health():
     """Health check endpoint."""
-    auth_mode = "api_key" if settings.GEMINI_API_KEY else "vertex_ai"
+    auth_mode = "api_key" if settings.GEMINI_API_KEY else "unconfigured"
     memory_service = (
         DisabledMemoryService("canonical follow-up mode")
         if settings.FOLLOWUPS_ENABLED else get_memory_service()
@@ -159,8 +159,7 @@ async def health():
         "status": "healthy",
         "auth_mode": auth_mode,
         "has_api_key": bool(settings.GEMINI_API_KEY),
-        "project": settings.GOOGLE_CLOUD_PROJECT,
-        "location": settings.GOOGLE_CLOUD_LOCATION,
+        "project": settings.firebase_project,
         "model": settings.HUGBACK_MODEL,
         "voice": settings.HUGBACK_VOICE_NAME,
         "voice_mode": settings.HUGBACK_LIVE_VOICE_MODE,
@@ -1157,16 +1156,38 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 failure = {}
                                 summary = await summarize_call(turns, failure=failure)
                                 try:
-                                    await asyncio.to_thread(
+                                    saved = await asyncio.to_thread(
                                         demo_store.record_call_summary, user_id, session_id,
                                         transcript_generation, summary,
                                         failure_code=failure.get("code", "model_or_content"),
                                     )
+                                    if saved:
+                                        details = await asyncio.to_thread(
+                                            demo_store.claim_summary_email, user_id, session_id,
+                                            transcript_generation,
+                                        )
+                                        if details:
+                                            delivered = False
+                                            try:
+                                                await asyncio.to_thread(
+                                                    send_call_summary, details["label"], details["startedAt"],
+                                                    details["email"], details["summary"], details.get("childName"),
+                                                )
+                                                delivered = True
+                                            except Exception as exc:
+                                                logger.warning(
+                                                    "Synthetic summary email failed session=%s code=%s",
+                                                    session_id, type(exc).__name__,
+                                                )
+                                            await asyncio.to_thread(
+                                                demo_store.finish_summary_email, user_id, session_id,
+                                                transcript_generation, delivered=delivered,
+                                            )
                                 except Exception:
                                     logger.warning("Synthetic call summary was not saved session=%s", session_id)
-                            summary_task = asyncio.create_task(save_summary())
-                            _demo_finalizers.add(summary_task)
-                            summary_task.add_done_callback(_demo_finalizers.discard)
+                            # Cloud Run may suspend CPU when the WebSocket request
+                            # returns, so finish persistence and email here.
+                            await save_summary()
                         if alert_pending:
                             async def deliver_alert():
                                 details = await asyncio.to_thread(

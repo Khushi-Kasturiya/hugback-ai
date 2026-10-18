@@ -219,8 +219,8 @@ async def run_spike(
         # Do not silently route the Cloud sample through an AI Studio key.
         client = genai.Client(
             vertexai=True,
-            project=settings.GOOGLE_CLOUD_PROJECT,
-            location=settings.GOOGLE_CLOUD_LOCATION,
+            project=settings.firebase_project,
+            location=settings.CLOUD_TASKS_LOCATION,
             http_options={"api_version": "v1alpha"},
         )
     else:

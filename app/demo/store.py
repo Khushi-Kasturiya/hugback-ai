@@ -14,7 +14,7 @@ from app.demo.models import (
 from app.memory.followups import FollowupState, expire, record_consent
 from app.memory.failures import MEMORY_ERROR_CODES
 from app.wellbeing.models import WellbeingSignalDraft, display_text
-from app.alerts.email import configured as alert_email_configured, configured_destination, valid_destination
+from app.alerts.email import configured as alert_email_configured, valid_destination
 
 MAX_RECIPIENTS = 8
 MAX_TRANSCRIPT_CHARS = 25_000
@@ -91,7 +91,8 @@ class DemoStore:
         active = recipient.get("activeCall")
         def public_call(call):
             result = {key: value for key, value in call.items()
-                      if key not in {"transcript", "summary", "summaryStartedAt"}}
+                      if key not in {"transcript", "summary", "summaryStartedAt",
+                                     "summaryEmailDestinationGeneration"}}
             if "alert" in result:
                 result["alert"] = {key: value for key, value in result["alert"].items()
                                    if key != "destinationGeneration"}
@@ -151,8 +152,6 @@ class DemoStore:
 
     @staticmethod
     def _alert_destination(state):
-        if settings.HUGBACK_DEMO_STORE == "firestore":
-            return configured_destination()
         value = state.get("alertEmail", "")
         return value if valid_destination(value) else None
 
@@ -173,12 +172,10 @@ class DemoStore:
         return f"{local[:1]}***@{domain}"
 
     def set_alert_destination(self, uid: str, request: SetAlertDestination):
-        """Save a local-only demo destination; never accept it in Firestore mode."""
+        """Save one owner-scoped destination in the backend-only family record."""
         def action(state):
             if state["familyId"] != request.familyId:
                 raise DemoError("Select your current demo family before setting its test email.", 404)
-            if settings.HUGBACK_DEMO_STORE != "sqlite":
-                raise DemoError("Browser-selected test email is available only in local SQLite demo mode.", 403)
             if request.email != state.get("alertEmail"):
                 state["alertEmail"] = request.email
                 state["alertEmailGeneration"] = state.get("alertEmailGeneration", 0) + 1
@@ -186,6 +183,8 @@ class DemoStore:
                     for call in recipient["calls"]:
                         if call.get("alert", {}).get("status") == "pending":
                             call["alert"]["status"] = "not_configured"
+                        if call.get("summaryEmailStatus") == "pending":
+                            call["summaryEmailStatus"] = "not_configured"
             state.pop("alertEmailHash", None)  # discard the older allowlist marker
             return self.public(state)
         return self._run(action, uid=uid)
@@ -550,12 +549,50 @@ class DemoStore:
             call["summary"] = summary
             call["summaryStatus"] = "available"
             call.pop("summaryFailureCode", None)
+            call["summaryEmailStatus"] = (
+                "pending" if self._alert_destination_ready(state) else "not_configured"
+            )
+            call["summaryEmailDestinationGeneration"] = self._alert_destination_token(state)
             recipient["conversationContinuity"] = {
                 "sourceSessionId": session_id,
                 "summary": summary,
                 "createdAt": now().isoformat(),
                 "expiresAt": (now() + timedelta(days=30)).isoformat(),
             }
+            return True
+        return self._run(action, parent=parent)
+
+    def claim_summary_email(self, parent, session_id, expected_generation):
+        def action(state):
+            recipient = self._recipient(state, parent)
+            sharing = recipient["transcriptSharing"]
+            if not (sharing["enabled"] and sharing["generation"] == expected_generation
+                    and self._alert_destination_ready(state)):
+                return None
+            call = next((item for item in recipient["calls"] if item["sessionId"] == session_id), None)
+            if (not call or call.get("summaryStatus") != "available"
+                    or call.get("summaryEmailStatus") != "pending"):
+                return None
+            if call.get("summaryEmailDestinationGeneration") != self._alert_destination_token(state):
+                call["summaryEmailStatus"] = "not_configured"
+                return None
+            call["summaryEmailStatus"] = "sending"
+            return {
+                "label": recipient["label"], "startedAt": call["startedAt"],
+                "email": self._alert_destination(state), "childName": state.get("childName"),
+                "summary": call["summary"],
+            }
+        return self._run(action, parent=parent)
+
+    def finish_summary_email(self, parent, session_id, expected_generation, *, delivered):
+        def action(state):
+            recipient = self._recipient(state, parent)
+            if recipient["transcriptSharing"]["generation"] != expected_generation:
+                return False
+            call = next((item for item in recipient["calls"] if item["sessionId"] == session_id), None)
+            if not call or call.get("summaryEmailStatus") != "sending":
+                return False
+            call["summaryEmailStatus"] = "sent" if delivered else "failed"
             return True
         return self._run(action, parent=parent)
 

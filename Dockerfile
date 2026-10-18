@@ -13,7 +13,10 @@ RUN pip install --no-cache-dir .
 
 # Copy application source code
 COPY app/ ./app
-COPY .env.example .env
+# Hackathon deployment profile: use the private local .env when it is present
+# in the source build context. Git builds without it retain safe defaults.
+COPY .env* ./
+RUN if [ ! -f .env ]; then cp .env.example .env; fi
 
 ENV PORT=8080
 EXPOSE 8080

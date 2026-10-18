@@ -2,15 +2,22 @@
 
 The user approved open demo admission for judges: visitors use the same URL,
 sign in anonymously through Firebase, and do **not** need invitations or manual
-UID approval. This is a fictional-data, standard-voice demo, not real-family
+UID approval. This is a fictional-data demo with standard and explicitly
+consented adult child-voice options, not real-family
 identity verification, consent/enrollment or a telephone-service release.
 
-## Why the current deployed site reports “Local demo mode is disabled”
+## Current deployed revision versus this release profile
 
-The read-only production health check on 18 October reported `caller_auth=firebase`,
-`demo_storage=sqlite`, `firestore_configured=false`, and `workflow_enabled=false`.
-Local `.env` edits do not change Cloud Run. The former loopback-only gate also
-blocked remote requests regardless of CORS or Firebase configuration.
+An earlier production health check on 18 October reported the old disabled
+profile. A later read-only Cloud Run inspection showed generation 8 now has
+Firebase auth, named Firestore, the four-stage workflow, public remote demo and
+replicated TTS enabled, including the voice-rules confirmation. It does not set
+`HUGBACK_CONTEXT_EXTRACTION_ENABLED` or `HUGBACK_JUDGE_DEMO_ENABLED`; those two
+capabilities are enabled in this repository's release profile and still require
+a backend deployment. Summary email also requires the new backend revision and
+SMTP credentials. Under the approved hackathon shortcut, changes to the private
+`.env` reach Cloud Run only after rebuilding and deploying from this local source
+directory; they do not modify an already-running revision.
 
 This branch adds an explicit remote access gate and a separate public admission
 flag. The existing local/restricted modes retain their restrictions by default.
@@ -18,8 +25,13 @@ flag. The existing local/restricted modes retain their restrictions by default.
 
 ## Settings to apply when deployment is authorized
 
-Use `.env.cloud-run.example` as a secret-free reference, not as a credentials file
-or a `gcloud --env-vars-file` input (that flag expects YAML, not dotenv syntax).
+Use `.env.cloud-run.example` as a secret-free reference. For this hackathon, the
+user explicitly chose the private Git-ignored `.env` as the Cloud Run container's
+runtime profile instead of Secret Manager. `.gcloudignore` includes `.env` in a
+local source deployment and Docker copies it into the image. This exposes secrets
+to anyone who can inspect the source upload or image and must not be described as
+a production-grade secret-management design. A Git-based build will not receive
+the ignored `.env` and therefore uses the safe `.env.example` fallback.
 The existing project is `project-84a7c715-3d60-4253-acb`; the existing dedicated
 named database is `hugback-synthetic` in `us-central1`.
 
@@ -39,11 +51,13 @@ HUGBACK_REMOTE_TEST_ORIGIN=https://hugback.cloud.run
 CORS_ORIGINS=https://hugback.cloud.run
 HUGBACK_PUBLIC_DEMO_ENABLED=TRUE
 HUGBACK_WORKFLOW_ENABLED=TRUE
+HUGBACK_CONTEXT_EXTRACTION_ENABLED=TRUE
 HUGBACK_LIVE_VOICE_MODE=preset
 HUGBACK_REPLICATED_TTS_ENABLED=TRUE
-# Set only after verifying deny-all browser rules on the named database:
+# Verified in Firebase Console on 18 October 2026 for the named database:
 HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED=TRUE
-HUGBACK_ALERT_EMAIL_ENABLED=FALSE
+HUGBACK_ALERT_EMAIL_ENABLED=TRUE
+HUGBACK_PORTAL_URL=https://hugback.cloud.run/childportal
 MEMORY_ENABLED=FALSE
 FOLLOWUPS_ENABLED=FALSE
 CLOUD_INTAKE_ENABLED=FALSE
@@ -56,9 +70,15 @@ PORTAL_SHARING_ENABLED=FALSE
 - Keep `FIRESTORE_EMULATOR_HOST` unset. Do not put personal ADC/service-account
   JSON in Cloud Run. The attached service identity must have access to the
   existing named database. Server SDK calls use IAM, not client Firestore rules.
-- Supply the backend Gemini credential via the existing secure secret setup;
-  never commit it or put it in a `NEXT_PUBLIC_*` variable. Rotate any credentials
-  previously disclosed outside their intended secret store before deployment.
+- For this hackathon-only local-source build, place the backend Gemini credential
+  in the private `.env`; never commit it or put it in a `NEXT_PUBLIC_*` variable.
+  Rotate any credential previously disclosed outside its intended store before
+  deployment, then migrate it to Secret Manager after the event.
+- For the hackathon-only deployment, set `HUGBACK_ALERT_SMTP_USERNAME` and
+  `HUGBACK_ALERT_SMTP_APP_PASSWORD` in the private `.env` before building. The
+  owner-entered destination is stored inside the authenticated family record and
+  only a masked hint is returned to the browser. Rotate the app password after
+  the event and migrate it to Secret Manager before broader production use.
 - Frontend `.env.production` selects the existing HTTPS/WSS backend and
   `NEXT_PUBLIC_HUGBACK_DEMO_MODE=true`. This ensures calls carry the selected
   recipient and workflow acknowledgement. The non-demo path is rejected by
@@ -92,10 +112,10 @@ and monitor billing before enabling; billing alerts alone do not cap spending.
 
 - Both standard and consented adult child voice are supported. Family state and
   temporary child keys use the same named Firestore database, separate collections.
-  Standard voice needs no custom key. Verify `firestore.synthetic.rules` on the
-  named DB, with no overlapping browser allow rules, and backend-only IAM before
-  enabling `HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED`. The reference env deliberately
-  leaves this false so copying it alone cannot enable private key writes.
+  Standard voice needs no custom key. On 18 October 2026, the active rules for
+  the named DB were verified in Firebase Console as a global deny-all rule with
+  no overlapping browser allow rule; the repository reference therefore enables
+  `HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED`. Re-verify after any rules change.
 - The private vault persists only keys/profile metadata and 120-second enrollment
   leases; never audio. Transactions fence concurrent/late responses across Cloud
   Run instances. No local fallback or automatic migration. Expiry is enforced on
@@ -103,26 +123,24 @@ and monitor billing before enabling; billing alerts alone do not cap spending.
   Removal does not revoke the Google key or terminate an already active call.
 - Synthetic family data only. Real-family consent, verified enrollment, retained
   original intake, production sharing and phone-call release are not enabled.
-- Post-call reconciliation, Critic and summaries remain process-local best effort.
-  Instance replacement can lose in-flight work; configure CPU/lifecycle accordingly
-  and do not promise durable summaries. `MEMORY_PROCESSING_MODE=cloud_tasks` only
-  handles the legacy path and does not fix synthetic finalization.
-- SMTP is disabled. No email, voice upload or paid call is part of offline tests.
+- Post-call reconciliation and Critic remain process-local. Summary persistence
+  and its one-time email are awaited inside the shielded WebSocket finalizer, but
+  there is still no durable email retry queue after a container crash.
+  `MEMORY_PROCESSING_MODE=cloud_tasks` only handles the legacy path.
+- SMTP summary email is enabled in the release profile. Offline tests mock SMTP;
+  they do not send email, upload a voice or place a paid call.
 - Provider model IDs in the reference file are existing configured IDs, not a
   new claim of entitlement or measured latency/voice quality.
 
 ## Merge, deploy and verify
 
-Read-only check on 18 October: the Firebase Rules API returned HTTP 403 with
-reason `SERVICE_DISABLED` for `firebaserules.googleapis.com` when reading the
-release `cloud.firestore/hugback-synthetic` in the shared project. This is not
-evidence of permissive rules or a Firestore data-connectivity failure; the live
-rules could not be inspected. No API was enabled and no rules were changed.
-Before voice enrollment, an authorized operator must enable access to the Rules
-API as needed, inspect/apply the deny-all rules on **hugback-synthetic**, and
-verify browser-token reads/writes are denied (including the private voice
-collection). Only then set the rules-confirmation flag. Do not simply enable
-the flag to bypass this unresolved verification.
+The Firebase Rules API previously returned HTTP 403 with reason
+`SERVICE_DISABLED`, so the release could not be inspected through that API.
+On 18 October 2026 the signed-in project owner instead inspected the active Rules
+tab for **hugback-synthetic** in Firebase Console. It showed one global matcher
+with `allow read, write: if false`; no overlapping browser allow rule was present.
+No API was enabled and no rules were changed. Re-verify this condition after any
+rules deployment before keeping the confirmation flag enabled.
 
 The requested workflow is branches/PRs first, operator merge into `main`, then a
 separately requested deployment of the merged revisions. If a Cloud Build trigger

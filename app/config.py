@@ -15,12 +15,8 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    # Authentication: Supports both Gemini API Key (AI Studio) and Vertex AI ADC
+    # Gemini model calls use the server-only Google AI Studio API key.
     GEMINI_API_KEY: str | None = None
-    GOOGLE_GENAI_USE_VERTEXAI: bool = False
-    GOOGLE_CLOUD_PROJECT: str = "project-84a7c715-3d60-4253-acb"
-    GOOGLE_CLOUD_LOCATION: str = "us-central1"
-    GOOGLE_APPLICATION_CREDENTIALS: str | None = None
 
     # Target Live Model & Voice
     # Live API models (support bidiGenerateContent):
@@ -103,14 +99,14 @@ class Settings(BaseSettings):
     # judge/staging deployment should enable this flag.
     HUGBACK_CONTEXT_EXTRACTION_ENABLED: bool = False
 
-    # Optional Gmail SMTP notices for local fictional calls. Family setup may
-    # select a test address in local SQLite; it is not verified child identity.
+    # Optional Gmail SMTP notices. The authenticated family supplies its
+    # destination; configuration contains sender credentials only.
     HUGBACK_ALERT_EMAIL_ENABLED: bool = False
     HUGBACK_ALERT_SMTP_USERNAME: str = ""
     HUGBACK_ALERT_SMTP_APP_PASSWORD: str = ""
-    # Firestore demo mode uses one operator-controlled test inbox. The address
-    # stays in backend configuration and is never written to Firestore.
-    HUGBACK_ALERT_TEST_DESTINATION: str = ""
+    # Link included in call-summary email. The address itself is stored only in
+    # the authenticated family's backend-only record and is never returned raw.
+    HUGBACK_PORTAL_URL: str = "http://127.0.0.1:3000/childportal"
 
     # Internal Forms/Drive intake storage only; no browser route or consent grant.
     # Requires pre-existing resources. Enabling Firestore alone does not upload.
@@ -149,7 +145,7 @@ class Settings(BaseSettings):
 
     @property
     def firebase_project(self) -> str:
-        return self.FIREBASE_PROJECT_ID or self.GOOGLE_CLOUD_PROJECT
+        return self.FIREBASE_PROJECT_ID or self.HUGBACK_DEMO_PROJECT
 
     def validate_test_mode(self) -> None:
         """No I/O. Run on startup and at every synthetic test entry point."""
@@ -181,9 +177,8 @@ class Settings(BaseSettings):
             if (self.HUGBACK_DEMO_STORE != "firestore" or emulator
                     or not self.HUGBACK_CLOUD_TEST_ENABLED
                     or self.HUGBACK_AUTH_MODE != "firebase"
-                    or self.HUGBACK_LIVE_VOICE_MODE != "preset"
-                    or self.HUGBACK_ALERT_EMAIL_ENABLED):
-                raise ValueError("Remote tests require live named Firestore, Firebase, preset Live mode and disabled SMTP")
+                    or self.HUGBACK_LIVE_VOICE_MODE != "preset"):
+                raise ValueError("Remote tests require live named Firestore, Firebase and preset Live mode")
             uids = [uid.strip() for uid in self.HUGBACK_TEST_OWNER_UIDS.split(",")]
             if not self.HUGBACK_PUBLIC_DEMO_ENABLED and any(
                 not re.fullmatch(r"[A-Za-z0-9_-]{1,128}", uid) for uid in uids
@@ -220,15 +215,10 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-# Populate Google environment variables
+# Populate only the Gemini API key used by the model SDK. Firestore discovers
+# Cloud Run's attached service identity directly through Google Auth.
 if settings.GEMINI_API_KEY:
     os.environ["GEMINI_API_KEY"] = settings.GEMINI_API_KEY
-if settings.GOOGLE_GENAI_USE_VERTEXAI:
-    os.environ["GOOGLE_GENAI_USE_VERTEXAI"] = "TRUE"
-    os.environ["GOOGLE_CLOUD_PROJECT"] = settings.GOOGLE_CLOUD_PROJECT
-    os.environ["GOOGLE_CLOUD_LOCATION"] = settings.GOOGLE_CLOUD_LOCATION
-if settings.GOOGLE_APPLICATION_CREDENTIALS:
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = settings.GOOGLE_APPLICATION_CREDENTIALS
 
 # Do not install an arbitrary endpoint from configuration. Validate test mode first.
 if settings.FIRESTORE_EMULATOR_HOST:

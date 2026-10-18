@@ -123,7 +123,7 @@ Only after authorization, configure the operator job (not the browser):
 ```dotenv
 CLOUD_INTAKE_ENABLED=True
 FIRESTORE_ENABLED=True
-GOOGLE_CLOUD_PROJECT=your-approved-existing-project
+FIREBASE_PROJECT_ID=your-approved-existing-project
 FIRESTORE_DATABASE=(default)
 CLOUD_IMPORT_BUCKET=your-approved-private-import-bucket
 ```

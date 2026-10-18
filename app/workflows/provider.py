@@ -7,14 +7,15 @@ from app.google_structured import json_response_config
 
 class GoogleStructuredProvider:
     async def generate(self, instruction, payload, schema, *, timeout_ms=10_000, model=None):
+        if not settings.GEMINI_API_KEY:
+            raise RuntimeError("GEMINI_API_KEY is required for structured Gemini calls")
         options = types.HttpOptions(
-            api_version="v1beta" if settings.GEMINI_API_KEY else "v1",
+            api_version="v1beta",
             timeout=timeout_ms, retry_options=types.HttpRetryOptions(attempts=1),
         )
-        client = (genai.Client(api_key=settings.GEMINI_API_KEY, vertexai=False, http_options=options)
-                  if settings.GEMINI_API_KEY else genai.Client(
-                      vertexai=True, project=settings.GOOGLE_CLOUD_PROJECT,
-                      location=settings.GOOGLE_CLOUD_LOCATION, http_options=options))
+        client = genai.Client(
+            api_key=settings.GEMINI_API_KEY, vertexai=False, http_options=options,
+        )
         try:
             response = await client.aio.models.generate_content(
                 model=model or settings.FOLLOWUP_EXTRACTION_MODEL,

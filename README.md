@@ -1,17 +1,18 @@
 # Hugback backend
 
-## Cloud configuration audit — 17 October 2026
+## Cloud configuration audit — 18 October 2026
 
 For the operator's reported deployment, see
 [`docs/CLOUD_RUN_CONFIGURATION_AUDIT.md`](docs/CLOUD_RUN_CONFIGURATION_AUDIT.md)
-and `.env.cloud-run.example`. The deployed public health response reported
-SQLite storage with Firestore/workflow disabled. Updating local `.env` does not
-update Cloud Run. Explicit remote + public-demo flags now permit verified
-Firebase anonymous visitors without manual UID approval, while retaining
-owner/recipient isolation and an exact HTTPS Origin. Standard and child voice
-use Firestore state; child keys require verified backend-only rules. Synthetic
-post-call work remains best effort.
-See the audit for required deployment settings; this branch does not deploy them.
+and `.env.cloud-run.example`. For the approved hackathon shortcut, a deployment
+from this local source directory includes the private, Git-ignored `.env` in the
+backend image. A Git-triggered build cannot include that ignored file and falls
+back to the secret-free example profile. Explicit remote + public-demo flags
+permit verified Firebase anonymous visitors without manual UID approval, while
+retaining owner/recipient isolation and an exact HTTPS Origin. Standard and
+replicated voice use Firestore state; voice keys require verified backend-only
+rules. See the audit for deployment and credential-rotation requirements; this
+branch does not itself deploy them.
 
 ## Canonical architecture for judging and deployment
 
@@ -314,14 +315,13 @@ disconnect cancellation, but is **not a durable outbox** across process shutdown
 An interrupted server may lose the pending extraction; stale leases display
 `interrupted`. Do not restart during an active demo.
 
-Real recap sharing, real-family email, verified dual-consent enrollment, cloud
-uploads and production recovery remain outside this simulator. Optional brief
-Gmail SMTP notices for fictional calls are off by default and separately gated.
-In local SQLite mode, Family setup stores the child's expected test inbox with
-that family. The sender credentials remain only in private `.env`; a separate
-recipient address there is no longer required. Changing or clearing the Family
-setup address invalidates pending notices. No mailbox ownership verification
-or production child identity is claimed by this local demo.
+Real-family identity, verified enrollment, unrestricted cloud uploads and durable
+retry recovery remain outside this simulator. The hosted judge flow can email the
+already-bounded generated call summary after it is stored. Family setup saves one
+owner-scoped notification inbox with the authenticated family in SQLite or the
+deny-all named Firestore database; responses return only a masked hint. Sender
+credentials remain backend secrets. Changing or clearing the address invalidates
+pending sends. Raw turns and imported excerpts are never emailed.
 For a local sender check, run `.venv/bin/python -m app.alerts.smoke_test`
 from this repository. It prints only readiness flags and sends nothing. After
 privately configuring a sender, add `--send --to ADDRESS` for one
@@ -416,8 +416,8 @@ support for this Live model or an acoustic-identity guarantee.
   preset retry. Acknowledged consent still does **not** verify speaker likeness.
 - TTS/managed voice IDs are not accepted by the ordinary Live config builder.
   The separate compatibility scripts remain isolated from this policy.
-- A configured API key explicitly selects the Developer API rather than letting
-  a conflicting Vertex environment variable change the endpoint.
+- Gemini model calls use only the configured server-side API key. There is no
+  alternate runtime model-provider switch or silent endpoint fallback.
 
 The `ready` event now reports `model`, `voiceName`, `voiceStatus`, and `sessionId`.
 For preset mode, status is `preset_configured`; for experimental inline mode it is
@@ -583,7 +583,7 @@ next-step gate, not a tested fix or permission to upload another recording.
 `scripts/check_tts_voice_replication.py` tests the documented Developer API
 enrollment/synthesis flow independently of Live. It reads `GEMINI_API_KEY` from
 the backend configuration, explicitly uses Developer API `v1beta`, and does not
-use the browser's signed-in account or fall back to Vertex/ADC. The key itself
+use the browser's signed-in account or another model-provider fallback. The key itself
 does not reveal its owner, billing tier, or model entitlement.
 
 ```bash

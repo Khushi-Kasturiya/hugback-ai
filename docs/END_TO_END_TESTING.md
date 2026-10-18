@@ -44,10 +44,10 @@ Gmail account with 2-Step Verification and an app password, and confirm that
 you or an expecting test recipient controls the destination mailbox. In the
 private backend `.env`, set the **sender** variables:
 `HUGBACK_ALERT_EMAIL_ENABLED=TRUE`, `HUGBACK_ALERT_SMTP_USERNAME`, and
-`HUGBACK_ALERT_SMTP_APP_PASSWORD`. In SQLite mode, enter the child's destination
-in Family setup. In Firestore mode, set `HUGBACK_ALERT_TEST_DESTINATION` to one
-operator-controlled test inbox; the UI shows only its masked form and the raw
-address is never written to Firestore. Restart the backend. Never put the app
+`HUGBACK_ALERT_SMTP_APP_PASSWORD`. Enter the notification destination in Family
+setup in either SQLite or Firestore mode. The UI shows only its masked form after
+saving; Firestore keeps the raw address in the authenticated family's backend-only
+record. There is no configured fallback recipient. Restart the backend. Never put the app
 password in frontend files, source control or chat. The email contains a generic
 notice and a link to the local portal on the test computer, not a transcript or
 health claim. The local SQLite simulator stores the selected destination with
@@ -107,13 +107,10 @@ no email. Real family email and production delivery are not connected.
    live account. A separate close-loss self-report can test `bereavement`
    using only fictional content.
 
-The browser-selected destination is available only in local SQLite demo mode.
-Firestore can send only to the single backend-controlled
-`HUGBACK_ALERT_TEST_DESTINATION`; it cannot store or send to a UI-chosen mailbox. A
-different browser origin (for example `localhost` versus `127.0.0.1`) has a
-different local demo family. Clearing or changing the address invalidates
-pending notices for that family. The local SQLite file contains the address;
-do not upload it or commit it. `sent` means Gmail's SMTP server accepted the message; inbox delivery is a
+The browser-selected destination is owner-scoped in both SQLite and Firestore.
+A different authenticated family cannot read or use it, and API responses return
+only a masked hint. Clearing or changing the address invalidates pending notices
+for that family. `sent` means Gmail's SMTP server accepted the message; inbox delivery is a
 separate check. `failed` means the SMTP task raised an error; its exact exception
 type is in backend logs, without credentials or call text. `not_configured`
 means a matched call was recorded while a required backend gate was off.

@@ -14,22 +14,13 @@ logger = logging.getLogger("hugback.live_session")
 
 
 def create_genai_client() -> genai.Client:
-    """Create a google-genai Client supporting either API Key or Vertex AI ADC."""
-    if settings.GEMINI_API_KEY:
-        logger.info("Initializing Google GenAI Client using GEMINI_API_KEY")
-        return genai.Client(
-            api_key=settings.GEMINI_API_KEY,
-            vertexai=False,
-            http_options={"api_version": "v1alpha"},
-        )
-
-    logger.info(
-        f"Initializing Google GenAI Client using Vertex AI (project={settings.GOOGLE_CLOUD_PROJECT}, location={settings.GOOGLE_CLOUD_LOCATION})"
-    )
+    """Create the API-key-only Google AI Studio client."""
+    if not settings.GEMINI_API_KEY:
+        raise RuntimeError("GEMINI_API_KEY is required for Gemini Live")
+    logger.info("Initializing Google GenAI Client using GEMINI_API_KEY")
     return genai.Client(
-        vertexai=True,
-        project=settings.GOOGLE_CLOUD_PROJECT,
-        location=settings.GOOGLE_CLOUD_LOCATION,
+        api_key=settings.GEMINI_API_KEY,
+        vertexai=False,
         http_options={"api_version": "v1alpha"},
     )
 

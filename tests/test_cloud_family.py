@@ -197,7 +197,7 @@ class CloudFamilyTests(unittest.TestCase):
             self.assertEqual(client.post("/api/family").status_code, 404)
         for name, value in (("FIRESTORE_ENABLED", False), ("CLOUD_INTAKE_ENABLED", False),
                             ("CLOUD_IMPORT_BUCKET", ""), ("CLOUD_IMPORT_BUCKET", "gs://private"),
-                            ("GOOGLE_CLOUD_PROJECT", "")):
+                            ("FIREBASE_PROJECT_ID", "")):
             with patch.object(settings, name, value), patch("google.cloud.storage.Client") as storage, \
                  patch("google.cloud.firestore.Client") as firestore:
                 with self.assertRaises(FamilyError):

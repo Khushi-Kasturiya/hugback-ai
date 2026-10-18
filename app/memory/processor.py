@@ -73,7 +73,7 @@ def _enqueue_cloud_task(request: ProcessMemoryRequest) -> None:
 
     client = tasks_v2.CloudTasksClient()
     parent = client.queue_path(
-        settings.GOOGLE_CLOUD_PROJECT,
+        settings.firebase_project,
         settings.CLOUD_TASKS_LOCATION,
         settings.CLOUD_TASKS_QUEUE,
     )

@@ -26,8 +26,6 @@ def offline_environment():
     """The developer's cloud profile must not change an offline test's routing."""
     return os.environ | {
         "GEMINI_API_KEY": "synthetic-offline-key",
-        "GOOGLE_GENAI_USE_VERTEXAI": "FALSE",
-        "GOOGLE_APPLICATION_CREDENTIALS": "",
         "HUGBACK_AUTH_MODE": "development", "LOCAL_DEMO_ENABLED": "FALSE",
         "HUGBACK_DEMO_STORE": "sqlite", "HUGBACK_CLOUD_TEST_ENABLED": "FALSE",
         "HUGBACK_REMOTE_TEST_ENABLED": "FALSE", "HUGBACK_REMOTE_TEST_ORIGIN": "",

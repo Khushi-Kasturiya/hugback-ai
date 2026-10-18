@@ -8,7 +8,7 @@ class FirestoreRepository:
     def __init__(self):
         from google.cloud import firestore
         self.firestore = firestore
-        self.client = firestore.Client(project=settings.GOOGLE_CLOUD_PROJECT, database=settings.FIRESTORE_DATABASE)
+        self.client = firestore.Client(project=settings.firebase_project, database=settings.FIRESTORE_DATABASE)
 
     def read(self, path):
         snap = self.client.document(path).get(timeout=10, retry=None)

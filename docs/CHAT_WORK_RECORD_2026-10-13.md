@@ -145,7 +145,7 @@ The starting problem was that a Mother role-play call answered *“I don't read 
 | How often may HugBack check on a remembered concern? | A reported wellbeing concern can receive at most **two later proactive check-in attempts per episode**, subject to the existing eligibility, cooldown, recovery, and privacy rules. A successful tool claim counts as an attempt even if audio playback is interrupted. |
 | What belongs in Signals back? | Dated, recipient-scoped fictional call activity and, after separate standing demo sharing is enabled, a short AI-generated summary of **future** calls, with a date filter. There is no approval after each call. |
 | What should trigger an email? | A bounded parent-role self-report of fever or a close bereavement in the current fictional call, after separate standing alert permission. A historical import, AI utterance, or an isolated word does not suffice. |
-| What is in the email? | A brief generic update and local portal link. No quote, topic name, health claim, or transcript. The configured test destination belongs to the backend, not a browser field. |
+| What is in the email? | A brief generic update and local portal link. No quote, topic name, health claim, or transcript. The authenticated family provides the destination in Family setup. |
 
 The product architecture remains an **ordinary-phone service**. `/childportal` and `/?demo=parent` are local development/test surfaces, not a released child dashboard, parent app, speaker-verification system, or production consent mechanism.
 

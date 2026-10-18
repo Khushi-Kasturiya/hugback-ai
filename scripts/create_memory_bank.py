@@ -39,12 +39,12 @@ class MemoryBankCareProfile(BaseModel):
 
 def main() -> None:
     client = agentplatform.Client(
-        project=settings.GOOGLE_CLOUD_PROJECT,
-        location=settings.GOOGLE_CLOUD_LOCATION,
+        project=settings.firebase_project,
+        location=settings.CLOUD_TASKS_LOCATION,
     )
     embedding_model = (
-        f"projects/{settings.GOOGLE_CLOUD_PROJECT}/locations/"
-        f"{settings.GOOGLE_CLOUD_LOCATION}/publishers/google/models/gemini-embedding-001"
+        f"projects/{settings.firebase_project}/locations/"
+        f"{settings.CLOUD_TASKS_LOCATION}/publishers/google/models/gemini-embedding-001"
     )
     display_name = "Hugback User Memory"
     existing = next(

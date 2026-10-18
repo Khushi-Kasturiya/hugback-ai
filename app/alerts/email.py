@@ -1,4 +1,4 @@
-"""Optional Gmail SMTP sender for local fictional-call notices."""
+"""Optional Gmail SMTP sender for bounded fictional-call notifications."""
 
 from email.message import EmailMessage
 import re
@@ -10,7 +10,6 @@ import certifi
 from app.config import settings
 
 _EMAIL = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?$", re.ASCII)
-PORTAL_URL = "http://127.0.0.1:3000/childportal"
 
 
 def configured() -> bool:
@@ -23,22 +22,11 @@ def configured() -> bool:
     )
     if not base:
         return False
-    if settings.HUGBACK_DEMO_STORE == "sqlite":
-        return True
-    return bool(
+    return bool(settings.HUGBACK_DEMO_STORE == "sqlite" or (
         settings.HUGBACK_DEMO_STORE == "firestore"
         and settings.HUGBACK_CLOUD_TEST_ENABLED
         and settings.HUGBACK_AUTH_MODE == "firebase"
-        and valid_destination(settings.HUGBACK_ALERT_TEST_DESTINATION)
-    )
-
-
-def configured_destination() -> str | None:
-    """Return the backend-only Firestore test inbox, never a browser value."""
-    if settings.HUGBACK_DEMO_STORE != "firestore":
-        return None
-    value = settings.HUGBACK_ALERT_TEST_DESTINATION.strip()
-    return value if valid_destination(value) else None
+    ))
 
 
 def valid_destination(address: str) -> bool:
@@ -58,8 +46,28 @@ def send_test_notice(recipient_label: str, call_time: str, destination: str,
     message.set_content(
         greeting + "A topic you chose to be notified about came up in a fictional HugBack "
         f"call with {recipient_label} at {call_time}.\n\n"
-        f"Open the local child portal on the test computer: {PORTAL_URL}\n\n"
+        f"Open HugBack: {settings.HUGBACK_PORTAL_URL}\n\n"
         "This automatic notice may be inaccurate or delayed. It is not an emergency alert."
+    )
+    _send(message)
+
+
+def send_call_summary(recipient_label: str, call_time: str, destination: str,
+                      summary: str, child_name: str | None = None) -> None:
+    """Email exactly the already-bounded stored summary, never raw call turns."""
+    if (not configured() or not valid_destination(destination)
+            or not isinstance(summary, str) or not 20 <= len(summary) <= 600):
+        raise RuntimeError("Synthetic summary email is not configured")
+    message = EmailMessage()
+    message["From"] = settings.HUGBACK_ALERT_SMTP_USERNAME
+    message["To"] = destination
+    message["Subject"] = f"HugBack call summary · {recipient_label}"
+    greeting = f"Hello {child_name},\n\n" if child_name else "Hello,\n\n"
+    message.set_content(
+        greeting + f"Here is the short summary of the HugBack call with {recipient_label} "
+        f"at {call_time}:\n\n{summary}\n\n"
+        f"Open HugBack: {settings.HUGBACK_PORTAL_URL}\n\n"
+        "This AI-generated summary may miss details or reflect speech-recognition errors."
     )
     _send(message)
 
@@ -75,7 +83,7 @@ def send_test_probe(destination: str) -> None:
     message.set_content(
         "This is an operator-requested test of the fictional HugBack email sender. "
         "It was not triggered by a call.\n\n"
-        f"The local test portal is available on the test computer: {PORTAL_URL}\n\n"
+        f"Open HugBack: {settings.HUGBACK_PORTAL_URL}\n\n"
         "This is not an emergency alert."
     )
     _send(message)

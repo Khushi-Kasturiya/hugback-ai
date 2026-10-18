@@ -82,8 +82,7 @@ Use this table to check keys in your private `.env`. Change one group at a time,
 | `HUGBACK_ALERT_EMAIL_ENABLED` | `FALSE` | Topic events can show `not_configured`; no real email is sent. |
 | `FIRESTORE_EMULATOR_HOST` | Unset | Not using the emulator in this first run. |
 | `HUGBACK_CLOUD_TEST_ENABLED` | `FALSE` | No live Firestore test database. |
-| `GOOGLE_GENAI_USE_VERTEXAI` | Keep the already working choice | Do not flip provider paths while diagnosing a call. |
-| `GEMINI_API_KEY` | Private working key if using API-key mode | Needed only when actually calling Google. |
+| `GEMINI_API_KEY` | Private working key | Required when actually calling Gemini; there is no Vertex fallback. |
 
 For a pure **offline** run, you need not change `.env`: the offline eval subprocess explicitly overrides cloud-routing, Google and SMTP flags. Do not start a browser call during offline testing.
 
@@ -196,7 +195,7 @@ If your address bar says `localhost:3000` or you are using an **Incognito** wind
 
 **If the summary stays unavailable:** inspect the newest call's exact status in Signals back. `No usable speech transcript` means Live did not supply enough recognized speech for that call; speak a few clear turns from both sides and check the live words during the call. A Google unavailable, timeout, rate-limit or model-access message means the post-call structured request failed. The backend uses `HUGBACK_CALL_SUMMARY_MODEL` (default `gemini-3.5-flash-lite`) separately from `FOLLOWUP_EXTRACTION_MODEL`, with a 45-second outer deadline. If you override it in the private backend `.env`, restart the backend and make a **new** fictional call. There is no automatic second paid model request or raw-text fallback. Calls that already failed cannot be summarized again because their turns were not saved.
 
-Automatic topic email has **three gates**: a test destination, this per-recipient **Enable future topic notices** button, and backend SMTP sender configuration. SQLite can save an explicitly confirmed destination from Family setup. Firestore instead uses the private backend `HUGBACK_ALERT_TEST_DESTINATION`, shows only a masked hint, and never writes the address to Firestore. With `HUGBACK_ALERT_EMAIL_ENABLED=FALSE` or no test address, a matching fictional self-report can appear in Signals back with `not_configured`; no email leaves your machine. For a separate SMTP test, section 9 and `docs/END_TO_END_TESTING.md` list the private backend settings. This is not production mailbox verification.
+Automatic topic email has **three gates**: the family-provided destination, this per-recipient **Enable future topic notices** button, and backend SMTP sender configuration. Both SQLite and Firestore save the address in the authenticated family's backend record and return only a masked hint. No environment-level fallback recipient exists. With `HUGBACK_ALERT_EMAIL_ENABLED=FALSE` or no saved address, a matching fictional self-report can appear in Signals back with `not_configured`; no email is sent. For a separate SMTP test, section 9 and `docs/END_TO_END_TESTING.md` list the private backend settings. This is not production mailbox verification.
 
 ### 5.4 Add Father and a memory-off control
 

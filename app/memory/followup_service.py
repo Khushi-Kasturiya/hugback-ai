@@ -197,7 +197,7 @@ def get_followup_coordinator(*, privacy_operation=False) -> FollowupCoordinator 
         from app.memory.followup_extractor import GoogleFollowupExtractor
         from app.memory.followup_store import FirestoreFollowupStore
         _coordinator = FollowupCoordinator(
-            FirestoreFollowupStore(settings.GOOGLE_CLOUD_PROJECT, settings.FIRESTORE_DATABASE),
+            FirestoreFollowupStore(settings.firebase_project, settings.FIRESTORE_DATABASE),
             GoogleFollowupExtractor(),
             cooldown_hours=settings.FOLLOWUP_COOLDOWN_HOURS,
             retention_hours=settings.FOLLOWUP_RETENTION_HOURS,

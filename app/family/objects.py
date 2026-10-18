@@ -9,7 +9,7 @@ from app.family.parser import FamilyError
 class PrivateObjects:
     def __init__(self):
         from google.cloud import storage
-        self.client = storage.Client(project=settings.GOOGLE_CLOUD_PROJECT)
+        self.client = storage.Client(project=settings.firebase_project)
         self.bucket = self.client.bucket(settings.CLOUD_IMPORT_BUCKET)
         self.checked = False
 

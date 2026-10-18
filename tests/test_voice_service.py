@@ -183,13 +183,18 @@ class LiveVoiceSelectionTests(unittest.TestCase):
     def test_api_key_path_explicitly_selects_developer_api(self):
         with (
             patch("app.config.settings.GEMINI_API_KEY", "synthetic-test-key"),
-            patch("app.config.settings.GOOGLE_GENAI_USE_VERTEXAI", True),
             patch("app.config.settings.HUGBACK_LIVE_VOICE_MODE", "preset"),
             patch("app.agent.live_session.genai.Client") as client,
         ):
             create_genai_client()
         self.assertIs(client.call_args.kwargs["vertexai"], False)
         self.assertEqual(client.call_args.kwargs["http_options"]["api_version"], "v1alpha")
+
+    def test_missing_api_key_has_no_vertex_fallback(self):
+        with patch("app.config.settings.GEMINI_API_KEY", None), self.assertRaisesRegex(
+            RuntimeError, "GEMINI_API_KEY is required"
+        ):
+            create_genai_client()
 
     def test_real_sdk_serialization_keeps_the_selected_preset_offline(self):
         sent = []

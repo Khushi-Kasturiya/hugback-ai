@@ -55,7 +55,6 @@ class RemoteConfigurationTests(unittest.TestCase):
                 {"HUGBACK_DEMO_DATABASE": "(default)"},
                 {"HUGBACK_REPLICATED_TTS_ENABLED": True},
                 {"HUGBACK_LIVE_VOICE_MODE": "experimental-inline"},
-                {"HUGBACK_ALERT_EMAIL_ENABLED": True},
                 {"MEMORY_ENABLED": True},
                 {"FOLLOWUPS_ENABLED": True},
                 {"CLOUD_INTAKE_ENABLED": True},
@@ -128,6 +127,28 @@ class RemoteRouteTests(unittest.TestCase):
         self.assertIn(summary.status_code, (403, 404))
         self.provider.assert_not_called()
         self.vault.assert_not_called()
+
+    def test_authenticated_owner_can_save_firestore_summary_email_without_raw_echo(self):
+        family = self.create()
+        payload = {
+            "syntheticOnly": True,
+            "familyId": family["familyId"],
+            "email": "judge@example.com",
+            "confirmTestRecipient": True,
+        }
+        with patch("app.demo.store.alert_email_configured", return_value=True):
+            response = self.client.put(
+                "/api/demo/alert-destination", headers=self.headers, json=payload,
+            )
+        self.assertEqual(response.status_code, 200, response.text)
+        self.assertTrue(response.json()["alertEmailSelected"])
+        self.assertTrue(response.json()["alertEmailConfigured"])
+        self.assertEqual(response.json()["alertEmailHint"], "j***@example.com")
+        self.assertNotIn("judge@example.com", response.text)
+
+        other = self.headers | {"Authorization": "Bearer new-visitor-b"}
+        denied = self.client.put("/api/demo/alert-destination", headers=other, json=payload)
+        self.assertIn(denied.status_code, (403, 404))
 
     def test_token_and_exact_origin_remain_mandatory(self):
         for path in ("/api/demo/family", "/api/portal/status"):

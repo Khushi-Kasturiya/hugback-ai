@@ -7,7 +7,6 @@ from unittest.mock import patch
 
 import httpx
 from google import genai
-from google.auth.credentials import AnonymousCredentials
 from google.genai import errors
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
@@ -49,19 +48,12 @@ def assert_json_contract(test, generation):
 
 
 class GoogleStructuredTests(unittest.IsolatedAsyncioTestCase):
-    def client(self, respond, *, vertex=False):
+    def client(self, respond):
         options = {
-            "api_version": "v1" if vertex else "v1beta",
+            "api_version": "v1beta",
             "retry_options": {"attempts": 1},
             "async_client_args": {"transport": httpx.MockTransport(respond)},
         }
-        if vertex:
-            credentials = AnonymousCredentials()
-            credentials.token = "synthetic-offline-token"
-            return genai.Client(
-                vertexai=True, project="demo-synthetic", location="us-central1",
-                credentials=credentials, http_options=options,
-            )
         return genai.Client(api_key="synthetic-offline-key", vertexai=False, http_options=options)
 
     async def invoke(self, schema):
@@ -72,7 +64,7 @@ class GoogleStructuredTests(unittest.IsolatedAsyncioTestCase):
             )
         return await GoogleStructuredProvider().generate("Synthetic instruction", {"synthetic": True}, schema)
 
-    async def test_all_three_proposals_use_json_schema_on_both_endpoints(self):
+    async def test_all_three_proposals_use_json_schema_on_api_key_endpoint(self):
         cases = [
             (ObservationBatch, {"observations": [{
                 "topic": "fever", "action": "open", "source_turn": 0, "evidence": "I have fever today.",
@@ -80,32 +72,31 @@ class GoogleStructuredTests(unittest.IsolatedAsyncioTestCase):
             (ConversationPlan, {"language": "en", "background_refs": [0]}),
             (CritiqueReport, {"findings": [], "uncertain": False}),
         ]
-        for vertex in (False, True):
-            for schema, output in cases:
-                with self.subTest(vertex=vertex, schema=schema.__name__):
-                    requests = []
+        for schema, output in cases:
+            with self.subTest(schema=schema.__name__):
+                requests = []
 
-                    def respond(request):
-                        body = json.loads(request.content)
-                        requests.append(body)
-                        assert_json_contract(self, body["generationConfig"])
-                        self.assertNotIn("tools", body)
-                        return httpx.Response(200, json={"candidates": [{
-                            "content": {"role": "model", "parts": [{"text": json.dumps(output)}]},
-                            "finishReason": "STOP",
-                        }]})
+                def respond(request):
+                    body = json.loads(request.content)
+                    requests.append(body)
+                    assert_json_contract(self, body["generationConfig"])
+                    self.assertNotIn("tools", body)
+                    return httpx.Response(200, json={"candidates": [{
+                        "content": {"role": "model", "parts": [{"text": json.dumps(output)}]},
+                        "finishReason": "STOP",
+                    }]})
 
-                    client = self.client(respond, vertex=vertex)
-                    with (
-                        patch.multiple(settings, FOLLOWUPS_ENABLED=True,
-                                       GEMINI_API_KEY=None if vertex else "synthetic-offline-key"),
-                        patch("app.memory.followup_extractor.genai.Client", return_value=client),
-                    ):
-                        result = await self.invoke(schema)
-                    self.assertEqual(result, schema.model_validate(output))
-                    self.assertEqual(len(requests), 1)
-                    self.assertEqual(requests[0]["generationConfig"]["responseJsonSchema"],
-                                     response_json_schema(schema))
+                client = self.client(respond)
+                with (
+                    patch.multiple(settings, FOLLOWUPS_ENABLED=True,
+                                   GEMINI_API_KEY="synthetic-offline-key"),
+                    patch("app.memory.followup_extractor.genai.Client", return_value=client),
+                ):
+                    result = await self.invoke(schema)
+                self.assertEqual(result, schema.model_validate(output))
+                self.assertEqual(len(requests), 1)
+                self.assertEqual(requests[0]["generationConfig"]["responseJsonSchema"],
+                                 response_json_schema(schema))
 
     async def test_invalid_proposals_still_fail_local_validation(self):
         observation = {"topic": "fever", "action": "open", "source_turn": 0, "evidence": "I have fever today."}

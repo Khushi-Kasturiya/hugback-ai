@@ -58,7 +58,7 @@ def visible_summary(doc_id: str, data: dict, relationship: dict, uid: str, now: 
 def _new_client():
     from google.cloud import firestore
     return firestore.AsyncClient(
-        project=settings.GOOGLE_CLOUD_PROJECT, database=settings.FIRESTORE_DATABASE,
+        project=settings.firebase_project, database=settings.FIRESTORE_DATABASE,
     )
 
 

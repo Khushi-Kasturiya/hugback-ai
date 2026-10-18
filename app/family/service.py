@@ -20,7 +20,7 @@ def digest(value):
 
 def configured():
     return bool(settings.CLOUD_INTAKE_ENABLED and settings.FIRESTORE_ENABLED
-                and settings.GOOGLE_CLOUD_PROJECT and settings.FIRESTORE_DATABASE
+                and settings.firebase_project and settings.FIRESTORE_DATABASE
                 and re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,61}[a-z0-9]", settings.CLOUD_IMPORT_BUCKET))
 
 

@@ -61,7 +61,7 @@ class FirestoreSessionStore:
             ) from exc
         self._firestore = firestore
         self._client = firestore.AsyncClient(
-            project=settings.GOOGLE_CLOUD_PROJECT,
+            project=settings.firebase_project,
             database=settings.FIRESTORE_DATABASE,
         )
 

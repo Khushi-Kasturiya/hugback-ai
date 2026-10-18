@@ -14,7 +14,7 @@ from fastapi.testclient import TestClient
 from google.genai import types
 from pydantic import ValidationError
 
-from app.alerts.email import configured, send_test_notice, send_test_probe
+from app.alerts.email import configured, send_call_summary, send_test_notice, send_test_probe
 from app.alerts.smoke_test import main as smoke_main
 from app.alerts.policy import asks_not_to_alert, detect_topic
 from app.config import settings
@@ -125,27 +125,27 @@ class AlertTests(unittest.TestCase):
         self.assertFalse(cleared["alertEmailSelected"])
         self.assertFalse(cleared["alertEmailConfigured"])
 
-    def test_firestore_uses_backend_destination_without_persisting_raw_email(self):
+    def test_firestore_accepts_owner_scoped_destination_and_never_returns_raw_email(self):
         temp = tempfile.TemporaryDirectory(); self.addCleanup(temp.cleanup)
         path = Path(temp.name) / "firestore-contract.sqlite3"
         values = {
             "HUGBACK_DEMO_STORE": "firestore", "HUGBACK_CLOUD_TEST_ENABLED": True,
-            "HUGBACK_AUTH_MODE": "firebase", "HUGBACK_ALERT_TEST_DESTINATION": "child@example.com",
+            "HUGBACK_AUTH_MODE": "firebase",
         }
         patches = [patch.object(settings, key, value) for key, value in values.items()]
         for item in patches: item.start(); self.addCleanup(item.stop)
         store = DemoStore(path)
         family = store.create("firebase-owner", CreateFamily(
             **BASE, childName="Asha", childGender="female", label="Mother", relationship="mother"))
+        family = store.set_alert_destination("firebase-owner", SetAlertDestination(
+            syntheticOnly=True, familyId=family["familyId"], email="child@example.com",
+            confirmTestRecipient=True))
         recipient = family["recipients"][0]
         self.assertTrue(family["alertEmailSelected"])
         self.assertTrue(family["alertEmailConfigured"])
         self.assertEqual(family["alertEmailHint"], "c***@example.com")
         self.assertNotIn("child@example.com", str(family))
-        with self.assertRaises(DemoError):
-            store.set_alert_destination("firebase-owner", SetAlertDestination(
-                syntheticOnly=True, familyId=family["familyId"], email="other@example.com",
-                confirmTestRecipient=True))
+        self.assertNotIn("child@example.com", str(family))
         internal = store.start_call("firebase-owner", "firestore-alert", recipient["recipientId"], 0)
         generation = internal["alertSharing"]["generation"]
         self.assertTrue(store.record_transcript(recipient["recipientId"], "firestore-alert", 1,
@@ -156,7 +156,6 @@ class AlertTests(unittest.TestCase):
         claim = store.claim_alert_send(recipient["recipientId"], "firestore-alert", generation)
         self.assertEqual(claim["email"], "child@example.com")
         self.assertEqual(claim["childName"], "Asha")
-        self.assertNotIn("child@example.com", path.read_bytes().decode("latin1"))
 
     def test_browser_destination_route_is_owner_scoped_and_returns_only_masked_address(self):
         family = self.store.get("child-alert")
@@ -245,6 +244,34 @@ class AlertTests(unittest.TestCase):
             self.assertIn("not triggered by a call", probe.get_content())
             self.assertEqual(client.send_message.call_count, 2)
 
+    def test_summary_email_contains_only_bounded_saved_summary(self):
+        with patch("app.alerts.email.smtplib.SMTP") as smtp:
+            summary = "Mother talked about gardening, and HugBack encouraged her to share more."
+            send_call_summary("Mother", "2026-10-18T10:00:00+00:00",
+                              "child@example.com", summary, "Asha")
+            message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
+            self.assertEqual(message["To"], "child@example.com")
+            self.assertIn(summary, message.get_content())
+            self.assertNotIn("transcript", message.get_content().lower())
+
+    def test_summary_email_claim_is_once_only_and_invalidated_by_address_change(self):
+        mother = self.recipient(self.mother)
+        internal = self.store.start_call("child-alert", "summary-email", self.mother, mother["revision"])
+        generation = internal["transcriptSharing"]["generation"]
+        self.assertTrue(self.store.record_transcript(
+            self.mother, "summary-email", generation, parent_words("I enjoyed the garden today.")))
+        self.store.call_status(self.mother, "summary-email", "completed", release=True)
+        self.assertTrue(self.store.record_call_summary(
+            self.mother, "summary-email", generation,
+            "Mother enjoyed the garden today and shared a calm conversation."))
+        claim = self.store.claim_summary_email(self.mother, "summary-email", generation)
+        self.assertEqual(claim["email"], "child@example.com")
+        self.assertIsNone(self.store.claim_summary_email(self.mother, "summary-email", generation))
+        self.assertTrue(self.store.finish_summary_email(
+            self.mother, "summary-email", generation, delivered=True))
+        call = self.recipient(self.mother)["calls"][-1]
+        self.assertEqual(call["summaryEmailStatus"], "sent")
+
     def test_smoke_check_never_sends_without_explicit_flag(self):
         with (patch.object(settings, "HUGBACK_ALERT_EMAIL_ENABLED", False),
               patch("sys.argv", ["smoke_test"]),
@@ -293,6 +320,7 @@ class AlertTests(unittest.TestCase):
               patch("app.main.summarize_call", new=AsyncMock(return_value="Mother reported a fictional fever and HugBack responded.")),
               patch("app.main.alert_email_configured", return_value=True),
               patch("app.main.send_test_notice") as sender,
+              patch("app.main.send_call_summary") as summary_sender,
               TestClient(app, client=("127.0.0.1", 1234)) as client):
             with client.websocket_connect("/ws", headers={"Origin": "http://127.0.0.1:3000"}) as ws:
                 ws.send_json(envelope)
@@ -311,6 +339,8 @@ class AlertTests(unittest.TestCase):
             while call.get("summaryStatus") == "pending" and time.monotonic() < deadline:
                 time.sleep(0.01); call = self.recipient(self.mother)["calls"][-1]
             self.assertEqual(call["summaryStatus"], "available")
+            self.assertEqual(call["summaryEmailStatus"], "sent")
+            summary_sender.assert_called_once()
             self.assertNotIn("turns", self.store.get_call_summary("child-alert", self.mother, call["sessionId"]))
 
 

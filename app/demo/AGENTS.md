@@ -8,10 +8,20 @@
   below for this mode, not real-family enrollment or consent. Both standard and
   adult child voice are approved; voice keys use a separate backend-only
   collection in the same named Firestore DB. No local vault fallback or silent
-  migration. SMTP and production data paths stay disabled.
+  migration. Legacy production data paths stay disabled.
   A URL is not a secret or a quota; anyone can enroll anonymously and incur
   demo costs. Existing call/recipient bounds are not a global spending cap.
   Offline tests mock every provider; do not present code/config as a deployment.
+
+- 18 October: the user explicitly requested post-call summary email in the
+  hosted judge flow. An authenticated owner may save one family notification
+  address in the deny-all named Firestore database; public responses expose only
+  a masked hint. After the bounded summary is committed, send that exact summary
+  once and record delivery state. Never email raw turns, imported excerpts,
+  Critic output, voice keys, or provider responses. Address changes invalidate
+  pending sends. For the user-approved hackathon shortcut, the private ignored
+  `.env` may be embedded in the Cloud Run image; never commit it, log it or call
+  that production-grade secret storage. Tests mock SMTP.
 
 - 14 October: the fictional Live caller opens by naming HugBack without an
   unsolicited AI label. It answers direct identity questions truthfully and
@@ -43,12 +53,12 @@
 - 13 October: a separately simulated standing notice permission may record a
   bounded fever or close-loss topic event for a fictional call. A server-set,
   separately confirmed Family setup test mailbox and explicit SMTP flag are
-  required for any email attempt. Accept it only in the loopback SQLite demo,
-  scoped to the family; never treat the browser UUID as verified identity. Send only a
+  required for any email attempt. The hosted summary-email exception above
+  accepts it only from an authenticated owner and scopes it to the family. Send only a
   brief notice and local portal link, not a quote, transcript or diagnosis.
   Limit duplicate topic emails and preserve delivery status accurately.
-  The optional Family setup email is stored in private local SQLite, never in
-  Firestore test storage. Recheck its generation before claiming an SMTP send;
+  The optional Family setup email is stored in private local SQLite or the
+  deny-all Firestore family record. Recheck its generation before claiming an SMTP send;
   changing or clearing it invalidates pending notices. The landing page has no
   email field. This checkbox is only a fictional-test expectation assertion,
   not mailbox ownership verification for a real family service.

@@ -67,8 +67,8 @@ class AgentPlatformMemoryService:
             ) from exc
 
         self._client = agentplatform.Client(
-            project=settings.GOOGLE_CLOUD_PROJECT,
-            location=settings.GOOGLE_CLOUD_LOCATION,
+            project=settings.firebase_project,
+            location=settings.CLOUD_TASKS_LOCATION,
         )
         self._name = settings.MEMORY_BANK_NAME
         self._enabled = True

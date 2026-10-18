@@ -165,13 +165,12 @@ class ConfigurationAndEvalTests(unittest.TestCase):
     def test_offline_evals_do_not_inherit_live_storage_or_credentials(self):
         from evals.run import offline_environment
         with patch.dict(os.environ, {
-            "GEMINI_API_KEY": "private-placeholder", "GOOGLE_APPLICATION_CREDENTIALS": "/private-placeholder",
+            "GEMINI_API_KEY": "private-placeholder",
             "HUGBACK_DEMO_STORE": "firestore", "FIRESTORE_ENABLED": "TRUE",
             "FIRESTORE_EMULATOR_HOST": "127.0.0.1:8080", "HUGBACK_RUN_EMULATOR_TESTS": "1",
         }):
             env = offline_environment()
             self.assertEqual(env["GEMINI_API_KEY"], "synthetic-offline-key")
-            self.assertEqual(env["GOOGLE_APPLICATION_CREDENTIALS"], "")
             self.assertEqual(env["HUGBACK_DEMO_STORE"], "sqlite")
             self.assertEqual(env["FIRESTORE_ENABLED"], "FALSE")
             self.assertEqual(env["FIRESTORE_EMULATOR_HOST"], "")
