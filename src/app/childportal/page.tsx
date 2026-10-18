@@ -11,7 +11,6 @@ import {
   Camera,
   Check,
   CheckCircle2,
-  ChevronDown,
   Clock,
   Heart,
   Loader2,
@@ -418,7 +417,7 @@ export default function ChildPortal() {
   const [voiceToast, setVoiceToast] = useState("");
 
   // Wizard state (View 3: Parent Setup Wizard)
-  const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
+  const [wizardStep, setWizardStep] = useState<1 | 2>(1);
   const [wizardName, setWizardName] = useState("");
   const [wizardRelationship, setWizardRelationship] = useState<DemoRecipient["relationship"]>("mother");
   const [wizardLanguage, setWizardLanguage] = useState<NonNullable<DemoRecipient["language"]>>("auto");
@@ -427,9 +426,6 @@ export default function ChildPortal() {
   const [wizardChatChildSender, setWizardChatChildSender] = useState("");
   const [wizardRetainChatPreview, setWizardRetainChatPreview] = useState(false);
   const [wizardChatParsing, setWizardChatParsing] = useState(false);
-  const [wizardEnableSignals, setWizardEnableSignals] = useState(true);
-  const [wizardEnableTone, setWizardEnableTone] = useState(true);
-  const [wizardEnableSummaries, setWizardEnableSummaries] = useState(true);
   const [wizardDemoSettingsOpen, setWizardDemoSettingsOpen] = useState(false);
   const [wizardTestEmail, setWizardTestEmail] = useState("");
   const [wizardTestEmailConfirm, setWizardTestEmailConfirm] = useState(false);
@@ -719,10 +715,10 @@ export default function ChildPortal() {
         timeZone: "Asia/Kolkata",
         label: wizardName.trim(),
         relationship: wizardRelationship,
-        enableWellbeingSharing: wizardEnableSignals,
-        enableToneContinuity: wizardEnableTone,
-        simulateToneConsent: wizardEnableTone,
-        enableTranscriptSharing: wizardEnableSummaries,
+        enableWellbeingSharing: false,
+        enableToneContinuity: false,
+        simulateToneConsent: false,
+        enableTranscriptSharing: true,
         enableAlertSharing: false,
         language: wizardLanguage,
         ...(!demo.family ? { childName: childName.trim(), childGender } : {}),
@@ -1478,15 +1474,14 @@ export default function ChildPortal() {
                       Add a Loved One
                     </h1>
                     <p className="mt-2 text-sm leading-relaxed text-[#56617F]">
-                      Create a dedicated bridge for someone you love in three simple, thoughtful steps.
+                      Create a dedicated bridge for someone you love in two simple, thoughtful steps.
                     </p>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     {[
                       { step: 1, label: "Relationship Details" },
                       { step: 2, label: "Family Language" },
-                      { step: 3, label: "Preferences" },
                     ].map((item) => (
                       <div
                         key={item.step}
@@ -1667,98 +1662,9 @@ export default function ChildPortal() {
                             ← Back
                           </button>
 
-                          <div className="flex items-center gap-3">
-                            <button
-                              type="button"
-                              onClick={() => setWizardStep(3)}
-                              className="text-xs font-bold text-stone-500 hover:underline"
-                            >
-                              Skip for now
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={() => setWizardStep(3)}
-                              className="flex items-center gap-2 rounded-full bg-[#56619C] px-6 py-3 text-sm font-bold text-white shadow-md shadow-[#56619C]/25 transition hover:bg-[#465181]"
-                            >
-                              <span>Continue to Preferences</span>
-                              <ArrowRight className="h-4 w-4" />
-                            </button>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {wizardStep === 3 && (
-                      <div className="space-y-6">
-                        <div>
-                          <h2 className="font-serif text-2xl font-medium text-[#252D49]">
-                            Preferences for {wizardName}
-                          </h2>
-                          <p className="mt-1 text-xs text-stone-500">
-                            Choose voice assignments and bridge features for this loved one.
-                          </p>
-                        </div>
-
-                        <div className="space-y-3">
-                          <div className="flex items-center justify-between rounded-2xl border border-[#9BA5FC]/20 bg-[#FAF8FF] p-4">
-                            <div>
-                              <p className="text-xs font-bold text-[#252D49]">Daily Wellbeing Signals</p>
-                              <p className="text-[11px] text-stone-500">
-                                Receive gentle AI reflections on their mood and conversation tone.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={wizardEnableSignals}
-                              onChange={(e) => setWizardEnableSignals(e.target.checked)}
-                              className="h-4 w-4 accent-[#56619C]"
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between rounded-2xl border border-[#9BA5FC]/20 bg-[#FAF8FF] p-4">
-                            <div>
-                              <p className="text-xs font-bold text-[#252D49]">Tone Memory</p>
-                              <p className="text-[11px] text-stone-500">
-                                Recall gentle vocal warmth cues across calls up to 72 hours.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={wizardEnableTone}
-                              onChange={(e) => setWizardEnableTone(e.target.checked)}
-                              className="h-4 w-4 accent-[#56619C]"
-                            />
-                          </div>
-
-                          <div className="flex items-center justify-between rounded-2xl border border-[#9BA5FC]/20 bg-[#FAF8FF] p-4">
-                            <div>
-                              <p className="text-xs font-bold text-[#252D49]">Call Summaries</p>
-                              <p className="text-[11px] text-stone-500">
-                                Keep brief digests of tea-time calls in your Family Room.
-                              </p>
-                            </div>
-                            <input
-                              type="checkbox"
-                              checked={wizardEnableSummaries}
-                              onChange={(e) => setWizardEnableSummaries(e.target.checked)}
-                              className="h-4 w-4 accent-[#56619C]"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="flex items-center justify-between pt-4">
                           <button
                             type="button"
-                            onClick={() => setWizardStep(2)}
-                            className="text-xs font-bold text-stone-500 hover:text-stone-800"
-                          >
-                            ← Back
-                          </button>
-
-                          <button
-                            type="button"
-                            disabled={wizardBusy}
+                            disabled={wizardBusy || wizardChatParsing}
                             onClick={handleCompleteWizard}
                             className="flex items-center gap-2 rounded-full bg-gradient-to-r from-[#72B5FE] to-[#B69CF2] px-8 py-3 text-sm font-bold text-white shadow-lg shadow-[#9BA5FC]/30 transition hover:scale-[1.02] hover:shadow-xl disabled:opacity-50"
                           >
