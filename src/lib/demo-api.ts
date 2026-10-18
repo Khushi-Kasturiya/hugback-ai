@@ -13,6 +13,12 @@ export interface DemoExcerpt {
   source: "whatsapp" | "instagram";
   reviewedAt: string;
 }
+export interface StructuredContext {
+  contextId: string;
+  kind: "interest" | "important_person" | "routine" | "preference" | "conversation_style" | "background_detail";
+  summary: string;
+  sourceRefs: { sourceIndex: number; sender: string; role: "child" | "parent"; timestamp: string; evidence: string }[];
+}
 export interface WellbeingSignal {
   signalId: string;
   category: "upbeat" | "calm" | "neutral" | "lower_energy" | "tense";
@@ -33,6 +39,7 @@ export interface DemoRecipient {
   timeZone: string;
   revision: number;
   background: DemoExcerpt[];
+  structuredContext: StructuredContext[];
   memoryEnabled: boolean;
   memoryCount: number;
   memoryCooldownHours: number;
@@ -40,6 +47,7 @@ export interface DemoRecipient {
   wellbeingSharingEnabled: boolean;
   toneContinuityEnabled: boolean;
   transcriptSharingEnabled: boolean;
+  continuityAvailable?: boolean;
   alertSharingEnabled: boolean;
   wellbeingSignals: WellbeingSignal[];
   language?: "auto" | "en" | "hi" | "hi-en";
@@ -140,16 +148,6 @@ export async function generateLegacyCallSummary(recipientId: string, revision: n
     const error = await response.json().catch(() => ({}));
     throw new DemoApiError(typeof error.detail === "string" ? error.detail : "Could not prepare this older summary.", response.status);
   }
-}
-
-export function needsDemoRefresh(family?: DemoFamily, now = Date.now()): boolean {
-  return !!family?.recipients.some((recipient) => {
-    const call = recipient.calls?.slice(-1)[0];
-    return recipient.busy || (call?.summaryStatus === "pending" &&
-      now - Date.parse(call.endedAt || call.startedAt) < 60_000) || ((call?.alert?.status === "pending" || call?.alert?.status === "sending") &&
-      now - Date.parse(call.endedAt || call.startedAt) < 60_000) || (call?.workflow?.critic === "pending" &&
-      now - Date.parse(call.endedAt || call.startedAt) < 60_000);
-  });
 }
 
 /** Fixed copy only: never render an arbitrary provider error or private output. */

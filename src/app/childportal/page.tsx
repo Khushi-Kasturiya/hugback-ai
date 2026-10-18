@@ -35,6 +35,7 @@ import {
   DemoFamily,
   DemoRecipient,
   WellbeingSignal,
+  automaticBackgroundExcerpts,
   demoRequest,
   parentCallUrl,
 } from "@/lib/demo-api";
@@ -424,6 +425,7 @@ export default function ChildPortal() {
   const [wizardChatFile, setWizardChatFile] = useState<File | null>(null);
   const [wizardChatPreview, setWizardChatPreview] = useState<ChatPreview | null>(null);
   const [wizardChatChildSender, setWizardChatChildSender] = useState("");
+  const [wizardRetainChatPreview, setWizardRetainChatPreview] = useState(false);
   const [wizardChatParsing, setWizardChatParsing] = useState(false);
   const [wizardEnableSignals, setWizardEnableSignals] = useState(true);
   const [wizardEnableTone, setWizardEnableTone] = useState(true);
@@ -684,6 +686,7 @@ export default function ChildPortal() {
       const parsed = parseChat(text, "whatsapp", "DMY");
       setWizardChatFile(file);
       setWizardChatPreview(parsed);
+      setWizardRetainChatPreview(false);
       if (parsed.participants.length) {
         setWizardChatChildSender(parsed.participants[0]);
       }
@@ -700,7 +703,7 @@ export default function ChildPortal() {
     setWizardBusy(true);
     setError("");
     try {
-      const result = await demoRequest(demo.family ? "/recipients" : "/family", "POST", {
+      let result = await demoRequest(demo.family ? "/recipients" : "/family", "POST", {
         syntheticOnly: true,
         simulateChildConsent: true,
         simulateParentConsent: true,
@@ -717,37 +720,55 @@ export default function ChildPortal() {
         ...(!demo.family ? { childName: childName.trim(), childGender } : {}),
       });
 
-      demo.update(result);
-
       if (identity?.owner && wizardChatPreview && wizardChatChildSender) {
         const parentSender = wizardChatPreview.participants.find((p) => p !== wizardChatChildSender) || "";
         const createdRecipient = result.recipients.find((r) => r.label === wizardName.trim());
         if (createdRecipient && parentSender) {
-          try {
-            const hash = await crypto.subtle.digest(
-              "SHA-256",
-              new TextEncoder().encode(`whatsapp:DMY:${wizardChatFile?.name || "chat"}`)
-            );
-            const fingerprint = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
-            await saveImport(identity.owner, {
-              recipientId: createdRecipient.recipientId,
-              filename: wizardChatFile?.name || "family-chat.txt",
-              fingerprint,
-              childSender: wizardChatChildSender,
-              parentSender,
-              timezone: "Asia/Kolkata",
-              preview: wizardChatPreview,
-            });
-          } catch {
-            // Non-critical local import save failure
+          const excerpts = automaticBackgroundExcerpts(
+            wizardChatPreview, wizardChatChildSender, parentSender,
+          );
+          result = await demoRequest("/background", "PUT", {
+            syntheticOnly: true,
+            simulateChildConsent: true,
+            simulateParentConsent: true,
+            recipientId: createdRecipient.recipientId,
+            revision: createdRecipient.revision,
+            source: wizardChatPreview.source,
+            childSender: wizardChatChildSender,
+            parentSender,
+            timeZone: "Asia/Kolkata",
+            excerpts,
+          });
+          if (wizardRetainChatPreview) {
+            try {
+              const hash = await crypto.subtle.digest(
+                "SHA-256",
+                new TextEncoder().encode(`whatsapp:DMY:${wizardChatFile?.name || "chat"}`)
+              );
+              const fingerprint = Array.from(new Uint8Array(hash), (b) => b.toString(16).padStart(2, "0")).join("");
+              await saveImport(identity.owner, {
+                recipientId: createdRecipient.recipientId,
+                filename: wizardChatFile?.name || "family-chat.txt",
+                fingerprint,
+                childSender: wizardChatChildSender,
+                parentSender,
+                timezone: "Asia/Kolkata",
+                preview: wizardChatPreview,
+              });
+            } catch {
+              // Non-critical local import save failure
+            }
           }
         }
       }
+
+      demo.update(result);
 
       setWizardStep(1);
       setWizardName("");
       setWizardChatFile(null);
       setWizardChatPreview(null);
+      setWizardRetainChatPreview(false);
       const created = result.recipients.find((r) => r.label === wizardName.trim());
       if (created) setSelectedRecipientId(created.recipientId);
       setDashboardView("family-room");
@@ -1612,6 +1633,16 @@ export default function ChildPortal() {
                                 ))}
                               </select>
                             </div>
+
+                            <label className="flex items-start gap-2 rounded-xl bg-[#FAF8FF] p-3 text-[11px] leading-relaxed text-[#454E6D]">
+                              <input
+                                type="checkbox"
+                                checked={wizardRetainChatPreview}
+                                onChange={(e) => setWizardRetainChatPreview(e.target.checked)}
+                                className="mt-0.5 h-3.5 w-3.5 shrink-0 rounded accent-[#56619C]"
+                              />
+                              <span>Keep the complete parsed preview privately in this browser for later verification. If unchecked, only the bounded source-linked context is sent and the full preview is discarded when setup finishes.</span>
+                            </label>
                           </div>
                         )}
 

@@ -115,7 +115,6 @@ test("local preview listing isolates recipients, owners and unassigned legacy fi
   assert.deepEqual(importsForRecipient(records, "a", "old-parent", true).map(r => r.id), ["legacy"]);
 });
 
-const { needsDemoRefresh } = require(join(process.env.HUGBACK_TEST_BUILD, 'demo-api.js'));
 const { memoryFailureMessage } = require(join(process.env.HUGBACK_TEST_BUILD, 'demo-api.js'));
 test('memory diagnostics explain categories but never echo arbitrary provider errors', () => {
   assert.match(memoryFailureMessage('timeout'), /timed out/);
@@ -123,16 +122,4 @@ test('memory diagnostics explain categories but never echo arbitrary provider er
   assert.match(memoryFailureMessage('rate_limited'), /quota/);
   assert.match(memoryFailureMessage(), /No detailed failure reason/);
   assert.ok(!memoryFailureMessage('private-provider-error-with-token').includes('private-provider-error-with-token'));
-});
-test('refresh continues through memory processing then stops, with a bounded critic wait', () => {
-  const now = Date.parse('2026-10-12T12:00:00Z');
-  const state = { recipients: [{ busy: true, calls: [] }] };
-  assert.equal(needsDemoRefresh(state, now), true);
-  state.recipients[0].busy = false;
-  assert.equal(needsDemoRefresh(state, now), false);
-  state.recipients[0].calls = [{ startedAt: new Date(now-10000).toISOString(), workflow: { critic: 'pending' } }];
-  assert.equal(needsDemoRefresh(state, now), true);
-  assert.equal(needsDemoRefresh(state, now+70000), false);
-  state.recipients[0].calls[0].workflow.critic = 'completed';
-  assert.equal(needsDemoRefresh(state, now), false);
 });

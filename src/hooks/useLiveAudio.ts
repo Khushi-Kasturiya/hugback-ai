@@ -52,7 +52,6 @@ interface UseLiveAudioOptions {
   wsUrl?: string;
   demoParent?: boolean;
   recipientId?: string;
-  workflowAcknowledged?: boolean;
   onTranscriptionUpdate?: (role: "user" | "hugback", text: string) => void;
 }
 
@@ -60,7 +59,6 @@ export function useLiveAudio({
   wsUrl = defaultWebSocketUrl(),
   demoParent = false,
   recipientId,
-  workflowAcknowledged = false,
   onTranscriptionUpdate,
 }: UseLiveAudioOptions = {}) {
   const [status, setStatus] = useState<CallStatus>("disconnected");
@@ -154,9 +152,6 @@ export function useLiveAudio({
         throw new Error("Parent demo calls require local demo mode and preset or portal-enrolled TTS voice.");
       }
       if (demoParent && !recipientId) throw new Error("Choose the recipient for this demo call first.");
-      if (demoParent && portalStatus.workflowEnabled && !workflowAcknowledged) {
-        throw new Error("Acknowledge synthetic Planner and Critic processing before calling.");
-      }
       const selectedVoice = demoParent
         ? recipientCallPayload(await demoRequest("/family"), recipientId, portalStatus.voice)
         : selectedVoicePayload(portalStatus.voice);
@@ -173,7 +168,6 @@ export function useLiveAudio({
         ...identityMessage,
         ...(voicePayload || {}),
         ...selectedVoice,
-        ...(demoParent && portalStatus.workflowEnabled && workflowAcknowledged ? { simulateWorkflowConsent: true } : {}),
       };
       setCallInfo(undefined);
       setUserTranscript("");
@@ -426,7 +420,7 @@ export function useLiveAudio({
         setStatus("error");
       }
     }
-  }, [status, wsUrl, demoParent, recipientId, workflowAcknowledged, onTranscriptionUpdate, releaseCallResources]);
+  }, [status, wsUrl, demoParent, recipientId, onTranscriptionUpdate, releaseCallResources]);
 
   // Clean up on unmount
   useEffect(() => {

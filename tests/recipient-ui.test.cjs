@@ -77,7 +77,7 @@ test('new family asks child name and gender and sends both with setup details', 
   assert.equal(ui.requests[0].body.childGender, 'male');
   assert.equal(ui.requests[0].body.enableMemory, true);
   assert.equal(ui.requests[0].body.enableWellbeingSharing, false);
-  assert.equal(ui.requests[0].body.enableTranscriptSharing, false);
+  assert.equal(ui.requests[0].body.enableTranscriptSharing, true);
 });
 test('existing family can save child gender without changing recipients or voice profile', async () => {
   const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, selectedId: 'mother' });

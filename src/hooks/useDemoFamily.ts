@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { DemoApiError, DemoFamily, demoRequest, needsDemoRefresh } from "@/lib/demo-api";
+import { DemoApiError, DemoFamily, demoRequest } from "@/lib/demo-api";
 
 export function useDemoFamily(enabled: boolean) {
   const [family, setFamily] = useState<DemoFamily>();
@@ -34,14 +34,5 @@ export function useDemoFamily(enabled: boolean) {
       sequence.current++; window.removeEventListener("focus", focus);
     };
   }, [refresh]);
-  useEffect(() => {
-    if (!enabled || loading || !needsDemoRefresh(family)) return;
-    // One request at a time; stop when processing finishes. Focus refresh covers
-    // background tabs without continuously charging Firestore reads.
-    const timer = window.setTimeout(() => {
-      if (document.visibilityState === "visible") void refresh();
-    }, 2000);
-    return () => window.clearTimeout(timer);
-  }, [enabled, family, loading, refresh]);
   return { family, update, loading, error, refresh };
 }

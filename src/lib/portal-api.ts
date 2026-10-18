@@ -19,6 +19,7 @@ export interface PortalStatus {
   workflowEnabled?: boolean;
   remoteTestEnabled?: boolean;
   publicDemoEnabled?: boolean;
+  judgeDemoEnabled?: boolean;
 }
 
 export interface ArchitectureManifest {
@@ -84,7 +85,9 @@ export async function portalGet<T>(path: "/status" | "/summaries"): Promise<T> {
     }
     throw new Error(response.status === 401
       ? "The backend could not verify this browser's Firebase session. Check that frontend and backend Firebase projects match."
-      : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
+      : response.status === 403
+        ? "This Firebase session is not authorized for the configured demo. Refresh once; if it continues, check the backend judge-demo policy."
+        : "The child-portal backend is unavailable. Local previews still work; server features have not been confirmed.");
   }
   return response.json() as Promise<T>;
 }

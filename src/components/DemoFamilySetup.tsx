@@ -49,7 +49,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
         syntheticOnly: true, simulateChildConsent: true, simulateParentConsent: true,
         enableMemory: true, timeZone: "Asia/Kolkata", label: label.trim(), relationship,
         enableWellbeingSharing: false, enableToneContinuity: false,
-        simulateToneConsent: false, enableTranscriptSharing: false,
+        simulateToneConsent: false, enableTranscriptSharing: true,
         enableAlertSharing: false, language,
         ...(!family ? { childName: childName.trim(), childGender } : {}),
       });
@@ -219,7 +219,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
         {assignedVoiceUnavailable && <p role="alert" className="mt-2 text-xs leading-5 text-rose-800">The assigned child voice is unavailable or was replaced. Reassign an enabled voice or explicitly choose standard voice before calling.</p>}
         <details className="mt-4 border-t border-[#D7EAFE] pt-4">
           <summary className="cursor-pointer font-bold text-stone-700">Optional demo features</summary>
-          <p className="mt-1 text-xs leading-5 text-stone-600">Each enable button confirms simulated permission for this fictional hackathon demo. You can turn any feature off again.</p>
+          <p className="mt-1 text-xs leading-5 text-stone-600">The fictional demo acknowledgement from family setup applies here. You can still turn every optional feature off.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <div className="rounded-xl bg-white p-3">
               <p className="font-bold text-stone-700">Call signals</p>
@@ -233,7 +233,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
             </div>
             <div className="rounded-xl bg-white p-3">
               <p className="font-bold text-stone-700">Call summaries</p>
-              <p className="mt-1 text-xs text-stone-600">Show short summaries in Signals back.</p>
+              <p className="mt-1 text-xs text-stone-600">Show short summaries in Signals back and use one bounded recap for the next conversation.</p>
               <button className="portal-secondary mt-2" disabled={busy || selected.busy} onClick={() => void setCallHistory(!selected.transcriptSharingEnabled)}>{selected.transcriptSharingEnabled ? "Turn off and erase summaries" : "Enable call summaries"}</button>
             </div>
             <div className="rounded-xl bg-white p-3">
@@ -291,7 +291,7 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
           </select></label>
         </div>
       </div>
-      <p className="text-xs leading-5 text-stone-500">Hackathon demo only. By continuing, you confirm the details are fictional and simulate both participants agreeing to this demo setup. Cross-call memory is enabled; optional signals, summaries and email notices start off.</p>
+      <p className="text-xs leading-5 text-stone-500">Hackathon demo only. By continuing, you confirm the details are fictional. Cross-call memory and short call continuity are enabled; signals, tone analysis and email notices remain optional.</p>
       <button className="portal-primary" disabled={busy || !label.trim() || (!family && (!childName.trim() || !childGender))} onClick={() => void create()}>{busy ? "Saving…" : family ? "Add parent" : "Create family bridge"}</button>
     </div>}
     {loading && !family && <p role="status" className="mt-3 text-sm">Checking local demo family…</p>}
