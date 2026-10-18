@@ -553,13 +553,21 @@ export default function ChildPortal() {
     setError("");
     try {
       if (demo.family) {
-        const updated = await demoRequest("/child-details", "PUT", {
+        let updated = await demoRequest("/child-details", "PUT", {
           syntheticOnly: true,
           familyId: demo.family.familyId,
           revision: demo.family.childGenderRevision ?? 0,
           childName: childName.trim(),
           childGender,
         });
+        if (notificationEmail.trim()) {
+          updated = await demoRequest("/alert-destination", "PUT", {
+            syntheticOnly: true,
+            familyId: updated.familyId,
+            email: notificationEmail.trim(),
+            confirmTestRecipient: true,
+          });
+        }
         demo.update(updated);
       }
       setProfileSavedToast(true);
@@ -762,6 +770,15 @@ export default function ChildPortal() {
         }
       }
 
+      if (notificationEmail.trim()) {
+        result = await demoRequest("/alert-destination", "PUT", {
+          syntheticOnly: true,
+          familyId: result.familyId,
+          email: notificationEmail.trim(),
+          confirmTestRecipient: true,
+        });
+      }
+
       demo.update(result);
 
       setWizardStep(1);
@@ -810,11 +827,6 @@ export default function ChildPortal() {
         !hasCompletedProfile ? "h-screen overflow-hidden" : ""
       }`}
     >
-      {status?.remoteTestEnabled && (
-        <div role="note" className="relative z-50 bg-amber-50 px-4 py-2 text-center text-sm text-amber-950">
-          Hosted demo: use fictional profiles and chats only. Standard voice or your explicitly enrolled child voice; call summaries and memory processing are best effort.
-        </div>
-      )}
       <LocalConnectionDetails
         identity={identity}
         status={status}

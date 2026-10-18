@@ -237,20 +237,20 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
               <button className="portal-secondary mt-2" disabled={busy || selected.busy} onClick={() => void setCallHistory(!selected.transcriptSharingEnabled)}>{selected.transcriptSharingEnabled ? "Turn off and erase summaries" : "Enable call summaries"}</button>
             </div>
             <div className="rounded-xl bg-white p-3">
-              <p className="font-bold text-stone-700">Topic email</p>
-              <p className="mt-1 text-xs text-stone-600">Send a brief test notice for supported fictional topics.</p>
-              <p className="mt-1 text-xs text-stone-500">{family.alertEmailConfigured ? `Inbox ready: ${family.alertEmailHint || "configured"}` : "Test inbox is not configured."}</p>
+              <p className="font-bold text-stone-700">Email notifications</p>
+              <p className="mt-1 text-xs text-stone-600">Send the bounded AI-generated summary after each completed call. Optional topic notices use the same inbox.</p>
+              <p className="mt-1 text-xs text-stone-500">{family.alertEmailConfigured ? `Inbox ready: ${family.alertEmailHint || "configured"}` : "Notification inbox is not configured."}</p>
               <button className="portal-secondary mt-2" disabled={busy || selected.busy || (!selected.alertSharingEnabled && !selected.transcriptSharingEnabled)} onClick={() => void setTopicAlerts(!selected.alertSharingEnabled)}>{selected.alertSharingEnabled ? "Turn off topic email" : "Enable topic email"}</button>
               {!selected.transcriptSharingEnabled && <p className="mt-1 text-xs text-stone-500">Enable call summaries first.</p>}
             </div>
           </div>
-          {family.storageMode === "sqlite" && <div className="mt-3 rounded-xl bg-white p-3">
-            <label className="portal-label">Child test email
+          <div className="mt-3 rounded-xl bg-white p-3">
+            <label className="portal-label">Notification email
               <input className="portal-input" type="email" autoComplete="email" value={testEmail} onChange={(event) => { setTestEmail(event.target.value); setTestEmailConfirmation(false); }} placeholder="you@example.com" disabled={busy} />
             </label>
-            <label className="mt-2 flex items-start gap-2 text-xs text-stone-600"><input type="checkbox" checked={testEmailConfirmation} disabled={busy} onChange={(event) => setTestEmailConfirmation(event.target.checked)} />This inbox expects a fictional test email.</label>
+            <label className="mt-2 flex items-start gap-2 text-xs text-stone-600"><input type="checkbox" checked={testEmailConfirmation} disabled={busy} onChange={(event) => setTestEmailConfirmation(event.target.checked)} />Send future call summaries to this inbox.</label>
             <div className="mt-2 flex gap-2"><button className="portal-secondary" disabled={busy || !testEmailConfirmation || !testEmail.trim()} onClick={() => void saveTestEmail(true)}>Save email</button>{family.alertEmailSelected && <button className="portal-secondary" disabled={busy} onClick={() => void saveTestEmail(false)}>Clear</button>}</div>
-          </div>}
+          </div>
         </details>
         {selected.busy ? <p role="status" className="mt-3 text-xs text-amber-800">Wait for this recipient’s call and memory update before changing their setup.</p> : !assignedVoiceUnavailable && <Link className="portal-primary mt-4 inline-flex" href={parentCallUrl(selected.recipientId)}>Test a call as {selected.label} →</Link>}
       </div> : <p role="status" className="mt-4 text-sm font-semibold text-emerald-900">Select a recipient above. Nothing is selected automatically.</p>}

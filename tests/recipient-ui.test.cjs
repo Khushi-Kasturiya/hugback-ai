@@ -140,13 +140,13 @@ test('one action prepares parent messages only for the selected recipient and re
   assert.equal(ui.requests[0].body.excerpts[0].text, 'A fictional garden.');
 });
 
-test('optional settings are collapsed and do not require checkbox chains', () => {
+test('optional settings are collapsed and email has one delivery acknowledgement', () => {
   const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, selectedId: 'mother' });
   assert.match(ui.text(ui.nodes()), /Optional demo features/);
-  assert.equal(ui.nodes().filter(n => n.type === 'input' && n.props.type === 'checkbox').length, 0);
+  assert.equal(ui.nodes().filter(n => n.type === 'input' && n.props.type === 'checkbox').length, 1);
 });
 
-test('test email is sent to backend only after explicit Family setup confirmation', async () => {
+test('family email is sent to backend only after explicit Family setup confirmation', async () => {
   const scopedFamily = { ...family, familyId: 'demo-family-' + 'a'.repeat(32), storageMode: 'sqlite' };
   const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, family: scopedFamily, selectedId: 'mother' });
   assert.equal(ui.button('Save email').props.disabled, true);
@@ -154,7 +154,7 @@ test('test email is sent to backend only after explicit Family setup confirmatio
   const input = ui.nodes().find(n => n.type === 'input' && n.props.type === 'email');
   input.props.onChange({ target: { value: 'child@example.com' } });
   // The label owns the text; choose the confirmation checkbox by its parent label.
-  const label = ui.nodes().find(n => n.type === 'label' && ui.text(n).includes('This inbox expects'));
+  const label = ui.nodes().find(n => n.type === 'label' && ui.text(n).includes('Send future call summaries'));
   label.props.children[0].props.onChange({ target: { checked: true } });
   ui.render();
   assert.equal(ui.button('Save email').props.disabled, false);
@@ -165,11 +165,18 @@ test('test email is sent to backend only after explicit Family setup confirmatio
   assert.equal(ui.requests[0].body.confirmTestRecipient, true);
 });
 
-test('Firestore shows only the masked backend test inbox and never posts a browser address', () => {
+test('Firestore accepts an owner-scoped email and returns only a masked address', async () => {
   const scopedFamily = { ...family, storageMode: 'firestore', alertEmailSelected: true,
     alertEmailConfigured: true, alertEmailHint: 'k***@gmail.com' };
   const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, family: scopedFamily, selectedId: 'mother' });
-  assert.equal(ui.nodes().some(n => n.type === 'input' && n.props.type === 'email'), false);
+  const input = ui.nodes().find(n => n.type === 'input' && n.props.type === 'email');
+  assert.ok(input);
   assert.match(ui.text(ui.nodes()), /Inbox ready: k\*\*\*@gmail\.com/);
-  assert.equal(ui.requests.length, 0);
+  input.props.onChange({ target: { value: 'new@example.com' } });
+  const label = ui.nodes().find(n => n.type === 'label' && ui.text(n).includes('Send future call summaries'));
+  label.props.children[0].props.onChange({ target: { checked: true } });
+  ui.render();
+  await ui.button('Save email').props.onClick();
+  assert.equal(ui.requests[0].path, '/alert-destination');
+  assert.equal(ui.requests[0].body.email, 'new@example.com');
 });

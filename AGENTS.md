@@ -11,6 +11,12 @@
   intake remains separately gated. Do not promise real-family
   consent or durable post-call processing.
 
+- 18 October: user explicitly requested bounded call-summary email for the
+  hosted judge flow. The authenticated owner may submit one family notification
+  address to the backend; render only its masked hint after saving. The backend
+  emails the already-generated short summary, never raw turns or imported chat.
+  Do not keep the production email field as browser-only decoration.
+
 - 13 October: fictional browser imports use one action after whole-chat simulated
   child and parent permission, rather than individual message checkboxes. The
   browser considers all parent-authored text messages and sends at most 24
@@ -28,8 +34,9 @@
 
 - 13 October: Signals back may show synthetic topic notice status beside the
   separately consented call transcript. Demo setup may simulate one standing
-  parent permission for brief post-call email notices; browser fields never
-  choose the actual email destination. Show unconfigured, failed and sent states
+  parent permission for brief post-call email notices; the hosted owner-scoped
+  summary-email flow above supersedes the old fixed-destination rule. Show
+  unconfigured, failed and sent states
   accurately, without implying emergency monitoring or diagnosis.
 
 - Earlier full-transcription display guidance below is superseded by the
