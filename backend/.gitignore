@@ -7,6 +7,9 @@ venv/
 .env
 *.log
 .DS_Store
+*.egg-info/
+/build/
+/dist/
 
 # Biometric voice-enrollment recordings and generated previews
 # Anchor to the repository root: on case-insensitive filesystems, an unanchored
