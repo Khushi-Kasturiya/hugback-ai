@@ -2,7 +2,7 @@
   <img src="frontend/public/hugback.png" alt="HugBack AI" width="420" />
 </p>
 
-<h1 align="center">A familiar hello, even across the distance.</h1>
+<h1 align="center">Close to home, no matter where you roam</h1>
 
 <p align="center">
   A voice-first AI companion exploring how thoughtful conversation can help
