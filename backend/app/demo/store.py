@@ -8,10 +8,10 @@ from pathlib import Path
 
 from app.config import settings
 from app.demo.models import (
-    CreateFamily, CreateRecipient, SetChildGender, ReviewBackground, SelectRecipientVoice,
+    CreateFamily, CreateRecipient, SetChildGender, ReviewBackground, SelectRecipientVoice, SetMemory,
     SetWellbeingSharing, SetToneContinuity, SetTranscriptSharing, SetAlertSharing, SetAlertDestination,
 )
-from app.memory.followups import FollowupState, expire, record_consent
+from app.memory.followups import FollowupState, expire, record_consent, revoke
 from app.memory.failures import MEMORY_ERROR_CODES
 from app.wellbeing.models import WellbeingSignalDraft, display_text
 from app.alerts.email import configured as alert_email_configured, valid_destination
@@ -326,6 +326,29 @@ class DemoStore:
         return self._run(action, uid=uid)
 
 
+    def set_memory(self, uid, request: SetMemory):
+        def action(state):
+            recipient = self._editable(state, request.recipientId, request.revision)
+            memory = FollowupState.model_validate(recipient["memory"])
+            enabled = memory.consent and not memory.privacy_hold
+            if enabled == request.enabled:
+                return self.public(state)
+            if request.enabled:
+                record_consent(
+                    memory,
+                    version="synthetic-demo-v1",
+                    source="local_simulator_not_verified_parent",
+                    time_zone=recipient["timeZone"],
+                    now=now(),
+                )
+            else:
+                revoke(memory)
+            recipient["memory"] = memory.model_dump(mode="json")
+            recipient["revision"] += 1
+            return self.public(state)
+        return self._run(action, uid=uid)
+
+
     def set_wellbeing_sharing(self, uid, request: SetWellbeingSharing):
         def action(state):
             recipient = self._editable(
@@ -486,7 +509,8 @@ class DemoStore:
                 return None
             call["alert"]["status"] = "sending"
             return {"label": recipient["label"], "startedAt": call["startedAt"],
-                    "email": self._alert_destination(state), "childName": state.get("childName")}
+                    "email": self._alert_destination(state), "childName": state.get("childName"),
+                    "timeZone": recipient.get("timeZone", "UTC")}
         return self._run(action, parent=parent)
 
     def finish_alert_send(self, parent, session_id, expected_generation, *, delivered):
@@ -580,7 +604,7 @@ class DemoStore:
             return {
                 "label": recipient["label"], "startedAt": call["startedAt"],
                 "email": self._alert_destination(state), "childName": state.get("childName"),
-                "summary": call["summary"],
+                "summary": call["summary"], "timeZone": recipient.get("timeZone", "UTC"),
             }
         return self._run(action, parent=parent)
 

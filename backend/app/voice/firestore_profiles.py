@@ -45,6 +45,7 @@ class FirestoreVoiceProfileStore:
             # Empty tombstones fence out late enrollments after removal. No raw
             # UID or key remains. Do not rely on asynchronous TTL for validity.
             if state != original:
+                state["updated_at"] = self.firestore.SERVER_TIMESTAMP
                 tx.set(ref, state)
             return copy.deepcopy(result)
 

@@ -25,7 +25,7 @@ from app.main import app
 from app.memory.followup_service import FollowupCoordinator
 from app.memory.followups import ObservationBatch, revoke
 from app.memory.models import TranscriptTurn
-from app.workflows.planner import plan_context, safe_local_bridge
+from app.workflows.planner import direct_background_context, plan_context, safe_local_bridge
 
 ORIGIN = "http://127.0.0.1:3000"
 HEADERS = {"Origin": ORIGIN, "X-Hugback-Development-User": "synthetic-browser-a"}
@@ -187,10 +187,31 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
                          ["interest", "conversation_style"])
         self.assertEqual(state["structuredContext"][0]["sourceRefs"][0]["sourceIndex"], 0)
         self.assertEqual(state["structuredContext"][0]["sourceRefs"][0]["role"], "parent")
-        self.assertNotIn("I like gardening.", background_context(state))
+        self.assertIn("I like gardening.", background_context(state))
+        self.assertNotIn("I enjoy chess.", json.dumps(direct_background_context(state)))
         selected = plan_context(safe_local_bridge(state), state)
         self.assertIn("I like gardening.", selected)
         self.assertNotIn("I enjoy chess.", selected)
+
+    def test_short_favorite_question_and_parent_answer_become_retrievable_preference(self):
+        self.create()
+        request = review(recipient=self.recipient_id)
+        request["excerpts"] = [
+            {"sourceIndex": 10, "sender": "Child", "timestamp": "2026-10-01T18:00:00",
+             "text": "What is your favorite vegetable?"},
+            {"sourceIndex": 11, "sender": "Parent", "timestamp": "2026-10-01T18:01:00",
+             "text": "Spinach."},
+        ]
+        self.store.review("synthetic-browser-a", ReviewBackground(**request))
+        state = self.state()
+        self.assertEqual(len(state["structuredContext"]), 1)
+        preference = state["structuredContext"][0]
+        self.assertEqual(preference["kind"], "preference")
+        self.assertIn('answered "Spinach."', preference["summary"])
+        self.assertIn("favorite vegetable", preference["summary"])
+        self.assertEqual([ref["role"] for ref in preference["sourceRefs"]], ["child", "parent"])
+        self.assertIn("Spinach", background_context(state))
+        self.assertEqual(safe_local_bridge(state).background_refs, [0])
 
     def test_call_summary_becomes_bounded_next_call_continuity_and_can_be_cleared(self):
         family = self.store.create("synthetic-browser-a", CreateFamily(**(

@@ -85,9 +85,10 @@ def planning_background(state):
         if item.get("kind") not in {"interest", "routine", "preference", "background_detail"}:
             continue
         refs = item.get("sourceRefs") or []
-        source = refs[0] if refs else {}
+        source = next((ref for ref in refs if ref.get("role") == "parent"), refs[0] if refs else {})
         derived.append({
             "role": "parent", "text": item.get("summary", ""),
+            "kind": item.get("kind"),
             "timestamp": source.get("timestamp"),
             "sourceIndex": source.get("sourceIndex"),
             "contextId": item.get("contextId"),
@@ -96,11 +97,44 @@ def planning_background(state):
         })
     return derived or state.get("background", [])
 
+def _safe_planning_item(item):
+    text = item.get("text", "")
+    kind = item.get("kind")
+    if not (isinstance(text, str) and 8 <= len(text) <= 500
+            and not text.rstrip().endswith("?")
+            and not _FALLBACK_UNSAFE.search(text) and not _PRIVATE_IDENTIFIER.search(text)
+            and bool(_interest_terms(text))):
+        return False
+    return kind in {"interest", "routine", "preference"} or bool(_INTEREST.search(text))
+
+
+def direct_background_context(state):
+    """Safe reviewed summaries available for relevant/direct replies, never openers."""
+    results = []
+    for item in state.get("structuredContext") or []:
+        if item.get("kind") not in {
+            "interest", "important_person", "routine", "preference", "background_detail",
+        }:
+            continue
+        summary = item.get("summary", "")
+        refs = item.get("sourceRefs") or []
+        parent_refs = [ref for ref in refs if ref.get("role") == "parent"]
+        if (not parent_refs or not isinstance(summary, str) or not 3 <= len(summary) <= 180
+                or _FALLBACK_UNSAFE.search(summary) or _PRIVATE_IDENTIFIER.search(summary)):
+            continue
+        results.append({
+            "contextId": item.get("contextId"), "kind": item.get("kind"),
+            "summary": summary, "sourceIndex": parent_refs[0].get("sourceIndex"),
+            "date": parent_refs[0].get("timestamp"), "role": "parent",
+        })
+    return results[:12]
+
+
 def candidate_ref(state):
     """Cycle through reviewed parent statements without storing new private history."""
     background = planning_background(state)
     parent_refs = [index for index, item in enumerate(background)
-                   if item["role"] == "parent" and _safe_interest_text(item.get("text", ""))]
+                   if item["role"] == "parent" and _safe_planning_item(item)]
     if not parent_refs:
         return None
     if state.get("backgroundCallCount", 0) > 0:
@@ -138,7 +172,7 @@ def safe_local_bridge(state):
         return None
     item = planning_background(state)[ref]
     text = item["text"]
-    if item["role"] != "parent" or not _safe_interest_text(text):
+    if item["role"] != "parent" or not _safe_planning_item(item):
         return None
     try:
         return validate_plan(
@@ -173,7 +207,7 @@ def _safe_interest(state, ref):
         return None
     item = background[ref]
     excerpt = item.get("text", "")
-    if item.get("role") != "parent" or not _safe_interest_text(excerpt):
+    if item.get("role") != "parent" or not _safe_planning_item(item):
         return None
     return {"ref": ref, "role": "parent", "date": item.get("timestamp"), "text": excerpt,
             "sourceIndex": item.get("sourceIndex"), "contextId": item.get("contextId")}

@@ -13,9 +13,6 @@ RUN pip install --no-cache-dir .
 
 # Copy application source code
 COPY app/ ./app
-# Hackathon deployment profile: the private local .env is the single runtime
-# profile. A missing file fails the build instead of silently changing modes.
-COPY .env ./
 
 ENV PORT=8080
 EXPOSE 8080

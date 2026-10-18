@@ -35,7 +35,13 @@ class SQLiteFamilyRepository:
         try:
             # Retain the old parent column as a migration anchor, not a selector.
             conn.execute("CREATE TABLE IF NOT EXISTS families "
-                         "(owner TEXT PRIMARY KEY, parent TEXT UNIQUE NOT NULL, state TEXT NOT NULL)")
+                         "(owner TEXT PRIMARY KEY, parent TEXT UNIQUE NOT NULL, state TEXT NOT NULL, "
+                         "updated_at TEXT NOT NULL DEFAULT '')")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(families)")}
+            if "updated_at" not in columns:
+                conn.execute("ALTER TABLE families ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE families SET updated_at=? WHERE updated_at=''", (now().isoformat(),))
+            conn.commit()
             conn.execute("BEGIN IMMEDIATE")
             conn.execute("DELETE FROM families WHERE json_extract(state, '$.expiresAt') <= ?", (now().isoformat(),))
             # Transactional, idempotent v1 migration. Never guess whether old mixed
@@ -49,7 +55,8 @@ class SQLiteFamilyRepository:
                                  legacy=True, voice={"mode": "standard", "profileId": None})
                 migrated = {key: state[key] for key in ("familyId", "childId", "expiresAt")}
                 migrated.update(schemaVersion=2, recipients=[recipient])
-                conn.execute("UPDATE families SET state=? WHERE owner=?", (json.dumps(migrated), owner))
+                conn.execute("UPDATE families SET state=?, updated_at=? WHERE owner=?",
+                             (json.dumps(migrated), now().isoformat(), owner))
             conn.commit()
             conn.execute("BEGIN IMMEDIATE")
             yield conn
@@ -73,13 +80,16 @@ class SQLiteFamilyRepository:
             if not row and not create:
                 raise DemoError("Create a synthetic demo family first.", 404)
             state = json.loads(row[1]) if row else {}
+            before = copy.deepcopy(state)
             result = mutate(state)
             key = row[0] if row else owner
-            if row:
-                conn.execute("UPDATE families SET state=? WHERE owner=?", (json.dumps(state), key))
+            if row and state != before:
+                conn.execute("UPDATE families SET state=?, updated_at=? WHERE owner=?",
+                             (json.dumps(state), now().isoformat(), key))
             else:
-                conn.execute("INSERT INTO families VALUES (?,?,?)",
-                    (key, state["recipients"][0]["recipientId"], json.dumps(state)))
+                if not row:
+                    conn.execute("INSERT INTO families (owner, parent, state, updated_at) VALUES (?,?,?,?)",
+                        (key, state["recipients"][0]["recipientId"], json.dumps(state), now().isoformat()))
             return copy.deepcopy(result)
 
 class FirestoreFamilyRepository:
@@ -183,19 +193,22 @@ class FirestoreFamilyRepository:
                     item = next_recipients[0]
                     if item != before["recipients"][0] or not snapshots[recipient].get("state"):
                         tx.set(self.client.collection(self.RECIPIENTS).document(recipient),
-                               {"owner": key, "syntheticOnly": True, "state": item})
+                               {"owner": key, "syntheticOnly": True, "state": item,
+                                "updated_at": self.firestore.SERVER_TIMESTAMP})
                     return copy.deepcopy(result)
                 normalized = bool(saved and "recipientIds" in saved and not legacy_recipients)
                 if family_state != before_family or next_ids != recipient_ids or not normalized:
                     tx.set(ref, {"syntheticOnly": True, "owner": key, "state": family_state,
                                  "recipientIds": next_ids,
-                                 "expiresAt": datetime.fromisoformat(state["expiresAt"])})
+                                 "expiresAt": datetime.fromisoformat(state["expiresAt"]),
+                                 "updated_at": self.firestore.SERVER_TIMESTAMP})
                 before_recipients = {item["recipientId"]: item for item in before.get("recipients", [])}
                 for item in next_recipients:
                     recipient_id = item["recipientId"]
                     if item != before_recipients.get(recipient_id) or not snapshots.get(recipient_id, {}).get("state"):
                         tx.set(self.client.collection(self.RECIPIENTS).document(recipient_id),
-                               {"owner": key, "syntheticOnly": True, "state": item})
+                               {"owner": key, "syntheticOnly": True, "state": item,
+                                "updated_at": self.firestore.SERVER_TIMESTAMP})
             return copy.deepcopy(result)
         with stage_timer("firestore_recipient_transaction" if recipient is not None
                          else "firestore_owner_transaction"):

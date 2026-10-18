@@ -308,7 +308,10 @@ class CloudAdapterTests(unittest.TestCase):
             self.assertEqual(result, "done")
             client.transaction.assert_called_once_with(max_attempts=3)
             for ref in refs.values(): ref.get.assert_called_once_with(transaction=client.transaction.return_value, timeout=10, retry=None)
-            client.transaction.return_value.set.assert_called_once_with(refs["cloud_families/a"], {"updated": True})
+            client.transaction.return_value.set.assert_called_once_with(
+                refs["cloud_families/a"],
+                {"updated": True, "updated_at": repository.firestore.SERVER_TIMESTAMP},
+            )
             repository.close(); client.close.assert_called_once()
 
 

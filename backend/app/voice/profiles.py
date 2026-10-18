@@ -85,14 +85,21 @@ class VoiceProfileStore:
             conn.execute("""CREATE TABLE IF NOT EXISTS voices (
                 owner TEXT PRIMARY KEY, profile_id TEXT NOT NULL,
                 voice_key TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL,
-                enabled INTEGER NOT NULL, expiry_source TEXT NOT NULL
+                enabled INTEGER NOT NULL, expiry_source TEXT NOT NULL,
+                updated_at TEXT NOT NULL DEFAULT ''
             )""")
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(voices)")}
+            if "updated_at" not in columns:
+                conn.execute("ALTER TABLE voices ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+            conn.execute("UPDATE voices SET updated_at=created_at WHERE updated_at='' ")
             # A short-lived prior build added a speaking_form column. Its
             # acoustic estimate must not be used; discard any retained values.
             if "speaking_form" in {row[1] for row in conn.execute("PRAGMA table_info(voices)")}:
                 conn.execute("UPDATE voices SET speaking_form='unavailable' WHERE speaking_form!='unavailable'")
             # Keep expired metadata/selection so expiry cannot silently select preset.
-            conn.execute("UPDATE voices SET voice_key=NULL WHERE expires_at<=?", (now().isoformat(),))
+            timestamp = now().isoformat()
+            conn.execute("UPDATE voices SET voice_key=NULL, updated_at=? "
+                         "WHERE expires_at<=? AND voice_key IS NOT NULL", (timestamp, timestamp))
             conn.commit()
             yield conn
             conn.commit()
@@ -128,9 +135,10 @@ class VoiceProfileStore:
             raise VoiceEnrollmentError("Google returned an already expired voice.")
         with self.connection() as conn:
             conn.execute("INSERT OR REPLACE INTO voices "
-                         "(owner, profile_id, voice_key, created_at, expires_at, enabled, expiry_source) "
-                         "VALUES (?, ?, ?, ?, ?, ?, ?)", (
+                         "(owner, profile_id, voice_key, created_at, expires_at, enabled, expiry_source, updated_at) "
+                         "VALUES (?, ?, ?, ?, ?, ?, ?, ?)", (
                 owner, uuid.uuid4().hex, key, created.isoformat(), expires.isoformat(), 0, source,
+                created.isoformat(),
             ))
         return self.get(owner)
 
@@ -141,7 +149,8 @@ class VoiceProfileStore:
                 raise VoiceEnrollmentError("Voice setup changed. Refresh the portal.")
             if enabled and not row["voice_key"]:
                 raise VoiceEnrollmentError("This voice expired. Upload fresh recordings first.")
-            conn.execute("UPDATE voices SET enabled=? WHERE owner=?", (int(enabled), owner))
+            conn.execute("UPDATE voices SET enabled=?, updated_at=? WHERE owner=?",
+                         (int(enabled), now().isoformat(), owner))
         return self.get(owner)
 
     def delete(self, owner):

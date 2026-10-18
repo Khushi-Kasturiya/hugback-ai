@@ -70,7 +70,7 @@ class FakeFirestore:
 
 def cloud_store(db):
     repo = FirestoreFamilyRepository("demo-offline", "hugback-synthetic", client=db)
-    repo.firestore = SimpleNamespace(transactional=db.transactional)
+    repo.firestore = SimpleNamespace(transactional=db.transactional, SERVER_TIMESTAMP="server-timestamp")
     return DemoStore(repository=repo)
 
 class WorkflowTests(unittest.IsolatedAsyncioTestCase):

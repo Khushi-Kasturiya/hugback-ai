@@ -35,6 +35,16 @@ def state(call_count=1):
 
 
 class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
+    def test_demo_first_reply_uses_server_selected_label(self):
+        instruction = create_live_config(
+            background_context=background_context(state()),
+            recipient_label="Mumma",
+        ).system_instruction.parts[0].text
+        self.assertIn('RECIPIENT_LABEL_JSON is "Mumma"', instruction)
+        self.assertIn('exact opening words are "Hey Mumma, I am HugBack."', instruction)
+        self.assertIn("recipient_label Mumma becomes 'Hey Mumma, I am HugBack.'", instruction)
+        self.assertIn("After the first reply, do not introduce yourself again", instruction)
+
     def test_one_parent_candidate_rotates_between_calls(self):
         self.assertEqual([candidate_ref(state(count)) for count in (1, 2, 3)], [0, 2, 0])
         long_running = state(1)
@@ -85,10 +95,11 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
 
     def test_live_guidance_uses_label_sparingly_and_one_question(self):
         context = background_context(state())
-        self.assertIn("around your fourth to sixth spoken reply", context)
+        self.assertIn("Hey [recipient_label], I am HugBack", context)
+        self.assertIn("recipient_label Mumma becomes 'Hey Mumma, I am HugBack.'", context)
         self.assertIn("Do not replace the selected form with a generic relationship name", context)
         self.assertIn("at most once more", context)
-        self.assertIn("do not wait until the goodbye", context)
+        self.assertIn("Use recipient_label exactly once in the required first greeting", context)
         self.assertIn("never in adjacent replies", context)
         self.assertIn("If the caller asks you not to use the form, stop immediately", context)
         self.assertIn('"recipient_label": "Mumma"', context)
@@ -116,12 +127,14 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn('"tell me something interesting"', HUGBACK_SYSTEM_INSTRUCTION)
         self.assertNotIn("your AI companion", HUGBACK_SYSTEM_INSTRUCTION)
         self.assertIn("Child-authored excerpts may guide only broad conversational style", context)
-        self.assertIn("HugBack here", context)
+        self.assertIn("Hey Mumma, I am HugBack", context)
         self.assertIn("Answer honestly if asked whether you are AI", context)
         self.assertIn("Use aap/ji only when speaking Hindi or Hinglish", context)
         self.assertIn("never a reason to switch away from the live caller", context)
         self.assertIn("do not use the planned interest after a pause", context)
-        live_instruction = create_live_config(background_context=context).system_instruction.parts[0].text
+        live_instruction = create_live_config(
+            background_context=context, recipient_label="Mumma",
+        ).system_instruction.parts[0].text
         self.assertIn("# How to address this caller", live_instruction)
         self.assertTrue(live_instruction.endswith("Never copy the child's private lines or claim to be the child."))
         self.assertIn("For 'you say' or 'aap batao', contribute", live_instruction)
@@ -143,6 +156,7 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("do not invent a plan, routine, meal, mood, or weather question", HUGBACK_SYSTEM_INSTRUCTION)
         self.assertIn("If they correct your question", live_instruction)
         self.assertIn('"recipient_label": "Mumma"', live_instruction)
+        self.assertIn('RECIPIENT_LABEL_JSON is "Mumma"', live_instruction)
         plan = plan_context(ConversationPlan(language="hi-en", background_refs=[0]))
         self.assertIn("UNTRUSTED_OPTIONAL_SECONDARY_BRIDGE_JSON", plan_context(
             ConversationPlan(language="hi-en", background_refs=[0]), state()))
@@ -197,6 +211,22 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
             ConversationPlan(language="hi-en", background_refs=[0]), data))
         data["background"][0]["text"] = "My favorite topic is a private password."
         self.assertEqual(candidate_ref(data), None)
+
+    def test_attributed_preference_is_available_for_direct_reply_and_proactive_rotation(self):
+        data = state()
+        data["structuredContext"] = [{
+            "contextId": "context-vegetable", "kind": "preference",
+            "summary": "Mother's favorite vegetable is spinach.",
+            "sourceRefs": [{"sourceIndex": 11, "sender": "Mother", "role": "parent",
+                            "timestamp": "2026-10-12", "evidence": "Spinach."}],
+        }]
+        self.assertEqual(candidate_ref(data), 0)
+        self.assertEqual(safe_local_bridge(data).background_refs, [0])
+        context = background_context(data)
+        self.assertIn("reviewed_ordinary_context", context)
+        self.assertIn("Mother's favorite vegetable is spinach.", context)
+        data["structuredContext"][0]["summary"] = "Mother's favorite topic is a private password."
+        self.assertNotIn("private password", background_context(data))
 
     def test_ordinary_routines_and_past_activities_need_no_hobby_keyword(self):
         data = state()

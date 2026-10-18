@@ -231,7 +231,10 @@ class FirestoreAdapterTests(unittest.IsolatedAsyncioTestCase):
         store = object.__new__(FirestoreFollowupStore)
         store._client = Ref()
         store._client.transaction = Transaction
-        store._firestore = SimpleNamespace(async_transactional=lambda fn: fn)
+        store._firestore = SimpleNamespace(
+            async_transactional=lambda fn: fn,
+            SERVER_TIMESTAMP="server-timestamp",
+        )
         await store.transact("parent-a", lambda state: setattr(state, "generation", 1))
         self.assertEqual(paths, [
             ("collection", "users"), ("document", "parent-a"),

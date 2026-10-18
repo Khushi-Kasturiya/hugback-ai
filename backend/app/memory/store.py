@@ -94,6 +94,7 @@ class FirestoreSessionStore:
                 "transcript": [turn.model_dump(mode="python") for turn in turns],
                 "memory_status": "pending" if user_turns else "skipped",
                 "created_at": self._firestore.SERVER_TIMESTAMP,
+                "updated_at": self._firestore.SERVER_TIMESTAMP,
             }
         )
         await (
@@ -102,6 +103,7 @@ class FirestoreSessionStore:
             .set(
                 {
                     "last_seen": self._firestore.SERVER_TIMESTAMP,
+                    "updated_at": self._firestore.SERVER_TIMESTAMP,
                     "session_count": self._firestore.Increment(1),
                 },
                 merge=True,
@@ -118,6 +120,7 @@ class FirestoreSessionStore:
         update: dict[str, Any] = {
             "memory_status": status,
             "memory_updated_at": self._firestore.SERVER_TIMESTAMP,
+            "updated_at": self._firestore.SERVER_TIMESTAMP,
         }
         if error:
             update["memory_error"] = error[:1000]

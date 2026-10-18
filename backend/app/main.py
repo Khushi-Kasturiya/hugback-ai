@@ -103,6 +103,10 @@ logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
 )
 logger = logging.getLogger("hugback.broker")
+DEMO_OPENING_TRIGGER = (
+    "Begin the call now. Use the exact opening words required by the trusted "
+    "recipient-label instruction, then ask one short, ordinary present-day question."
+)
 # Strong references keep bounded local finalizers alive when a browser closes
 # its ASGI/WebSocket task. This is not a durable queue across server shutdown.
 _demo_finalizers: set[asyncio.Task] = set()
@@ -385,11 +389,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 followups = get_demo_coordinator(demo_store) if demo_state else get_followup_coordinator()
                 with stage_timer("followup_reservation"):
-                    followup_plan = await asyncio.wait_for(followups.begin(user_id, session_id), timeout=3)
+                    followup_plan = await asyncio.wait_for(
+                        followups.begin(user_id, session_id),
+                        timeout=settings.FOLLOWUP_RESERVATION_TIMEOUT_SECONDS,
+                    )
                 followup_context = context_card(followup_plan)
-            except Exception:
+            except Exception as exc:
                 followups = None
-                logger.warning("Follow-up context unavailable session=%s", session_id)
+                logger.warning(
+                    "Follow-up context unavailable session=%s error_type=%s",
+                    session_id,
+                    type(exc).__name__,
+                )
                 followup_context = (
                     "Cross-session memory is unavailable. Do not invent remembered "
                     "facts or promise this call will be remembered."
@@ -421,6 +432,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             conversation_plan_context=plan_context(conversation_plan, demo_state),
             speaking_form=speaking_form,
             preferred_language=demo_state.get("language", "auto") if demo_state else "auto",
+            recipient_label=demo_state["label"] if demo_state else None,
         )
     except Exception as e:
         if demo_state:
@@ -480,6 +492,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             # that the local broker accepted the browser connection.
             await websocket.send_text(json.dumps({
                 "type": "ready",
+                "autoOpening": bool(demo_state),
                 "voice": "replicated" if voice_key else "experimental-inline" if inline_voice else "default",
                 "voiceName": voice_name if not voice_key else None,
                 "voiceStatus": (
@@ -505,6 +518,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             tts_first_phrase = True
             tts_text_started_at = None
             preset_checkpoint_task = None
+            opening_requested = False
+            opening_complete = False
             async def checkpoint_audio():
                 if followups and followup_plan:
                     try:
@@ -549,7 +564,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             async def upstream_task() -> None:
                 """Reads microphone PCM audio and controls from browser and sends to Gemini."""
-                nonlocal received_audio
+                nonlocal received_audio, opening_requested
                 try:
                     while True:
                         message = await websocket.receive()
@@ -557,6 +572,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                         # Binary frame: Raw 16-bit PCM @ 16kHz
                         if "bytes" in message:
                             audio_bytes = message["bytes"]
+                            if opening_requested and not opening_complete:
+                                continue
                             if audio_bytes:
                                 if not received_audio:
                                     samples = memoryview(audio_bytes).cast("h")
@@ -587,7 +604,26 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 data = json.loads(message["text"])
                                 msg_type = data.get("type")
 
-                                if msg_type == "text" and "text" in data:
+                                if msg_type == "start_greeting":
+                                    if demo_state and not opening_requested and not opening_complete:
+                                        opening_requested = True
+                                        await live_session.send_client_content(
+                                            turns=types.Content(
+                                                role="user",
+                                                parts=[types.Part.from_text(text=DEMO_OPENING_TRIGGER)],
+                                            ),
+                                            turn_complete=True,
+                                        )
+
+                                elif msg_type == "ping":
+                                    await websocket.send_text(json.dumps({"type": "pong"}))
+
+                                elif opening_requested and not opening_complete:
+                                    # The browser deliberately keeps its microphone off
+                                    # until the proactive greeting has finished.
+                                    continue
+
+                                elif msg_type == "text" and "text" in data:
                                     collector.add_user(str(data["text"]))
                                     await live_session.send_client_content(
                                         turns=types.Content(
@@ -613,9 +649,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                         audio_stream_end=True,
                                     )
 
-                                elif msg_type == "ping":
-                                    await websocket.send_text(json.dumps({"type": "pong"}))
-
                             except json.JSONDecodeError:
                                 pass
 
@@ -628,7 +661,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
 
             async def downstream_task() -> None:
                 """Receives audio and events from Gemini and streams them back to the browser."""
-                nonlocal sent_audio, replicated_turn_text, tts_pending_text, tts_first_phrase, tts_text_started_at
+                nonlocal sent_audio, replicated_turn_text, tts_pending_text, tts_first_phrase, tts_text_started_at, opening_complete
                 scope_gate = EntertainmentScopeGate()
                 # Native Live can send audio before its input transcription.
                 # Hold every turn until the caller's finalized words are checked.
@@ -664,6 +697,11 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                     # browser WebSocket remain open for a conversation.
                     while True:
                         async for response in live_session.receive():
+                            internal_opening = opening_requested and not opening_complete
+                            if internal_opening:
+                                # This server-authored first turn has no caller speech to
+                                # inspect, so it must not wait behind the caller-input gate.
+                                guard_hold = False
                             # A provider event can contain BOTH a user transcript
                             # and a tool call. Validate privacy-tool evidence
                             # against the current utterance, not the prior turn.
@@ -674,11 +712,16 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                 and incoming_content.input_transcription.text
                             ):
                                 user_text = incoming_content.input_transcription.text
-                                collector.add_user(user_text)
-                                await websocket.send_text(
-                                    json.dumps({"inputTranscription": {"text": user_text}})
-                                )
-                                guard_input_seen = True
+                                if internal_opening:
+                                    # Never expose or persist the synthetic instruction as
+                                    # though the recipient said it.
+                                    guard_input_seen = True
+                                else:
+                                    collector.add_user(user_text)
+                                    await websocket.send_text(
+                                        json.dumps({"inputTranscription": {"text": user_text}})
+                                    )
+                                    guard_input_seen = True
                             if response.tool_call:
                                 function_responses = []
                                 for call in response.tool_call.function_calls:
@@ -887,6 +930,8 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     held_payloads.clear()
                                     held_transcriptions.clear()
                                     collector.complete_turn()
+                                    if internal_opening:
+                                        opening_complete = True
                                     if guard_blocked:
                                         replicated_turn_text = ""
                                         tts_pending_text = ""
@@ -1172,6 +1217,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                                 await asyncio.to_thread(
                                                     send_call_summary, details["label"], details["startedAt"],
                                                     details["email"], details["summary"], details.get("childName"),
+                                                    details.get("timeZone", "UTC"),
                                                 )
                                                 delivered = True
                                             except Exception as exc:
@@ -1200,6 +1246,7 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
                                     await asyncio.to_thread(
                                         send_test_notice, details["label"], details["startedAt"], details["email"],
                                         details.get("childName"),
+                                        details.get("timeZone", "UTC"),
                                     )
                                     delivered = True
                                 except Exception as exc:
