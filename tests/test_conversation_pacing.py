@@ -212,6 +212,22 @@ class ConversationPacingTests(unittest.IsolatedAsyncioTestCase):
         data["background"][0]["text"] = "My favorite topic is a private password."
         self.assertEqual(candidate_ref(data), None)
 
+    def test_attributed_preference_is_available_for_direct_reply_and_proactive_rotation(self):
+        data = state()
+        data["structuredContext"] = [{
+            "contextId": "context-vegetable", "kind": "preference",
+            "summary": "Mother's favorite vegetable is spinach.",
+            "sourceRefs": [{"sourceIndex": 11, "sender": "Mother", "role": "parent",
+                            "timestamp": "2026-10-12", "evidence": "Spinach."}],
+        }]
+        self.assertEqual(candidate_ref(data), 0)
+        self.assertEqual(safe_local_bridge(data).background_refs, [0])
+        context = background_context(data)
+        self.assertIn("reviewed_ordinary_context", context)
+        self.assertIn("Mother's favorite vegetable is spinach.", context)
+        data["structuredContext"][0]["summary"] = "Mother's favorite topic is a private password."
+        self.assertNotIn("private password", background_context(data))
+
     def test_ordinary_routines_and_past_activities_need_no_hobby_keyword(self):
         data = state()
         data["background"] = [

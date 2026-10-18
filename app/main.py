@@ -389,11 +389,18 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             try:
                 followups = get_demo_coordinator(demo_store) if demo_state else get_followup_coordinator()
                 with stage_timer("followup_reservation"):
-                    followup_plan = await asyncio.wait_for(followups.begin(user_id, session_id), timeout=3)
+                    followup_plan = await asyncio.wait_for(
+                        followups.begin(user_id, session_id),
+                        timeout=settings.FOLLOWUP_RESERVATION_TIMEOUT_SECONDS,
+                    )
                 followup_context = context_card(followup_plan)
-            except Exception:
+            except Exception as exc:
                 followups = None
-                logger.warning("Follow-up context unavailable session=%s", session_id)
+                logger.warning(
+                    "Follow-up context unavailable session=%s error_type=%s",
+                    session_id,
+                    type(exc).__name__,
+                )
                 followup_context = (
                     "Cross-session memory is unavailable. Do not invent remembered "
                     "facts or promise this call will be remembered."

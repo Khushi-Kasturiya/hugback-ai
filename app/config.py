@@ -123,6 +123,10 @@ class Settings(BaseSettings):
     HUGBACK_CALL_SUMMARY_MODEL: str = "gemini-3.5-flash-lite"
     FOLLOWUP_COOLDOWN_HOURS: int = Field(default=24, ge=1, le=168)
     FOLLOWUP_RETENTION_HOURS: int = Field(default=72, ge=1, le=168)
+    # Named Firestore can exceed three seconds during a Cloud Run cold start.
+    # Keep this bounded, but allow enough time to establish canonical context
+    # before the call; a call without that context must not write memory later.
+    FOLLOWUP_RESERVATION_TIMEOUT_SECONDS: float = Field(default=10, ge=3, le=30)
 
     # Post-call processing. "inline" is convenient locally; "cloud_tasks"
     # is durable on Cloud Run and is the required production setting.

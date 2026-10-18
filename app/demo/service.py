@@ -10,6 +10,7 @@ from app.config import settings
 from app.demo.store import DemoError, DemoStore
 from app.workflows.reconciler import MemoryReconciler
 from app.memory.followup_service import FollowupCoordinator
+from app.workflows.planner import direct_background_context
 
 LOOPBACK = {"127.0.0.1", "::1"}
 
@@ -100,6 +101,7 @@ def background_context(state):
         for item in structured for ref in (item.get("sourceRefs") or [])
     ][:12]
     continuity = state.get("conversationContinuity")
+    direct_context = direct_background_context(state)
     if not (isinstance(continuity, dict)
             and continuity.get("expiresAt", "") > datetime.now(timezone.utc).isoformat()):
         continuity = None
@@ -176,7 +178,10 @@ def background_context(state):
         "with repeated generic claims that an activity brings peace. "
         "A plain 'fine' or 'all good' is not a refusal. If the speaker has declined a topic, said 'no, no', or asked for quiet, do not use the planned interest after a pause; wait until they reopen conversation or ask you to lead. "
         "If the speaker brings up their own topic, follow it instead. If asked what "
-        "background you know, use only a detail supplied in the validated plan. "
+        "background you know, or asks a direct question that clearly matches one of the "
+        "reviewed_ordinary_context items below, answer from the matching item. These items "
+        "are available for relevant replies, not unsolicited openers. Only the validated "
+        "primary/secondary plan may be introduced proactively. Never list the context items. "
         "If they ask what else, use only the optional second validated detail; otherwise say you have only a small prepared selection. "
         "Do not claim complete recall or search the original chat. "
         "If they ask where a remembered detail came from, explain in ordinary words "
@@ -196,6 +201,7 @@ def background_context(state):
         + json.dumps({"recipient_label": state["label"], "relationship": state["relationship"],
                       "time_zone": state["timeZone"], "preferred_language": state.get("language", "auto"),
                       "conversation_style": style_context,
+                      "reviewed_ordinary_context": direct_context,
                       "source_manifest": source_manifest,
                       "prior_call_continuity": continuity}, ensure_ascii=False)
         + "\n# How to address this caller\n"

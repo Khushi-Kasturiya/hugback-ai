@@ -102,6 +102,18 @@ class SelectRecipientVoice(RecipientTarget):
         return self
 
 
+class SetMemory(RecipientTarget):
+    enabled: bool
+    simulateChildConsent: bool = False
+    simulateParentConsent: bool = False
+
+    @model_validator(mode="after")
+    def explicit_consent(self):
+        if self.enabled and not (self.simulateChildConsent and self.simulateParentConsent):
+            raise ValueError("Enabling demo memory requires both simulated consents")
+        return self
+
+
 class SetWellbeingSharing(RecipientTarget):
     enabled: bool
     simulateChildConsent: bool = False

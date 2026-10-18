@@ -8,10 +8,10 @@ from pathlib import Path
 
 from app.config import settings
 from app.demo.models import (
-    CreateFamily, CreateRecipient, SetChildGender, ReviewBackground, SelectRecipientVoice,
+    CreateFamily, CreateRecipient, SetChildGender, ReviewBackground, SelectRecipientVoice, SetMemory,
     SetWellbeingSharing, SetToneContinuity, SetTranscriptSharing, SetAlertSharing, SetAlertDestination,
 )
-from app.memory.followups import FollowupState, expire, record_consent
+from app.memory.followups import FollowupState, expire, record_consent, revoke
 from app.memory.failures import MEMORY_ERROR_CODES
 from app.wellbeing.models import WellbeingSignalDraft, display_text
 from app.alerts.email import configured as alert_email_configured, valid_destination
@@ -321,6 +321,29 @@ class DemoStore:
         def action(state):
             recipient = self._editable(state, request.recipientId, request.revision)
             recipient["voice"] = {"mode": request.mode, "profileId": request.profileId}
+            recipient["revision"] += 1
+            return self.public(state)
+        return self._run(action, uid=uid)
+
+
+    def set_memory(self, uid, request: SetMemory):
+        def action(state):
+            recipient = self._editable(state, request.recipientId, request.revision)
+            memory = FollowupState.model_validate(recipient["memory"])
+            enabled = memory.consent and not memory.privacy_hold
+            if enabled == request.enabled:
+                return self.public(state)
+            if request.enabled:
+                record_consent(
+                    memory,
+                    version="synthetic-demo-v1",
+                    source="local_simulator_not_verified_parent",
+                    time_zone=recipient["timeZone"],
+                    now=now(),
+                )
+            else:
+                revoke(memory)
+            recipient["memory"] = memory.model_dump(mode="json")
             recipient["revision"] += 1
             return self.public(state)
         return self._run(action, uid=uid)

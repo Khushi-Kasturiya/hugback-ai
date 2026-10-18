@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from app.auth import AuthenticationError, authenticate_http_headers
 from app.demo.models import (
     ClearBackground, CreateFamily, CreateRecipient, SetChildGender, ReviewBackground,
-    SelectRecipientVoice, SetWellbeingSharing, SetToneContinuity, SetTranscriptSharing, SetAlertSharing,
+    SelectRecipientVoice, SetMemory, SetWellbeingSharing, SetToneContinuity, SetTranscriptSharing, SetAlertSharing,
     SetAlertDestination,
     GenerateLegacySummary,
 )
@@ -102,6 +102,11 @@ async def recipient_voice(payload: SelectRecipientVoice, uid=Depends(demo_identi
         except VoiceEnrollmentError as exc:
             raise HTTPException(409, str(exc)) from exc
     return await execute(get_demo_store().select_voice, uid, payload)
+
+
+@router.put("/memory")
+async def memory(payload: SetMemory, uid=Depends(demo_identity)):
+    return await execute(get_demo_store().set_memory, uid, payload)
 
 
 @router.put("/wellbeing-sharing")

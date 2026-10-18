@@ -17,7 +17,7 @@ from google.genai import types
 from pydantic import ValidationError
 
 from app.config import settings
-from app.demo.models import CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice, SetTranscriptSharing
+from app.demo.models import CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice, SetMemory, SetTranscriptSharing
 from app.demo.store import DemoStore, DemoError, now
 from app.demo.summary import summary_input
 from app.main import DEMO_OPENING_TRIGGER, app
@@ -281,6 +281,26 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(ValidationError): CreateRecipient(**CREATE, label=label)
         for i in range(5): self.store.add_recipient(OWNER, CreateRecipient(**CREATE, label=f"Relative {i}"))
         with self.assertRaises(DemoError): self.store.add_recipient(OWNER, CreateRecipient(**CREATE, label="Overflow"))
+
+    def test_existing_recipient_can_revoke_and_reenable_memory_with_fresh_consent(self):
+        mother = self.recipient(self.mother)
+        disabled = self.store.set_memory(OWNER, SetMemory(
+            syntheticOnly=True, recipientId=self.mother, revision=mother["revision"], enabled=False,
+        ))
+        mother = next(r for r in disabled["recipients"] if r["recipientId"] == self.mother)
+        self.assertFalse(mother["memoryEnabled"])
+
+        with self.assertRaises(ValidationError):
+            SetMemory(
+                syntheticOnly=True, recipientId=self.mother,
+                revision=mother["revision"], enabled=True,
+            )
+        enabled = self.store.set_memory(OWNER, SetMemory(
+            syntheticOnly=True, recipientId=self.mother, revision=mother["revision"],
+            enabled=True, simulateChildConsent=True, simulateParentConsent=True,
+        ))
+        self.assertTrue(next(r for r in enabled["recipients"]
+                            if r["recipientId"] == self.mother)["memoryEnabled"])
 
     def test_public_mutations_and_ws_reject_foreign_missing_and_stale_recipient(self):
         other = self.store.create("synthetic-other", CreateFamily(**CREATE))
