@@ -2,7 +2,7 @@
 name = "hugback-backend"
 version = "0.1.0"
 description = "Hugback AI - Real-time Multimodal Live Audio Companion Backend"
-readme = "README.md"
+readme = {text = "HugBack AI backend. Shared setup, architecture and safety documentation: https://github.com/Khushi-Kasturiya/hugback-ai#readme", content-type = "text/markdown"}
 requires-python = ">=3.11"
 dependencies = [
     "fastapi>=0.110.0",
@@ -23,3 +23,6 @@ dependencies = [
 [build-system]
 requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app", "app.*"]
