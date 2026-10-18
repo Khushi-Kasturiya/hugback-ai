@@ -80,7 +80,9 @@ class AlertTests(unittest.TestCase):
                                                  "fever", email_configured=True))
         self.assertFalse(self.store.reserve_alert(self.mother, "session-one", 1, "fever", email_configured=True))
         self.store.call_status(self.mother, "session-one", "completed", release=True)
-        self.assertEqual(self.store.claim_alert_send(self.mother, "session-one", 1)["label"], "Mother")
+        claim = self.store.claim_alert_send(self.mother, "session-one", 1)
+        self.assertEqual(claim["label"], "Mother")
+        self.assertEqual(claim["timeZone"], "Asia/Kolkata")
         self.assertTrue(self.store.finish_alert_send(self.mother, "session-one", 1, delivered=True))
         self.assertEqual(self.recipient(self.mother)["calls"][0]["alert"]["status"], "sent")
         self.store.start_call("child-alert", "session-two", self.mother, mother["revision"])
@@ -227,15 +229,20 @@ class AlertTests(unittest.TestCase):
         for item in patches: item.start(); self.addCleanup(item.stop)
         self.assertTrue(configured())
         with patch("app.alerts.email.smtplib.SMTP") as smtp:
-            send_test_notice("Mother", "2026-10-13T10:00:00+00:00", "child@example.com", "Asha")
+            send_test_notice("Mother", "2026-10-13T10:00:00+00:00", "child@example.com", "Asha",
+                             "Asia/Kolkata")
             client = smtp.return_value.__enter__.return_value
             client.starttls.assert_called_once()
             self.assertEqual(client.starttls.call_args.kwargs["context"].verify_mode, ssl.CERT_REQUIRED)
             client.login.assert_called_once_with("sender@gmail.com", "synthetic-password")
             message = client.send_message.call_args.args[0]
             self.assertEqual(message["To"], "child@example.com")
-            self.assertIn("Hello Asha", message.get_content())
+            self.assertEqual(message["Subject"], "A HugBack call update about Mother")
+            self.assertIn("Hi Asha", message.get_content())
+            self.assertIn("Tuesday, October 13, 2026 at 3:30 PM IST", message.get_content())
+            self.assertNotIn("2026-10-13T10:00:00+00:00", message.get_content())
             self.assertIn("childportal", message.get_content())
+            self.assertIn("does not include the topic", message.get_content())
             self.assertNotIn("fever", message.get_content().lower())
             self.assertNotIn("transcript", message.get_content().lower())
             send_test_probe("child@example.com")
@@ -258,10 +265,13 @@ class AlertTests(unittest.TestCase):
         with patch("app.alerts.email.smtplib.SMTP") as smtp:
             summary = "Mother talked about gardening, and HugBack encouraged her to share more."
             send_call_summary("Mother", "2026-10-18T10:00:00+00:00",
-                              "child@example.com", summary, "Asha")
+                              "child@example.com", summary, "Asha", "Asia/Kolkata")
             message = smtp.return_value.__enter__.return_value.send_message.call_args.args[0]
             self.assertEqual(message["To"], "child@example.com")
+            self.assertEqual(message["Subject"], "Your HugBack call summary with Mother")
             self.assertIn(summary, message.get_content())
+            self.assertIn("Sunday, October 18, 2026 at 3:30 PM IST", message.get_content())
+            self.assertNotIn("2026-10-18T10:00:00+00:00", message.get_content())
             self.assertNotIn("transcript", message.get_content().lower())
 
     def test_summary_email_claim_is_once_only_and_invalidated_by_address_change(self):
@@ -276,6 +286,7 @@ class AlertTests(unittest.TestCase):
             "Mother enjoyed the garden today and shared a calm conversation."))
         claim = self.store.claim_summary_email(self.mother, "summary-email", generation)
         self.assertEqual(claim["email"], "child@example.com")
+        self.assertEqual(claim["timeZone"], "Asia/Kolkata")
         self.assertIsNone(self.store.claim_summary_email(self.mother, "summary-email", generation))
         self.assertTrue(self.store.finish_summary_email(
             self.mother, "summary-email", generation, delivered=True))

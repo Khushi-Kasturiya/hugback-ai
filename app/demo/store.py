@@ -486,7 +486,8 @@ class DemoStore:
                 return None
             call["alert"]["status"] = "sending"
             return {"label": recipient["label"], "startedAt": call["startedAt"],
-                    "email": self._alert_destination(state), "childName": state.get("childName")}
+                    "email": self._alert_destination(state), "childName": state.get("childName"),
+                    "timeZone": recipient.get("timeZone", "UTC")}
         return self._run(action, parent=parent)
 
     def finish_alert_send(self, parent, session_id, expected_generation, *, delivered):
@@ -580,7 +581,7 @@ class DemoStore:
             return {
                 "label": recipient["label"], "startedAt": call["startedAt"],
                 "email": self._alert_destination(state), "childName": state.get("childName"),
-                "summary": call["summary"],
+                "summary": call["summary"], "timeZone": recipient.get("timeZone", "UTC"),
             }
         return self._run(action, parent=parent)
 

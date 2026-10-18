@@ -20,7 +20,7 @@ from app.config import settings
 from app.demo.models import CreateFamily, CreateRecipient, ReviewBackground, SelectRecipientVoice, SetTranscriptSharing
 from app.demo.store import DemoStore, DemoError, now
 from app.demo.summary import summary_input
-from app.main import app
+from app.main import DEMO_OPENING_TRIGGER, app
 from app.memory.followups import FollowupState, ObservationBatch, record_consent, revoke
 from app.memory.followup_service import FollowupCoordinator
 from app.memory.models import TranscriptTurn
@@ -388,12 +388,18 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
             syntheticOnly=True, recipientId=self.mother,
             revision=self.recipient(self.mother)["revision"], enabled=True,
             simulateChildConsent=True, simulateParentConsent=True))
-        captured, owners, finished = [], [], threading.Event()
+        captured, sent, owners, finished = [], [], [], threading.Event()
         class Live:
             def __init__(self): self.queue = asyncio.Queue()
             async def send_client_content(self, **kwargs):
+                turns = kwargs.get("turns")
+                input_text = turns.parts[0].text if turns and turns.parts else None
+                if input_text:
+                    sent.append(input_text)
                 await self.queue.put(types.LiveServerMessage(server_content=types.LiveServerContent(
-                    output_transcription=types.Transcription(text="I am Hugback, an AI companion."), turn_complete=True,
+                    input_transcription=types.Transcription(text=input_text) if input_text else None,
+                    output_transcription=types.Transcription(text="I am Hugback, an AI companion."),
+                    turn_complete=True,
                 )))
             async def receive(self): yield await self.queue.get()
         @asynccontextmanager
@@ -429,6 +435,12 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
                     ready = ws.receive_json()
                     self.assertEqual(ready["demo"]["recipientId"], rid)
                     self.assertEqual(ready["voice"], "default")
+                    self.assertTrue(ready["autoOpening"])
+                    ws.send_json({"type": "start_greeting"})
+                    opening_events = []
+                    while not any(event.get("turnComplete") for event in opening_events):
+                        opening_events.append(ws.receive_json())
+                    self.assertFalse(any(event.get("inputTranscription") for event in opening_events))
                     ws.send_json({"type": "text", "text": "Synthetic hello."})
                     while not ws.receive_json().get("turnComplete"): pass
                 self.assertTrue(finished.wait(2))
@@ -451,6 +463,7 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(client.get(f"/api/demo/summaries/{self.mother}/{mother_call['sessionId']}",
                                         headers=HEADERS | {"X-Hugback-Development-User": "someone-else"}).status_code, 404)
         self.assertEqual(owners, [self.mother, self.mother, self.father, self.father])
+        self.assertEqual(sent, [DEMO_OPENING_TRIGGER, "Synthetic hello."] * 2)
         self.assertIn("fictional orchids", captured[0]); self.assertNotIn("fictional chess", captured[0])
         self.assertIn("fictional chess", captured[1]); self.assertNotIn("fictional orchids", captured[1])
         self.assertIn('"recipient_label": "Mother"', captured[0])

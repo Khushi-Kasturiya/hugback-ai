@@ -30,7 +30,7 @@ class FirestoreRepository:
             for path, data in writes.items():
                 if path not in refs:
                     raise ValueError("Transaction cannot write an unread scope")
-                tx.set(refs[path], data)
+                tx.set(refs[path], data | {"updated_at": self.firestore.SERVER_TIMESTAMP})
             return result
         return run(self.client.transaction(max_attempts=3))
 

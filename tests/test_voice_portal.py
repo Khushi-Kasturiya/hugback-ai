@@ -45,6 +45,7 @@ class PortalVoiceTests(unittest.TestCase):
             "HUGBACK_AUTH_MODE": "development", "HUGBACK_LIVE_VOICE_MODE": "preset",
             "HUGBACK_REPLICATED_TTS_ENABLED": True, "HUGBACK_VOICE_DB_PATH": self.path,
             "GEMINI_API_KEY": "synthetic-not-a-real-key", "LOCAL_DEMO_ENABLED": True,
+            "HUGBACK_DEMO_STORE": "sqlite",
             "LOCAL_DEMO_DB_PATH": Path(temp.name) / "demo.sqlite3",
             "FIRESTORE_ENABLED": False, "MEMORY_ENABLED": False, "FOLLOWUPS_ENABLED": False,
         }.items():
@@ -67,7 +68,11 @@ class PortalVoiceTests(unittest.TestCase):
         self.assertNotIn("voicekey", json.dumps(profile))
         self.assertEqual(self.path.stat().st_mode & 0o777, 0o600)
         with sqlite3.connect(self.path) as conn:
-            self.assertEqual(len(conn.execute("PRAGMA table_info(voices)").fetchall()), 7)
+            columns = {row[1] for row in conn.execute("PRAGMA table_info(voices)")}
+            self.assertEqual(columns, {
+                "owner", "profile_id", "voice_key", "created_at", "expires_at",
+                "enabled", "expiry_source", "updated_at",
+            })
         chosen = self.client.put("/api/voice/profile", headers=HEADERS,
                                  json={"profileId": profile["id"], "enabled": True})
         self.assertTrue(chosen.json()["profile"]["enabled"])

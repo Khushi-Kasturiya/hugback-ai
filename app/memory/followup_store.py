@@ -31,7 +31,7 @@ class FirestoreFollowupStore:
             result = mutate(state)
             after = state.model_dump(mode="python")
             if after != before:
-                transaction.set(ref, after)
+                transaction.set(ref, after | {"updated_at": self._firestore.SERVER_TIMESTAMP})
             return result
 
         return await update(self._client.transaction())

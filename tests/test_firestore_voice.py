@@ -23,7 +23,7 @@ from test_workflow import FakeFirestore, cloud_store, BASE
 
 def vault(db):
     store = FirestoreVoiceProfileStore(db)
-    store.firestore = SimpleNamespace(transactional=db.transactional)
+    store.firestore = SimpleNamespace(transactional=db.transactional, SERVER_TIMESTAMP="server-timestamp")
     return store
 
 
