@@ -74,6 +74,7 @@ async def portal_status(identity: UserIdentity = Depends(portal_identity)):
         "workflowEnabled": settings.HUGBACK_WORKFLOW_ENABLED,
         "remoteTestEnabled": settings.HUGBACK_REMOTE_TEST_ENABLED,
         "publicDemoEnabled": settings.HUGBACK_PUBLIC_DEMO_ENABLED,
+        "judgeDemoEnabled": settings.HUGBACK_JUDGE_DEMO_ENABLED,
     }
 
 

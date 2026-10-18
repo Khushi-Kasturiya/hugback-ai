@@ -99,15 +99,16 @@ class BrokerWorkflowTests(unittest.TestCase):
                 self.assertNotIn("qualityReports", str(client.get("/api/demo/family", headers=HEADERS).json()))
                 self.assertEqual(len(store.inspect_quality(OWNER, rid)), 2)
 
-    def test_workflow_acknowledgement_required_before_any_provider(self):
+    def test_workflow_starts_without_redundant_per_call_acknowledgement(self):
         with patch("app.main.create_genai_client") as live, patch("app.main.prepare_call", new_callable=AsyncMock) as planner:
+            planner.return_value = (None, "fallback")
             with TestClient(app, client=("127.0.0.1", 2222)) as client:
                 family = client.post("/api/demo/family", headers=HEADERS, json=BASE).json()
                 with client.websocket_connect("/ws", headers={"Origin": HEADERS["Origin"]}) as ws:
                     ws.send_json({"type":"authenticate", "userId":OWNER, "demoParent":True,
                         "demoRecipientId":family["recipients"][0]["recipientId"], "demoRecipientRevision":0})
-                    self.assertIn("Acknowledge", ws.receive_json()["message"])
-            live.assert_not_called(); planner.assert_not_called()
+                    self.assertEqual(ws.receive_json()["type"], "ready")
+            live.assert_called_once(); planner.assert_awaited_once()
 
     def test_slow_storage_checkpoint_never_blocks_either_voice_or_marks_held_audio(self):
         for custom in (False, True):

@@ -63,7 +63,7 @@ def architecture_manifest() -> dict:
             },
         ],
         "trustControls": [
-            "verified caller identity",
+            "authenticated Firebase identity",
             "recipient membership validation",
             "optimistic recipient revision",
             "consent generation recheck",
@@ -98,6 +98,8 @@ def architecture_manifest() -> dict:
             "firestore": settings.FIRESTORE_ENABLED,
             "firebaseAuth": settings.HUGBACK_AUTH_MODE == "firebase",
             "fourStageWorkflow": settings.HUGBACK_WORKFLOW_ENABLED,
+            "structuredContextExtraction": settings.HUGBACK_CONTEXT_EXTRACTION_ENABLED,
+            "judgeDemo": settings.HUGBACK_JUDGE_DEMO_ENABLED,
             "replicatedTts": settings.HUGBACK_REPLICATED_TTS_ENABLED,
             "firestoreVoiceRulesConfirmed": settings.HUGBACK_FIRESTORE_VOICE_RULES_CONFIRMED,
             "cloudIntake": settings.CLOUD_INTAKE_ENABLED,

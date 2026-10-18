@@ -90,10 +90,18 @@ class Settings(BaseSettings):
     # Explicit hosted demo admission. Firebase tokens and owner isolation remain
     # mandatory; only the manual test-operator UID list is bypassed in this mode.
     HUGBACK_PUBLIC_DEMO_ENABLED: bool = False
+    # Public hackathon demo: verified anonymous Firebase users receive an
+    # isolated, expiring synthetic family without a manually maintained UID
+    # allowlist. This is never a real-family enrollment or consent mechanism.
+    HUGBACK_JUDGE_DEMO_ENABLED: bool = False
     # Comma-separated Firebase anonymous UIDs shown by the local child portal.
     HUGBACK_TEST_OWNER_UIDS: str = ""
-    # Planner + Critic only for acknowledged synthetic calls, not real-family analysis.
+    # Planner + Critic for synthetic calls, not real-family analysis.
     HUGBACK_WORKFLOW_ENABLED: bool = False
+    # Optional Google structured extraction of source-linked chat context.
+    # The deterministic fallback remains useful for offline tests, while the
+    # judge/staging deployment should enable this flag.
+    HUGBACK_CONTEXT_EXTRACTION_ENABLED: bool = False
 
     # Optional Gmail SMTP notices for local fictional calls. Family setup may
     # select a test address in local SQLite; it is not verified child identity.
@@ -151,6 +159,10 @@ class Settings(BaseSettings):
             raise ValueError("The four-role workflow currently requires the synthetic simulator")
         from urllib.parse import urlparse
         emulator = self.FIRESTORE_EMULATOR_HOST or os.environ.get("FIRESTORE_EMULATOR_HOST", "")
+        if self.HUGBACK_JUDGE_DEMO_ENABLED and not (
+            self.HUGBACK_REMOTE_TEST_ENABLED and self.HUGBACK_PUBLIC_DEMO_ENABLED
+        ):
+            raise ValueError("Judge demo admission requires both remote test and public demo gates")
         if self.HUGBACK_PUBLIC_DEMO_ENABLED and not self.HUGBACK_REMOTE_TEST_ENABLED:
             raise ValueError("Public demo admission requires the remote synthetic test gate")
         if self.HUGBACK_REMOTE_TEST_ENABLED:
@@ -201,9 +213,9 @@ class Settings(BaseSettings):
         elif not (
             self.HUGBACK_CLOUD_TEST_ENABLED and self.HUGBACK_AUTH_MODE == "firebase"
             and self.FIREBASE_PROJECT_ID == self.HUGBACK_DEMO_PROJECT
-            and (self.HUGBACK_TEST_OWNER_UIDS.strip() or self.HUGBACK_PUBLIC_DEMO_ENABLED)
+            and (self.HUGBACK_PUBLIC_DEMO_ENABLED or self.HUGBACK_TEST_OWNER_UIDS.strip())
         ):
-            raise ValueError("Live test storage requires explicit cloud opt-in, matching Firebase project and an owner allowlist")
+            raise ValueError("Live test storage requires explicit cloud opt-in, matching Firebase project, and either public demo admission or an owner allowlist")
 
 
 settings = Settings()

@@ -270,23 +270,25 @@ An authorized operator must first confirm:
    its browser API key in frontend `.env.local` as `NEXT_PUBLIC_FIREBASE_API_KEY`.
    This is not the Gemini key. Never put Google server keys in `NEXT_PUBLIC_*`.
 3. Restart the frontend after public environment changes. Open `/childportal`
-   using synthetic data only. Developer identity details display the Firebase
-   UID even if the backend refuses access. Approve that UID server-side in
-   `HUGBACK_TEST_OWNER_UIDS`; knowing a UID is not sufficient without its verified
-   Firebase token. Do not print/copy tokens into chat or logs.
+   using synthetic data only. Private staging can allowlist the displayed UID
+   with `HUGBACK_TEST_OWNER_UIDS`. Public hackathon judge mode instead sets
+   `HUGBACK_JUDGE_DEMO_ENABLED=TRUE`; the verified Firebase token automatically
+   receives an isolated `firebase:UID` scope, so no token or UID must be copied.
 4. Deliberately apply `.env.firestore-test.example`, filling the same project in
    `HUGBACK_DEMO_PROJECT` and `FIREBASE_PROJECT_ID`, selecting the existing named
-   database, then set `HUGBACK_CLOUD_TEST_ENABLED=TRUE` only after authorization.
+   database, then set `HUGBACK_CLOUD_TEST_ENABLED=TRUE`. For a public synthetic
+   judge deployment also set `HUGBACK_JUDGE_DEMO_ENABLED=TRUE` and include the
+   deployed frontend origin in `HUGBACK_CORS_ORIGINS`.
    Remove any emulator-host setting from the shell and `.env`.
 5. Restart backend, create a **new synthetic family**, and verify its mode badge
    and successful saved/reloaded state. `/health` reports configuration only;
    `demo_storage_verified=false` is intentional, not a connectivity claim.
 
-All browser test routes still require an actual loopback peer and allowed
-origin. This is not a remotely deployable dashboard. No automatic migration
-occurs from SQLite, the browser preview store or the voice vault. A Firebase
-operator owns a separate `firebase:UID` scope; old development voice profiles
-are not silently reassigned.
+Private staging remains loopback-only. Judge mode permits a remote peer only
+when Firebase auth, Firestore, cloud-test opt-in, and an exact configured HTTPS
+origin are all active. No automatic migration occurs from SQLite, the browser
+preview store or the voice vault. A Firebase operator owns a separate
+`firebase:UID` scope; old development voice profiles are not silently reassigned.
 
 ### Local application connected to the existing cloud test database
 

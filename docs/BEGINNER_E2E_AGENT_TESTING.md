@@ -430,7 +430,7 @@ cd /Users/pratham.gupta/elara.ai-backend
 ## 13. Optional storage modes after the SQLite walkthrough
 
 - **Firestore emulator:** follow `docs/END_TO_END_TESTING.md` and `.env.firestore-emulator.example`. It is a local storage test; Live/model calls remain real unless mocked. Run `HUGBACK_RUN_EMULATOR_TESTS=1 .venv/bin/python -m unittest discover -s tests -p test_firestore_emulator.py -v` only while the loopback emulator is running.
-- **Named live Firestore test database:** requires a separately authorized existing project/database, Firebase anonymous auth, matching project IDs, backend service credentials and an operator UID allowlist. Use `.env.firestore-test.example` only as a manual overlay. This simulator still rejects non-loopback browser peers and origins, so selecting Firestore does **not** make it a deployable GCP frontend/backend. Never put real family data in the synthetic collections.
+- **Named live Firestore test database:** requires a separately authorized existing project/database, Firebase anonymous auth, matching project IDs, and backend service credentials. Private staging uses an operator UID allowlist. Public synthetic judge mode uses `HUGBACK_JUDGE_DEMO_ENABLED=TRUE`, isolates each verified anonymous UID, and accepts only configured frontend origins. Use `.env.firestore-test.example` as a manual overlay and never put real family data in the synthetic collections.
 - **Production phone and child history:** remain separate development work. The local role selector, Firebase anonymous test owner and checkbox simulations are not verified real people or standing consent records.
 
 ## 14. End-of-run checklist

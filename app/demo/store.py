@@ -50,6 +50,8 @@ class DemoStore:
                     recipient.setdefault("toneObservation", None)
                     recipient.setdefault("transcriptSharing", {"enabled": False, "generation": 0, "consentedAt": None})
                     recipient.setdefault("alertSharing", {"enabled": False, "generation": 0, "consentedAt": None})
+                    recipient.setdefault("structuredContext", [])
+                    recipient.setdefault("conversationContinuity", None)
             return mutate(state)
         return self.repository.transact(self.owner(uid) if uid is not None else None, parent, checked, create=create)
 
@@ -106,7 +108,7 @@ class DemoStore:
                 result["summaryStatus"] = "unavailable"
             return result
         return {key: recipient[key] for key in (
-            "recipientId", "label", "relationship", "timeZone", "revision", "background", "voice",
+            "recipientId", "label", "relationship", "timeZone", "revision", "background", "structuredContext", "voice",
         )} | {
             "calls": [public_call(call) for call in recipient["calls"]],
             "language": recipient.get("language", "auto"),
@@ -119,6 +121,10 @@ class DemoStore:
             "toneContinuityEnabled": bool(recipient["toneContinuity"]["enabled"]),
             "transcriptSharingEnabled": bool(recipient["transcriptSharing"]["enabled"]),
             "alertSharingEnabled": bool(recipient["alertSharing"]["enabled"]),
+            "continuityAvailable": bool(
+                recipient.get("conversationContinuity")
+                and recipient["conversationContinuity"].get("expiresAt", "") > now().isoformat()
+            ),
             "wellbeingSignals": [
                 {key: signal[key] for key in (
                     "signalId", "category", "confidence", "basis", "displayText",
@@ -194,7 +200,8 @@ class DemoStore:
             "recipientId": f"demo-parent-{uuid.uuid4().hex}", "label": request.label,
             "language": request.language,
             "relationship": request.relationship, "timeZone": request.timeZone,
-            "revision": 0, "background": [], "backgroundCallCount": 0,
+            "revision": 0, "background": [], "structuredContext": [],
+            "conversationContinuity": None, "backgroundCallCount": 0,
             "calls": [], "activeCall": None,
             "memory": memory.model_dump(mode="json"), "voice": {"mode": "standard", "profileId": None},
             "wellbeingSharing": {
@@ -283,13 +290,17 @@ class DemoStore:
             raise DemoError("This recipient's setup changed in another tab. Refresh before continuing.")
         return recipient
 
-    def review(self, uid, request: ReviewBackground):
+    def review(self, uid, request: ReviewBackground, structured_context=None):
+        if structured_context is None:
+            from app.demo.context import deterministic_context
+            structured_context = deterministic_context(request.excerpts, request.childSender)
         def action(state):
             recipient = self._editable(state, request.recipientId, request.revision)
             recipient["background"] = [item.model_dump() | {
                 "role": "child" if item.sender == request.childSender else "parent",
                 "source": request.source, "reviewedAt": now().isoformat(),
             } for item in request.excerpts]
+            recipient["structuredContext"] = list(structured_context or [])[:12]
             recipient["backgroundCallCount"] = 0
             recipient["revision"] += 1
             return self.public(state)
@@ -300,6 +311,7 @@ class DemoStore:
         def action(state):
             recipient = self._editable(state, recipient_id, revision)
             recipient["background"] = []
+            recipient["structuredContext"] = []
             recipient["qualityReports"] = []
             recipient["revision"] += 1
             return self.public(state)
@@ -359,6 +371,7 @@ class DemoStore:
             sharing.update(enabled=request.enabled, generation=sharing["generation"] + 1,
                            consentedAt=now().isoformat() if request.enabled else None)
             if not request.enabled:
+                recipient["conversationContinuity"] = None
                 alert_sharing = recipient["alertSharing"]
                 alert_sharing.update(enabled=False, generation=alert_sharing["generation"] + 1,
                                      consentedAt=None)
@@ -382,6 +395,7 @@ class DemoStore:
             if sharing["generation"] != expected_generation:
                 return False
             sharing.update(enabled=False, generation=sharing["generation"] + 1, consentedAt=None)
+            recipient["conversationContinuity"] = None
             alert_sharing = recipient["alertSharing"]
             alert_sharing.update(enabled=False, generation=alert_sharing["generation"] + 1,
                                  consentedAt=None)
@@ -536,6 +550,12 @@ class DemoStore:
             call["summary"] = summary
             call["summaryStatus"] = "available"
             call.pop("summaryFailureCode", None)
+            recipient["conversationContinuity"] = {
+                "sourceSessionId": session_id,
+                "summary": summary,
+                "createdAt": now().isoformat(),
+                "expiresAt": (now() + timedelta(days=30)).isoformat(),
+            }
             return True
         return self._run(action, parent=parent)
 
@@ -587,6 +607,11 @@ class DemoStore:
             call["summaryStatus"] = "available"
             call.pop("summaryStartedAt", None)
             call.pop("transcript", None)
+            recipient["conversationContinuity"] = {
+                "sourceSessionId": session_id, "summary": summary,
+                "createdAt": now().isoformat(),
+                "expiresAt": (now() + timedelta(days=30)).isoformat(),
+            }
             return True
         return self._run(action, uid=uid)
 

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
@@ -13,6 +14,7 @@ from app.demo.models import (
 from app.demo.service import get_demo_store, require_demo, require_demo_identity
 from app.demo.store import DemoError
 from app.demo.summary import summarize_call
+from app.demo.context import extract_context
 from app.memory.models import TranscriptTurn
 from app.memory.followup_service import contains_privacy_request
 from app.wellbeing.service import contains_signal_privacy_request
@@ -20,6 +22,7 @@ from app.voice.profiles import enrollment_available, get_voice_store
 from app.voice.service import VoiceEnrollmentError
 
 router = APIRouter(prefix="/api/demo", tags=["local-synthetic-demo"])
+logger = logging.getLogger("hugback.demo.storage")
 
 
 async def demo_identity(request: Request):
@@ -41,6 +44,16 @@ async def execute(operation, *args):
     except DemoError as exc:
         raise HTTPException(exc.status, str(exc)) from exc
     except Exception as exc:
+        # Keep provider details out of the browser response, but retain the
+        # exception type and traceback in private backend logs. Without this,
+        # expired ADC, IAM denial, a missing database, and transient transport
+        # failures all look identical and local/Cloud Run parity is impossible
+        # to diagnose.
+        logger.exception(
+            "Synthetic Firestore operation failed operation=%s error_type=%s",
+            getattr(operation, "__name__", type(operation).__name__),
+            type(exc).__name__,
+        )
         raise HTTPException(503, "Synthetic test storage is unavailable. No alternate store was used.") from exc
 
 
@@ -61,7 +74,11 @@ async def child_details(payload: SetChildGender, uid=Depends(demo_identity)):
 
 @router.put("/background")
 async def review_background(payload: ReviewBackground, uid=Depends(demo_identity)):
-    return await execute(get_demo_store().review, uid, payload)
+    try:
+        structured = await extract_context(payload)
+    except Exception as exc:
+        raise HTTPException(503, "Structured context extraction is temporarily unavailable; no background was changed.") from exc
+    return await execute(get_demo_store().review, uid, payload, structured)
 
 
 @router.post("/background/clear")

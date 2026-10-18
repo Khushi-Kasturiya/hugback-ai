@@ -18,13 +18,14 @@ from google.genai import types
 from pydantic import ValidationError
 
 from app.config import settings
-from app.demo.models import CreateFamily, ReviewBackground
-from app.demo.service import background_context, require_demo
+from app.demo.models import CreateFamily, ReviewBackground, SetTranscriptSharing
+from app.demo.service import background_context, require_demo, require_demo_identity
 from app.demo.store import DemoError, DemoStore, now
 from app.main import app
 from app.memory.followup_service import FollowupCoordinator
 from app.memory.followups import ObservationBatch, revoke
 from app.memory.models import TranscriptTurn
+from app.workflows.planner import plan_context, safe_local_bridge
 
 ORIGIN = "http://127.0.0.1:3000"
 HEADERS = {"Origin": ORIGIN, "X-Hugback-Development-User": "synthetic-browser-a"}
@@ -178,6 +179,49 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
         self.assertIn("HISTORICAL", context)
         self.assertIn("only the claim_followup tool", context)
 
+    def test_review_builds_source_linked_context_and_only_plan_selects_parent_detail(self):
+        self.create()
+        self.store.review("synthetic-browser-a", self.review_request())
+        state = self.state()
+        self.assertEqual([item["kind"] for item in state["structuredContext"]],
+                         ["interest", "conversation_style"])
+        self.assertEqual(state["structuredContext"][0]["sourceRefs"][0]["sourceIndex"], 0)
+        self.assertEqual(state["structuredContext"][0]["sourceRefs"][0]["role"], "parent")
+        self.assertNotIn("I like gardening.", background_context(state))
+        selected = plan_context(safe_local_bridge(state), state)
+        self.assertIn("I like gardening.", selected)
+        self.assertNotIn("I enjoy chess.", selected)
+
+    def test_call_summary_becomes_bounded_next_call_continuity_and_can_be_cleared(self):
+        family = self.store.create("synthetic-browser-a", CreateFamily(**(
+            CREATE | {"enableTranscriptSharing": True}
+        )))
+        recipient = family["recipients"][0]
+        self.recipient_id = recipient["recipientId"]
+        state = self.start("synthetic-browser-a", "call-one")
+        generation = state["transcriptSharing"]["generation"]
+        turns = [TranscriptTurn(role="user", turn_index=0, text="I planted basil today.")]
+        self.assertTrue(self.store.record_transcript(state["parentId"], "call-one", generation, turns))
+        summary = "The caller planted basil and would like to discuss how it grows next time."
+        self.assertTrue(self.store.record_call_summary(state["parentId"], "call-one", generation, summary))
+        refreshed = self.state()
+        self.assertTrue(refreshed["continuityAvailable"])
+        self.assertNotIn(summary, json.dumps(refreshed))
+        self.store.call_status(state["parentId"], "call-one", "completed", release=True)
+        next_call = self.start("synthetic-browser-a", "call-two")
+        self.assertIn(summary, background_context(next_call))
+        self.store.call_status(state["parentId"], "call-two", "completed", release=True)
+        refreshed = self.state()
+        cleared = self.store.set_transcript_sharing(
+            "synthetic-browser-a",
+            SetTranscriptSharing(
+                syntheticOnly=True, recipientId=self.recipient_id,
+                revision=refreshed["revision"], enabled=False,
+            ),
+        )
+        self.assertFalse(cleared["recipients"][0]["continuityAvailable"])
+        self.assertNotIn(summary, background_context(self.state()))
+
     async def test_followup_persists_new_call_once_cooldown_and_resolution(self):
         family = self.create()
         parent = family["parentId"]
@@ -229,6 +273,32 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
             require_demo("127.0.0.1", ORIGIN)
         with patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"), self.assertRaises(DemoError):
             require_demo("127.0.0.1", ORIGIN)
+
+    def test_judge_mode_accepts_configured_remote_origin_and_isolates_firebase_uid(self):
+        with (
+            patch.object(settings, "HUGBACK_DEMO_STORE", "firestore"),
+            patch.object(settings, "FIRESTORE_ENABLED", True),
+            patch.object(settings, "HUGBACK_AUTH_MODE", "firebase"),
+            patch.object(settings, "FIREBASE_PROJECT_ID", "judge-project"),
+            patch.object(settings, "HUGBACK_DEMO_PROJECT", "judge-project"),
+            patch.object(settings, "HUGBACK_CLOUD_TEST_ENABLED", True),
+            patch.object(settings, "HUGBACK_REMOTE_TEST_ENABLED", True),
+            patch.object(settings, "HUGBACK_REMOTE_TEST_ORIGIN", "https://judge.example"),
+            patch.object(settings, "HUGBACK_PUBLIC_DEMO_ENABLED", True),
+            patch.object(settings, "HUGBACK_JUDGE_DEMO_ENABLED", True),
+            patch.object(settings, "HUGBACK_ALERT_EMAIL_ENABLED", False),
+            patch.object(settings, "HUGBACK_REPLICATED_TTS_ENABLED", False),
+            patch.object(settings, "HUGBACK_TEST_OWNER_UIDS", ""),
+            patch.object(settings, "CORS_ORIGINS", "https://judge.example,http://localhost:3000"),
+        ):
+            require_demo("203.0.113.20", "https://judge.example", mutation=True)
+            require_demo("127.0.0.1", "http://localhost:3000", mutation=True)
+            identity = SimpleNamespace(provider="firebase", user_id="anonymous-judge-1")
+            self.assertEqual(require_demo_identity(identity), "firebase:anonymous-judge-1")
+            with self.assertRaises(DemoError):
+                require_demo("203.0.113.20", "https://evil.example", mutation=True)
+            with self.assertRaises(DemoError):
+                require_demo_identity(SimpleNamespace(provider="development", user_id="same"))
 
     def test_http_contract_scope_and_no_cloud_reads(self):
         with (
@@ -310,6 +380,7 @@ class DemoTests(unittest.IsolatedAsyncioTestCase):
             patch.object(settings, "FOLLOWUPS_ENABLED", True),
             patch.object(settings, "FIRESTORE_ENABLED", True),
             patch.object(settings, "MEMORY_ENABLED", True),
+            patch.object(settings, "HUGBACK_WORKFLOW_ENABLED", True),
             TestClient(app, client=("127.0.0.1", 1234)) as client,
         ):
             sessions = []

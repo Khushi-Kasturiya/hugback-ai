@@ -324,8 +324,6 @@ async def websocket_endpoint(websocket: WebSocket) -> None:
             if inline_voice:
                 raise DemoError("Demo calls require local identity and preset or portal-enrolled TTS voice.", 403)
             workflow_active = settings.HUGBACK_WORKFLOW_ENABLED
-            if workflow_active and authentication_message.get("simulateWorkflowConsent") is not True:
-                raise DemoError("Acknowledge synthetic Planner and Critic processing before calling.", 403)
             with stage_timer("family_client_initialization"):
                 # ADC discovery/SDK initialization must not block other streams.
                 demo_store = await asyncio.to_thread(get_demo_store)

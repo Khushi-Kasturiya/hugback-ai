@@ -76,27 +76,51 @@ def _safe_interest_text(text):
             and not _FALLBACK_UNSAFE.search(text) and not _PRIVATE_IDENTIFIER.search(text)
             and bool(_interest_terms(text)))
 
+
+def planning_background(state):
+    """Prefer derived source-linked context; retain excerpts only as a legacy adapter."""
+    structured = state.get("structuredContext") or []
+    derived = []
+    for item in structured:
+        if item.get("kind") not in {"interest", "routine", "preference", "background_detail"}:
+            continue
+        refs = item.get("sourceRefs") or []
+        source = refs[0] if refs else {}
+        derived.append({
+            "role": "parent", "text": item.get("summary", ""),
+            "timestamp": source.get("timestamp"),
+            "sourceIndex": source.get("sourceIndex"),
+            "contextId": item.get("contextId"),
+            "reviewedAt": state.get("background", [{}])[0].get("reviewedAt", "")
+                if state.get("background") else "",
+        })
+    return derived or state.get("background", [])
+
 def candidate_ref(state):
     """Cycle through reviewed parent statements without storing new private history."""
-    parent_refs = [index for index, item in enumerate(state["background"])
+    background = planning_background(state)
+    parent_refs = [index for index, item in enumerate(background)
                    if item["role"] == "parent" and _safe_interest_text(item.get("text", ""))]
     if not parent_refs:
         return None
     if state.get("backgroundCallCount", 0) > 0:
         return parent_refs[(state["backgroundCallCount"] - 1) % len(parent_refs)]
-    reviewed_at = max((item.get("reviewedAt", "") for item in state["background"]), default="")
+    reviewed_at = max((item.get("reviewedAt", "") for item in background), default="")
     calls = state.get("calls", [])
     # start_call has already added the current call. A new review starts the cycle.
     prior_calls = sum(call.get("startedAt", "") >= reviewed_at for call in calls) - 1
     return parent_refs[max(0, prior_calls) % len(parent_refs)]
 
 def planner_payload(state, call_plan):
+    background = planning_background(state)
     return {
         "language": state.get("language", "auto"),
         "followup_available": bool(call_plan and call_plan.selected),
         "candidate_ref": candidate_ref(state),
-        "background": [{"ref": i, "role": item["role"], "date": item["timestamp"],
-                        "text": item["text"]} for i, item in enumerate(state["background"])],
+        "background": [{"ref": i, "role": item["role"], "date": item.get("timestamp"),
+                        "text": item["text"], "source_index": item.get("sourceIndex"),
+                        "context_id": item.get("contextId")}
+                       for i, item in enumerate(background)],
     }
 
 def validate_plan(plan, payload):
@@ -112,7 +136,7 @@ def safe_local_bridge(state):
     ref = candidate_ref(state)
     if ref is None:
         return None
-    item = state["background"][ref]
+    item = planning_background(state)[ref]
     text = item["text"]
     if item["role"] != "parent" or not _safe_interest_text(text):
         return None
@@ -144,14 +168,15 @@ async def prepare_call(state, call_plan, *, planner=None):
         return safe_local_bridge(state), "fallback"
 
 def _safe_interest(state, ref):
-    background = state.get("background", [])
+    background = planning_background(state)
     if not isinstance(ref, int) or not 0 <= ref < len(background):
         return None
     item = background[ref]
     excerpt = item.get("text", "")
     if item.get("role") != "parent" or not _safe_interest_text(excerpt):
         return None
-    return {"ref": ref, "role": "parent", "date": item.get("timestamp"), "text": excerpt}
+    return {"ref": ref, "role": "parent", "date": item.get("timestamp"), "text": excerpt,
+            "sourceIndex": item.get("sourceIndex"), "contextId": item.get("contextId")}
 
 
 def plan_context(plan, state=None):
@@ -164,7 +189,7 @@ def plan_context(plan, state=None):
         bridge = _safe_interest(state, ref)
         if bridge:
             candidates = [_safe_interest(state, index)
-                          for index in range(len(state.get("background", []))) if index != ref]
+                          for index in range(len(planning_background(state))) if index != ref]
             primary_terms = _interest_terms(bridge["text"])
             secondary = next((item for item in candidates if item and
                               primary_terms.isdisjoint(_interest_terms(item["text"]))), None)

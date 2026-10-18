@@ -25,6 +25,7 @@ from app.memory.followups import FollowupState, ObservationBatch, record_consent
 from app.memory.followup_service import FollowupCoordinator
 from app.memory.models import TranscriptTurn
 from app.voice.profiles import VoiceProfileStore
+from app.workflows.planner import safe_local_bridge
 from test_demo import HEADERS, ORIGIN, CREATE, review
 
 OWNER = "synthetic-browser-a"
@@ -381,8 +382,8 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(stored["schemaVersion"], 2)
 
     def test_mock_broker_calls_route_only_selected_context_and_private_finalizers(self):
-        self.write_background(self.mother, "Mother enjoys fictional orchids.")
-        self.write_background(self.father, "Father enjoys fictional chess.")
+        self.write_background(self.mother, "I enjoy fictional orchids.")
+        self.write_background(self.father, "I enjoy fictional chess.")
         self.store.set_transcript_sharing(OWNER, SetTranscriptSharing(
             syntheticOnly=True, recipientId=self.mother,
             revision=self.recipient(self.mother)["revision"], enabled=True,
@@ -415,6 +416,10 @@ class RecipientTests(unittest.IsolatedAsyncioTestCase):
             patch("app.main.get_demo_coordinator", return_value=coordinator),
             patch("app.main.get_session_store", side_effect=AssertionError("No cloud")),
             patch("app.voice.playback.stream_replicated_speech", side_effect=AssertionError("No custom TTS")),
+            patch("app.main.prepare_call", new=AsyncMock(
+                side_effect=lambda state, _followup: (safe_local_bridge(state), "fallback")
+            )),
+            patch.object(settings, "HUGBACK_WORKFLOW_ENABLED", True),
             TestClient(app, client=("127.0.0.1", 1234)) as client,
         ):
             for rid in (self.mother, self.father):

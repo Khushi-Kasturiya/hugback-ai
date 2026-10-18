@@ -19,8 +19,8 @@ Policy commit firewall
   identity → membership → revision → consent generation
   → schema → exact evidence → transaction
         │
-        ├── Cloud Firestore ───── canonical operational state
-        ├── Cloud Storage ─────── retained original intake files
+        ├── Cloud Firestore ───── canonical state + source-linked context
+        ├── Cloud Storage ─────── originals only after retention opt-in
         └── Cloud Tasks ───────── durable production post-call work
 ```
 
@@ -35,6 +35,13 @@ Cloud Firestore is the canonical deployed source of truth for family,
 recipient, call, consent and bounded memory state. The isolated SQLite family
 repository remains only as a fast offline test adapter. It is not a second
 deployed database and must not be shown in the primary judging diagram.
+
+Reviewed excerpts become compact context records such as interests, important
+people, routines, preferences, and conversation-style cues. Each record keeps
+the source message index, speaker, timestamp, and short evidence. A call gets
+only the Planner's selected ordinary detail, up to two short style cues, and a
+source manifest—not the complete import. A bounded 30-day previous-call summary
+provides continuity and is cleared when call-history sharing is switched off.
 
 Firestore keeps family metadata separate from recipient documents. Each
 recipient document owns its settings, call state, consent generations, bounded
@@ -53,13 +60,22 @@ IndexedDB is not canonical state. It is a browser-private staging boundary for:
 - a local prototype profile photo.
 
 Selecting a private chat file must not upload the full conversation. Only the
-explicitly authorized, bounded excerpts cross the browser/backend boundary.
+bounded excerpts chosen by the preparation step cross the browser/backend boundary.
 This is a privacy property, not an architectural accident.
 
 If cross-device photos become a product requirement, move the photo to a private
 Cloud Storage object with an authenticated backend upload flow. Do not put image
-bytes in Firestore. The chat preview should remain local unless a separately
-designed, consented retained-original intake flow is used.
+bytes in Firestore. The chat preview should remain local unless the family
+explicitly opts into a separate retained-original intake flow.
+
+## Judge mode
+
+The deployed synthetic judge mode uses Firebase Anonymous Authentication and
+the same Firestore repository as Cloud Run. Judges do not need a manually
+copied UID allowlist: every verified Firebase token receives a separate,
+expiring `firebase:UID` owner scope. Direct browser Firestore access remains
+denied. This removes setup friction without treating anonymous auth as a
+verified family relationship or exposing production summaries.
 
 ## Why a local SQLite voice vault remains
 
