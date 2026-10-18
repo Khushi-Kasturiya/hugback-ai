@@ -57,7 +57,7 @@ inbox delivery. Post-call processing is **best effort**, not crash-durable.
 
 ## A short demo tour
 
-1. Open the [hosted portal](https://hugback.cloud.run/childportal). Public demo
+1. Open the [hosted portal](https://hugback.cloud.run). Public demo
    admission uses Firebase anonymous authentication; it does not require a
    manually approved UID, but it still verifies tokens and isolates each owner.
    Keep the same browser and origin to retain that demo identity.
