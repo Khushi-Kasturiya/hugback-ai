@@ -1,0 +1,13 @@
+.git
+.venv
+venv
+env
+__pycache__
+*.py[cod]
+.env.*
+*.log
+Voice/converted/
+**/*.wav
+.local-voice/
+.local-demo/
+.private-intake/

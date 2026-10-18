@@ -1,0 +1,13 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Test clients use the authenticated backend, never direct browser Firestore.
+    // Server SDKs use IAM instead; these rules are not an IAM validation test.
+    // Includes hugback_private_voice_profiles: even the owner must NOT read
+    // provider keys directly. Apply/verify on the named synthetic database,
+    // not just (default). An overlapping allow rule would invalidate this.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

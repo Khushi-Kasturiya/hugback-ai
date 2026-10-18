@@ -1,0 +1,96 @@
+Metadata-Version: 2.4
+Name: hugback-backend
+Version: 0.1.0
+Summary: Hugback AI - Real-time Multimodal Live Audio Companion Backend
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.110.0
+Requires-Dist: uvicorn[standard]>=0.28.0
+Requires-Dist: websockets>=12.0
+Requires-Dist: google-genai>=2.10.0
+Requires-Dist: google-cloud-agentplatform>=2.0.1
+Requires-Dist: google-cloud-firestore>=2.21.0
+Requires-Dist: google-cloud-tasks>=2.19.0
+Requires-Dist: google-auth>=2.38.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: pydantic>=2.6.0
+Requires-Dist: pydantic-settings>=2.2.0
+
+# Hugback backend
+
+FastAPI broker for Gemini Live audio with authenticated, user-scoped long-term
+memory.
+
+## Local development
+
+1. Copy `.env.example` to `.env` and configure Gemini authentication.
+2. Leave `HUGBACK_AUTH_MODE=development`, `MEMORY_ENABLED=FALSE`, and
+   `FIRESTORE_ENABLED=FALSE` for a memory-free local call.
+3. Install dependencies and run the service:
+
+   ```bash
+   pip install -e .
+   ./run.sh
+   ```
+
+The frontend stores a random development user ID in the browser. Development
+IDs provide continuity, not security, and must not be enabled in production.
+
+## Enable durable memory
+
+1. Enable the Agent Platform, Firestore, Cloud Tasks, and Firebase Authentication
+   APIs in the Google Cloud project.
+2. Enable Anonymous Authentication in Firebase Console.
+3. Authenticate locally with Application Default Credentials.
+4. Create the configured Memory Bank once:
+
+   ```bash
+   python scripts/create_memory_bank.py
+   ```
+
+5. Copy its printed resource name into `MEMORY_BANK_NAME`, then set:
+
+   ```dotenv
+   MEMORY_ENABLED=TRUE
+   FIRESTORE_ENABLED=TRUE
+   HUGBACK_AUTH_MODE=firebase
+   FIREBASE_PROJECT_ID=your-project-id
+   ```
+
+6. Set `NEXT_PUBLIC_FIREBASE_API_KEY` in the frontend `.env.local` file.
+
+The Memory Bank setup uses `gemini-embedding-001` for multilingual semantic
+retrieval, a structured `hugback-care-profile`, memory revisions, and TTL refresh
+when a fact is reinforced.
+
+## Production post-call processing
+
+Create a Cloud Tasks queue and configure the deployed backend:
+
+```dotenv
+MEMORY_PROCESSING_MODE=cloud_tasks
+CLOUD_TASKS_LOCATION=us-central1
+CLOUD_TASKS_QUEUE=hugback-memory
+MEMORY_PROCESSOR_URL=https://YOUR_SERVICE/internal/memory/process
+CLOUD_TASKS_SERVICE_ACCOUNT=YOUR_TASK_INVOKER_SERVICE_ACCOUNT
+```
+
+The task service account's OIDC identity is verified by the endpoint. For local
+task testing, use `MEMORY_TASK_SECRET` instead. Never deploy with development
+authentication.
+
+## Privacy controls
+
+- `GET /api/memories` returns the authenticated user's structured profiles and
+  natural-language facts.
+- `DELETE /api/memories` purges that user's Memory Bank scope and Firestore
+  transcripts.
+
+With Firebase authentication, send `Authorization: Bearer FIREBASE_ID_TOKEN`.
+For local development only, send `X-Hugback-Development-User: BROWSER_USER_ID`.
+
+## Tests
+
+```bash
+python -m unittest discover -s tests -v
+```
