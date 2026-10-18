@@ -93,11 +93,14 @@ def _send(message: EmailMessage) -> None:
     """Keep probe and call notices on the same TLS/authentication path."""
     if not configured():
         raise RuntimeError("Synthetic alert email is not configured")
+    # Google displays app passwords in grouped blocks. SMTP expects the compact
+    # value, so tolerate copied display whitespace without logging the secret.
+    app_password = "".join(settings.HUGBACK_ALERT_SMTP_APP_PASSWORD.split())
     with smtplib.SMTP("smtp.gmail.com", 587, timeout=8) as client:
         client.ehlo()
         # This Python build has no default CA certificates on macOS. Keep TLS
         # verification enabled with a maintained CA bundle.
         client.starttls(context=ssl.create_default_context(cafile=certifi.where()))
         client.ehlo()
-        client.login(settings.HUGBACK_ALERT_SMTP_USERNAME, settings.HUGBACK_ALERT_SMTP_APP_PASSWORD)
+        client.login(settings.HUGBACK_ALERT_SMTP_USERNAME, app_password)
         client.send_message(message)

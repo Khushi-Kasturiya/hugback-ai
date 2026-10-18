@@ -244,6 +244,16 @@ class AlertTests(unittest.TestCase):
             self.assertIn("not triggered by a call", probe.get_content())
             self.assertEqual(client.send_message.call_count, 2)
 
+    def test_smtp_compacts_google_app_password_display_whitespace(self):
+        with (
+            patch.object(settings, "HUGBACK_ALERT_SMTP_APP_PASSWORD", "abcd efgh ijkl mnop"),
+            patch("app.alerts.email.smtplib.SMTP") as smtp,
+        ):
+            send_test_probe("child@example.com")
+        smtp.return_value.__enter__.return_value.login.assert_called_once_with(
+            "sender@gmail.com", "abcdefghijklmnop"
+        )
+
     def test_summary_email_contains_only_bounded_saved_summary(self):
         with patch("app.alerts.email.smtplib.SMTP") as smtp:
             summary = "Mother talked about gardening, and HugBack encouraged her to share more."

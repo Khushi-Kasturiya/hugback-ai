@@ -6,7 +6,9 @@ from app.config import Settings
 
 class CloudRunProfileTests(unittest.TestCase):
     def test_hosted_demo_enables_every_compatible_capability(self) -> None:
-        profile = Path(__file__).resolve().parents[1] / ".env.cloud-run.example"
+        profile = Path(__file__).resolve().parents[1] / ".env"
+        if not profile.exists():
+            self.skipTest("private hackathon deployment profile is not present")
         configured = Settings(_env_file=profile)
 
         configured.validate_test_mode()
@@ -43,13 +45,11 @@ class CloudRunProfileTests(unittest.TestCase):
         gcloudignore = (root / ".gcloudignore").read_text().splitlines()
         gitignore = (root / ".gitignore").read_text().splitlines()
 
-        self.assertIn("COPY .env* ./", dockerfile)
-        self.assertIn("RUN if [ ! -f .env ]; then cp .env.example .env; fi", dockerfile)
+        self.assertIn("COPY .env ./", dockerfile)
+        self.assertNotIn(".env.example", dockerfile)
         self.assertIn(".env", gitignore)
         self.assertNotIn(".env", dockerignore)
         self.assertNotIn(".env", gcloudignore)
-        self.assertIn("!.env.example", dockerignore)
-        self.assertIn("!.env.example", gcloudignore)
 
 
 if __name__ == "__main__":
