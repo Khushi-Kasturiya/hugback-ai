@@ -122,6 +122,17 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
     } catch (err) { setError(err instanceof Error ? err.message : "Call signal sharing update failed."); }
     finally { setBusy(false); }
   }
+  async function setMemory(enabled: boolean) {
+    if (!selected || busy || selected.busy) return;
+    setBusy(true); setError("");
+    try {
+      onChange(await demoRequest("/memory", "PUT", {
+        syntheticOnly: true, recipientId: selected.recipientId, revision: selected.revision,
+        enabled, simulateChildConsent: enabled, simulateParentConsent: enabled,
+      }));
+    } catch (err) { setError(err instanceof Error ? err.message : "Conversation memory update failed."); }
+    finally { setBusy(false); }
+  }
   async function setToneMemory(enabled: boolean) {
     if (!selected || busy || selected.busy) return;
     setBusy(true); setError("");
@@ -221,6 +232,11 @@ export function DemoFamilySetup({ family, onChange, loading, loadError, refresh,
           <summary className="cursor-pointer font-bold text-stone-700">Optional demo features</summary>
           <p className="mt-1 text-xs leading-5 text-stone-600">The fictional demo acknowledgement from family setup applies here. You can still turn every optional feature off.</p>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div className="rounded-xl bg-white p-3">
+              <p className="font-bold text-stone-700">Conversation memory</p>
+              <p className="mt-1 text-xs text-stone-600">Remember supported wellbeing updates for gentle follow-ups in future calls.</p>
+              <button className="portal-secondary mt-2" disabled={busy || selected.busy} onClick={() => void setMemory(!selected.memoryEnabled)}>{selected.memoryEnabled ? "Turn off and erase memory" : "Enable conversation memory"}</button>
+            </div>
             <div className="rounded-xl bg-white p-3">
               <p className="font-bold text-stone-700">Call signals</p>
               <p className="mt-1 text-xs text-stone-600">Share a short, non-medical conversation signal.</p>

@@ -1383,66 +1383,6 @@ export default function ChildPortal() {
                       </button>
                     </div>
                   </div>
-
-                  {/* Recent Signals Widget */}
-                  <div className="rounded-3xl border border-[#9BA5FC]/20 bg-white/80 p-8 shadow-[0_20px_50px_rgba(86,97,156,0.06)] backdrop-blur-md sm:p-10">
-                    <div className="flex items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        <div className="grid h-10 w-10 place-items-center rounded-2xl bg-gradient-to-br from-[#EDF7FF] to-[#F5F1FF] text-[#56619C]">
-                          <Heart className="h-5 w-5" />
-                        </div>
-                        <div>
-                          <h2 className="font-serif text-2xl font-medium text-[#252D49]">
-                            Recent Signals Widget
-                          </h2>
-                          <p className="text-xs text-stone-500">
-                            AI-generated conversation reflections grounded in daily check-in calls.
-                          </p>
-                        </div>
-                      </div>
-
-                      <span className="hidden text-[11px] font-medium text-stone-400 sm:inline-block">
-                        Non-medical emotional cues
-                      </span>
-                    </div>
-
-                    <div className="mt-6 space-y-3">
-                      {recentSignals.length > 0 ? (
-                        recentSignals.slice(0, 5).map((signal) => (
-                          <div
-                            key={signal.signalId}
-                            className="flex flex-col justify-between gap-3 rounded-2xl border border-stone-100 bg-[#FAF8FF] p-4 text-xs sm:flex-row sm:items-center"
-                          >
-                            <div className="flex items-center gap-3">
-                              <span
-                                className={`rounded-full border px-2.5 py-0.5 text-[10px] font-bold capitalize ${getSignalBadgeColor(
-                                  signal.category
-                                )}`}
-                              >
-                                {signal.category.replace("_", " ")}
-                              </span>
-                              <span className="font-semibold text-[#252D49]">
-                                {signal.recipientLabel}: “{signal.displayText}”
-                              </span>
-                            </div>
-
-                            <span className="text-[11px] text-stone-400">
-                              {formatDate(signal.observedAt)}
-                            </span>
-                          </div>
-                        ))
-                      ) : (
-                        <div className="rounded-2xl border border-dashed border-[#9BA5FC]/25 bg-[#FAF8FF] p-8 text-center text-xs text-stone-500">
-                          <Heart className="mx-auto h-6 w-6 text-[#9BA5FC]" />
-                          <p className="mt-2 font-semibold text-[#252D49]">No check-in signals yet</p>
-                          <p className="mt-1 text-stone-500">
-                            Once your loved one completes their first tea-time check-in, gentle emotional signals
-                            will appear here.
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
                 </motion.section>
               )}
 

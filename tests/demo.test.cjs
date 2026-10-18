@@ -49,6 +49,19 @@ test("automatic preparation keeps a personal interest between timeline samples",
   assert.ok(result.some((item) => item.sourceIndex === 37));
 });
 
+test("automatic preparation keeps a favorite question beside its short parent answer", () => {
+  const messages = Array.from({ length: 100 }, (_, index) => ({
+    sender: "Parent", timestamp: "2026-10-01T18:00:00", text: `Ordinary update ${index}`,
+  }));
+  messages[72] = { sender: "Child", timestamp: "2026-10-01T18:00:00", text: "What is your favorite vegetable?" };
+  messages[73] = { sender: "Parent", timestamp: "2026-10-01T18:01:00", text: "Spinach." };
+  const result = automaticBackgroundExcerpts(
+    { source: "whatsapp", participants: ["Parent", "Child"], messages }, "Child", "Parent",
+  );
+  assert.ok(result.some((item) => item.sourceIndex === 72));
+  assert.ok(result.some((item) => item.sourceIndex === 73));
+});
+
 test("short chats include attributed child style and bound oversized parent text", () => {
   const preview = { source: "whatsapp", participants: ["Parent", "Child"], messages: [
     { sender: "Parent", timestamp: "2026-10-01T18:00:00", text: "x".repeat(700) },

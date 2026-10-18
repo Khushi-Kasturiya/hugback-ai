@@ -6,7 +6,7 @@ const ts = require('typescript');
 const { join } = require('node:path');
 const { parentCallUrl, reviewedExcerpts, automaticBackgroundExcerpts } = require(join(process.env.HUGBACK_TEST_BUILD, 'demo-api.js'));
 
-const mother = { recipientId: 'mother', label: 'Mother', revision: 4, background: [], calls: [], voice: { mode: 'standard', profileId: null } };
+const mother = { recipientId: 'mother', label: 'Mother', revision: 4, background: [], calls: [], memoryEnabled: true, voice: { mode: 'standard', profileId: null } };
 const father = { ...mother, recipientId: 'father', label: 'Father', revision: 1 };
 const family = { familyId: 'demo-family-' + 'a'.repeat(32), childName: 'Asha', childGender: null,
   childGenderRevision: 0, recipients: [mother, father], expiresAt: '2099-01-01T00:00:00Z' };
@@ -99,6 +99,22 @@ test('existing recipient can stop call signal sharing without changing another r
   assert.equal(ui.requests[0].path, '/wellbeing-sharing');
   assert.equal(ui.requests[0].body.recipientId, 'mother');
   assert.equal(ui.requests[0].body.enabled, false);
+});
+test('conversation memory can be revoked and re-enabled for one recipient', async () => {
+  const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, selectedId: 'mother' });
+  await ui.button('Turn off and erase memory').props.onClick();
+  assert.equal(ui.requests[0].path, '/memory');
+  assert.equal(ui.requests[0].body.recipientId, 'mother');
+  assert.equal(ui.requests[0].body.enabled, false);
+  await new Promise(setImmediate);
+
+  const paused = { ...mother, memoryEnabled: false, revision: 5 };
+  ui.render({ ...baseProps, family: { ...family, recipients: [paused, father] }, selectedId: 'mother' });
+  await ui.button('Enable conversation memory').props.onClick();
+  assert.equal(ui.requests[1].path, '/memory');
+  assert.equal(ui.requests[1].body.revision, 5);
+  assert.equal(ui.requests[1].body.simulateChildConsent, true);
+  assert.equal(ui.requests[1].body.simulateParentConsent, true);
 });
 test('tone continuity uses one explicit button and can be stopped for one recipient', async () => {
   const ui = component(setupFile, 'DemoFamilySetup', { ...baseProps, selectedId: 'mother' });

@@ -84,7 +84,7 @@ export class DemoApiError extends Error {
   constructor(message: string, public status: number) { super(message); }
 }
 
-export async function demoRequest(path: "/family" | "/child-details" | "/background" | "/background/clear" | "/recipients" | "/recipient-voice" | "/wellbeing-sharing" | "/tone-continuity" | "/transcript-sharing" | "/alert-sharing" | "/alert-destination", method = "GET", body?: unknown): Promise<DemoFamily> {
+export async function demoRequest(path: "/family" | "/child-details" | "/background" | "/background/clear" | "/recipients" | "/recipient-voice" | "/memory" | "/wellbeing-sharing" | "/tone-continuity" | "/transcript-sharing" | "/alert-sharing" | "/alert-destination", method = "GET", body?: unknown): Promise<DemoFamily> {
   const headers = await getAuthenticationHeaders();
   let response: Response;
   try {
@@ -222,6 +222,11 @@ export function automaticBackgroundExcerpts(preview: ChatPreview, child: string,
       !/https?:\/\/|\n|\b(?:password|otp|ignore instructions|system prompt)\b/iu.test(text)
       ? [{ ...message, sourceIndex }] : [];
   });
+  const question = /\?|\b(?:what|which|who|where|when|why|how|favou?rite|pasand|kaun\w*)\b|(?:क्या|कौन|कहाँ|कैसे|पसंद)/iu;
+  const preferenceAnswerIndexes = new Set(parentMessages
+    .filter((message) => message.sourceIndex > 0 && question.test(preview.messages[message.sourceIndex - 1]?.text || "")
+      && preview.messages[message.sourceIndex - 1]?.sender === child && message.text.trim().length <= 80)
+    .map((message) => message.sourceIndex));
   const count = Math.min(childStyleMessages.length ? 20 : 24, parentMessages.length);
   let selected = parentMessages;
   if (parentMessages.length > count) {
@@ -234,7 +239,8 @@ export function automaticBackgroundExcerpts(preview: ChatPreview, child: string,
     // Preserve a few explicit self-descriptions even if they sit between
     // evenly spaced timeline samples. This is selection, not fact extraction.
     const ranked = parentMessages.map((message, index) => ({ index,
-      score: Number(interest.test(message.text)) * 2 + Number(message.text.trim().length >= 25),
+      score: Number(preferenceAnswerIndexes.has(message.sourceIndex)) * 3
+        + Number(interest.test(message.text)) * 2 + Number(message.text.trim().length >= 25),
     })).filter((item) => item.score >= 2).sort((a, b) => b.score - a.score || a.index - b.index);
     for (const item of ranked) {
       if (chosen.size >= count) break;
@@ -247,8 +253,14 @@ export function automaticBackgroundExcerpts(preview: ChatPreview, child: string,
     selected = [...chosen].sort((a, b) => a - b).map((index) => parentMessages[index]);
   }
   const styleCount = Math.min(4, childStyleMessages.length, 24 - selected.length);
-  const styleSamples = Array.from({ length: styleCount }, (_, index) =>
-    childStyleMessages[Math.floor((index + 0.5) * childStyleMessages.length / styleCount)]);
+  const selectedParentIndexes = new Set(selected.map((item) => item.sourceIndex));
+  const pairedQuestions = childStyleMessages.filter((item) =>
+    selectedParentIndexes.has(item.sourceIndex + 1) && question.test(item.text)).slice(0, styleCount);
+  const pairedIndexes = new Set(pairedQuestions.map((item) => item.sourceIndex));
+  const remaining = childStyleMessages.filter((item) => !pairedIndexes.has(item.sourceIndex));
+  const remainingCount = styleCount - pairedQuestions.length;
+  const styleSamples = [...pairedQuestions, ...Array.from({ length: remainingCount }, (_, index) =>
+    remaining[Math.floor((index + 0.5) * remaining.length / remainingCount)])];
   return [...selected, ...styleSamples].sort((a, b) => a.sourceIndex - b.sourceIndex)
     .map(({ sourceIndex, sender, timestamp, text }) => ({
     sourceIndex, sender, timestamp, text: text.trim().slice(0, 500),

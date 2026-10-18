@@ -77,7 +77,7 @@ export function DemoCallHistory({ recipient, refresh }: { recipient?: DemoRecipi
 
   return <section className="rounded-[1.5rem] border border-white bg-white/80 p-5">
     <div className="flex flex-wrap items-end justify-between gap-4">
-      <div><h4 className="font-serif text-xl text-[#252D49]">Call summaries</h4><p className="mt-1 text-sm leading-6 text-stone-600">A short AI-generated summary appears for future fictional calls when sharing is enabled. Summaries may miss details or reflect speech-recognition errors.</p></div>
+      <div><h4 className="font-serif text-xl text-[#252D49]">Call summaries</h4></div>
       <button type="button" className="portal-secondary" onClick={() => void refresh()}>Refresh calls</button>
     </div>
     <label className="mt-4 block max-w-xs text-xs font-bold text-stone-700">Filter by call date
